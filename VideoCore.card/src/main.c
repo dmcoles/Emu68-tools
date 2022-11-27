@@ -511,7 +511,7 @@ static int InitCard(struct BoardInfo* bi asm("a0"), const char **ToolTypes asm("
         //bi->SetSplitPosition = (void *)NULL;
         //bi->ReInitMemory = (void *)NULL;
         //bi->WriteYUVRect = (void *)NULL;
-        //bi->GetVSyncState = (void *)GetVSyncState;
+        bi->GetVSyncState = (void *)VC6_GetVSyncState;
         bi->GetVBeamPos = (void *)VC6_GetVBeamPos;
         //bi->SetDPMSLevel = (void *)NULL;
         //bi->ResetChip = (void *)NULL;
@@ -577,7 +577,7 @@ static int InitCard(struct BoardInfo* bi asm("a0"), const char **ToolTypes asm("
         //bi->SetSplitPosition = (void *)NULL;
         //bi->ReInitMemory = (void *)NULL;
         //bi->WriteYUVRect = (void *)NULL;
-        //bi->GetVSyncState = (void *)GetVSyncState;
+        bi->GetVSyncState = (void *)GetVSyncState;
         bi->GetVBeamPos = (void *)GetVBeamPos;
         //bi->SetDPMSLevel = (void *)NULL;
         //bi->ResetChip = (void *)NULL;

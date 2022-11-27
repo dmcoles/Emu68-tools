@@ -60,7 +60,7 @@ void VC6_SetWriteMask (__REGA0(struct BoardInfo *b), __REGD0(UBYTE mask));
 void VC6_SetClearMask (__REGA0(struct BoardInfo *b), __REGD0(UBYTE mask));
 void VC6_SetReadPlane (__REGA0(struct BoardInfo *b), __REGD0(UBYTE plane));
 void VC6_WaitVerticalSync (__REGA0(struct BoardInfo *b), __REGD0(BOOL toggle));
-BOOL VC6_GetVSyncState(__REGA0(struct BoardInfo *b), __REGD0(BOOL toggle));
+BOOL VC6_GetVSyncState(__REGA0(struct BoardInfo *b), __REGD0(BOOL expected));
 void VC6_FillRect (__REGA0(struct BoardInfo *b), __REGA1(struct RenderInfo *r), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD w), __REGD3(WORD h), __REGD4(ULONG color), __REGD5(UBYTE mask), __REGD7(RGBFTYPE format));
 void VC6_InvertRect (__REGA0(struct BoardInfo *b), __REGA1(struct RenderInfo *r), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD w), __REGD3(WORD h), __REGD4(UBYTE mask), __REGD7(RGBFTYPE format));
 void VC6_BlitRect (__REGA0(struct BoardInfo *b), __REGA1(struct RenderInfo *r), __REGD0(WORD x), __REGD1(WORD y), __REGD2(WORD dx), __REGD3(WORD dy), __REGD4(WORD w), __REGD5(WORD h), __REGD6(UBYTE mask), __REGD7(RGBFTYPE format));
