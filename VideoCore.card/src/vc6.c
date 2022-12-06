@@ -902,17 +902,21 @@ void VC6_BlitRect(
 
     if ((ULONG)r->Memory < 0x01000000 || (ULONG)r->Memory >= 0x40000000)
     {
+        bug("[VC6] BlitRect(bitmap @ %08lx, stride %ld, %ld:%ld -> %ld:%ld, %ldx%ld, %02lx, %ld)\n",
+            r->Memory, r->BytesPerRow, x, y, dx, dy, w, h, mask, format);
+
         bug("[VC6] Calling default function\n");
         b->BlitRectDefault(b, r, x, y, dx, dy, w, h, mask, format);
         return;
     }
 
-    bug("[VC6] BlitRect(bitmap @ %08lx, stride %ld, %ld:%ld -> %ld:%ld, %ldx%ld, %02lx, %ld)\n",
-        r->Memory, r->BytesPerRow, x, y, dx, dy, w, h, mask, format);
 
     if (mask != 0xff || VPU_RectCopy((APTR)src, (APTR)dst, width, height, stride - width, stride - width, VC4Base) == 0)
     {
-        bug("[VC6] Calling default function\n");
+        bug("[VC6] BlitRect(bitmap @ %08lx, stride %ld, %ld:%ld -> %ld:%ld, %ldx%ld, %02lx, %ld)\n",
+            r->Memory, r->BytesPerRow, x, y, dx, dy, w, h, mask, format);
+
+        bug("[VC6] Calling default BlitRect function\n");
         b->BlitRectDefault(b, r, x, y, dx, dy, w, h, mask, format);
     }
 }
