@@ -27,15 +27,12 @@ int VPU_BlockCopy(APTR source, APTR dest, ULONG length, struct VC4Base *VC4Base)
 
 int VPU_RectCopy(APTR source, APTR dest, ULONG width, ULONG height, ULONG stride_src, ULONG stride_dst, struct VC4Base *VC4Base)
 {
-    bug("[VPU] RectCopy(%08lx, %08lx, %ldx%ld, %ld, %ld)\n", source, dest, width, height, stride_src, stride_dst);
-
     if (source > dest)
     {
         if (VC4Base->vc4_VPUCopyRect == 0)
         {
             bug("[VPU]   Uploading function RectCopy\n");
             VC4Base->vc4_VPUCopyRect = upload_code(rect_copy, sizeof(rect_copy), VC4Base);
-            bug("[VPU]   VPU Phys Base %08lx\n", VC4Base->vc4_VPUCopyRect);
         }
 
         if (VC4Base->vc4_VPUCopyRect == 0)
@@ -44,6 +41,9 @@ int VPU_RectCopy(APTR source, APTR dest, ULONG width, ULONG height, ULONG stride
         }
 
         call_code(VC4Base->vc4_VPUCopyRect, (ULONG)source, (ULONG)dest, width, height, stride_src, stride_dst, VC4Base);
+        
+        /* Set lowest bit to prevent cache flushing next time */
+        VC4Base->vc4_VPUCopyRect |= 1;
     }
     else
     {
@@ -51,7 +51,6 @@ int VPU_RectCopy(APTR source, APTR dest, ULONG width, ULONG height, ULONG stride
         {
             bug("[VPU]   Uploading function RectCopyRev\n");
             VC4Base->vc4_VPUCopyRectRev = upload_code(rect_copy_rev, sizeof(rect_copy_rev), VC4Base);
-            bug("[VPU]   VPU Phys Base %08lx\n", VC4Base->vc4_VPUCopyRectRev);
         }
 
         if (VC4Base->vc4_VPUCopyRectRev == 0)
@@ -59,12 +58,13 @@ int VPU_RectCopy(APTR source, APTR dest, ULONG width, ULONG height, ULONG stride
             return 0;
         }
 
-        source = (APTR)((ULONG)source + height * (width + stride_src) + width);
-        dest = (APTR)((ULONG)dest + height * (width + stride_dst) + width);
-
-        bug("src adjusted to %08lx, dst adjusted to %08lx\n", source, dest);
+        source = (APTR)((ULONG)source + (height - 1) * (width + stride_src) + width);
+        dest = (APTR)((ULONG)dest + (height - 1) * (width + stride_dst) + width);
 
         call_code(VC4Base->vc4_VPUCopyRectRev, (ULONG)source, (ULONG)dest, width, height, stride_src, stride_dst, VC4Base);
+        
+        /* Set lowest bit to prevent cache flushing next time */
+        VC4Base->vc4_VPUCopyRect |= 1;
     }
 
     return 1;
