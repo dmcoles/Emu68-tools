@@ -81,6 +81,7 @@ struct EMMCBase {
     UBYTE               emmc_HideUnit0;
     UBYTE               emmc_ReadOnlyUnit0;
     UBYTE               emmc_Verbose;
+    UBYTE               emmc_isMicroSD;
 
     struct Interrupt    emmc_Interrupt;
 };
