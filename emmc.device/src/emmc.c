@@ -11,12 +11,12 @@ int emmc_power_cycle(struct EMMCBase *EMMCBase)
 
     bug("[brcm-emmc]   power OFF\n");
     set_power_state(0, 2, EMMCBase);
-    set_extgpio_state(6, 1, EMMCBase);
+    set_extgpio_state(6, 0, EMMCBase);
 
     delay(500000, EMMCBase);
 
     bug("[brcm-emmc]   power ON\n");
-    set_extgpio_state(6, 0, EMMCBase);
+    set_extgpio_state(6, 1, EMMCBase);
     return set_power_state(0, 3, EMMCBase);
 }
 
@@ -863,6 +863,33 @@ int emmc_microsd_init(struct EMMCBase *EMMCBase)
             bug("[brcm-emmc] Switch to 4-bit complete\n");
         }
     }
+
+    // Get the CMD6 status register
+    EMMCBase->emmc_Buffer = &EMMCBase->emmc_StatusReg;
+    EMMCBase->emmc_BlocksToTransfer = 1;
+    EMMCBase->emmc_BlockSize = 64;
+    
+    emmc_cmd(SWITCH_FUNC, 0, 500000, EMMCBase);
+    
+    if (EMMCBase->emmc_DisableHighSpeed == 0 && EMMCBase->emmc_StatusReg[13] & 2)
+    {
+        bug("[brcm-emmc] Card supports High Speed mode. Switching...\n");
+
+        EMMCBase->emmc_Buffer = &EMMCBase->emmc_StatusReg;
+        EMMCBase->emmc_BlocksToTransfer = 1;
+        EMMCBase->emmc_BlockSize = 64;
+
+        emmc_cmd(SWITCH_FUNC, 0x80fffff1, 500000, EMMCBase);
+
+        delay(10000, EMMCBase);
+
+        if (EMMCBase->emmc_Overclock != 0)
+            emmc_switch_clock_rate(base_clock, EMMCBase->emmc_Overclock, EMMCBase);
+        else
+            emmc_switch_clock_rate(base_clock, 50000000, EMMCBase);
+    }
+    
+    EMMCBase->emmc_BlockSize = 512;
 
 	bug("[brcm-emmc] Found a valid version %ld SD card\n", EMMCBase->emmc_SCR.emmc_version);
 
