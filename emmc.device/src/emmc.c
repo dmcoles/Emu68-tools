@@ -471,8 +471,126 @@ static int emmc_switch_clock_rate(uint32_t base_clock, uint32_t target_rate, str
 
 int emmc_microsd_init(struct EMMCBase *EMMCBase)
 {
+    ULONG tout;
+    struct ExecBase *SysBase = EMMCBase->emmc_SysBase;
+
+    bug("[brcm-emmc] Trying to initialise as SD device\n");
+
+    emmc_power_cycle(EMMCBase);
+
+    emmc_reset_host(EMMCBase);
+
+    uint32_t control1 = rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1);
+    control1 |= (1 << 24);
+    // Disable clock
+    control1 &= ~(1 << 2);
+    control1 &= ~(1 << 0);
+    wr32(EMMCBase->emmc_Regs, EMMC_CONTROL1, control1);
+    TIMEOUT_WAIT((rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1) & (0x7 << 24)) == 0, 1000000);
+    if((rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1) & (7 << 24)) != 0)
+    {
+        bug("[brcm-emmc] Controller did not reset properly\n");
+        return -1;
+    }
+
+    bug("[brcm-emmc] control0: %08lx, control1: %08lx, control2: %08lx\n",
+            rd32(EMMCBase->emmc_Regs, EMMC_CONTROL0), 
+            rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1), 
+            rd32(EMMCBase->emmc_Regs, EMMC_CONTROL2));
+    
+    EMMCBase->emmc_Capabilities0 = rd32(EMMCBase->emmc_Regs, EMMC_CAPABILITIES_0);
+    EMMCBase->emmc_Capabilities1 = rd32(EMMCBase->emmc_Regs, EMMC_CAPABILITIES_1);
+
+    bug("[brcm-emmc] Capabilities: %08lx:%08lx\n", EMMCBase->emmc_Capabilities1, EMMCBase->emmc_Capabilities0);
+
+    TIMEOUT_WAIT(rd32(EMMCBase->emmc_Regs, EMMC_STATUS) & (1 << 16), 500000);
+    uint32_t status_reg = rd32(EMMCBase->emmc_Regs, EMMC_STATUS);
+    if((status_reg & (1 << 16)) == 0)
+    {
+        bug("[brcm-emmc] No card inserted\n");
+        return -1;
+    }
+
+    bug("[brcm-emmc] Status: %08lx\n", status_reg);
+
+    // Clear control2
+    wr32(EMMCBase->emmc_Regs, EMMC_CONTROL2, 0);
+
+    // Set eMMC clock to 200MHz
+    set_clock_rate(12, 250000000, EMMCBase);
+    set_clock_rate(1, 250000000, EMMCBase);
+
     // Get the base clock rate
     uint32_t base_clock = get_clock_rate(12, EMMCBase);
+
+    bug("[brcm-emmc] Base clock: %ld Hz\n", base_clock);
+
+    control1 = rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1);
+    control1 |= 1;			// enable clock
+
+    // Set to identification frequency (400 kHz)
+    uint32_t f_id = emmc_get_clock_divider(base_clock, SD_CLOCK_ID);
+
+    control1 |= f_id;
+
+    control1 |= (7 << 16);		// data timeout = TMCLK * 2^10
+    wr32(EMMCBase->emmc_Regs, EMMC_CONTROL1, control1);
+    TIMEOUT_WAIT((rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1) & 0x2), 1000000);
+    if((rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1) & 0x2) == 0)
+    {
+        bug("[brcm-emmc] EMMC: controller's clock did not stabilise within 1 second\n");
+        return -1;
+    }
+
+    bug("[brcm-emmc] control0: %08lx, control1: %08lx, control2: %08lx\n",
+            rd32(EMMCBase->emmc_Regs, EMMC_CONTROL0), 
+            rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1), 
+            rd32(EMMCBase->emmc_Regs, EMMC_CONTROL2));
+
+    // Enable the SD clock
+    delay(2000, EMMCBase);
+    control1 = rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1);
+    control1 |= 4;
+    wr32(EMMCBase->emmc_Regs, EMMC_CONTROL1, control1);
+    delay(2000, EMMCBase);
+
+    // Mask off sending interrupts to the ARM
+    wr32(EMMCBase->emmc_Regs, EMMC_IRPT_EN, 0);
+    // Reset interrupts
+    wr32(EMMCBase->emmc_Regs, EMMC_INTERRUPT, 0xffffffff);
+
+    // Have all interrupts sent to the INTERRUPT register
+    uint32_t irpt_mask = 0xffffffff & (~SD_CARD_INTERRUPT);
+#ifdef SD_CARD_INTERRUPTS
+    irpt_mask |= SD_CARD_INTERRUPT;
+#endif
+    wr32(EMMCBase->emmc_Regs, EMMC_IRPT_MASK, irpt_mask);
+
+    delay(2000, EMMCBase);
+
+    bug("[brcm-emmc] Clock enabled, control0: %08lx, control1: %08lx\n",
+        rd32(EMMCBase->emmc_Regs, EMMC_CONTROL0),
+        rd32(EMMCBase->emmc_Regs, EMMC_CONTROL1));
+
+    // Enable 3.3V on the bus
+    uint32_t control0 = rd32(EMMCBase->emmc_Regs, EMMC_CONTROL0);
+    control0 &= 0xffff00ff;
+    control0 |= 0x00000e00;
+    wr32(EMMCBase->emmc_Regs, EMMC_CONTROL0, control0);
+    delay(2000, EMMCBase);
+    control0 |= 0x00000100;
+    wr32(EMMCBase->emmc_Regs, EMMC_CONTROL0, control0);
+    delay(2000, EMMCBase);
+
+
+    // Send CMD0 to the card (reset to idle state)
+	emmc_cmd(GO_IDLE_STATE, 0, 500000, EMMCBase);
+	if(FAIL(EMMCBase))
+	{
+        bug("[brcm-emmc] No CMD0 response\n");
+        bug("[brcm-emmc] Status: %08lx\n", rd32(EMMCBase->emmc_Regs, EMMC_STATUS));
+        return -1;
+	}
 
     // Send CMD8 to the card
 	// Voltage supplied = 0x1 = 2.7-3.6V (standard)
@@ -787,6 +905,8 @@ int emmc_card_init(struct EMMCBase *EMMCBase)
 {
     ULONG tout;
     struct ExecBase *SysBase = EMMCBase->emmc_SysBase;
+
+    EMMCBase->emmc_isMicroSD = 0;
 
     bug("[brcm-emmc] eMMC Card init\n");
 
