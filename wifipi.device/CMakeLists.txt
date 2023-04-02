@@ -12,9 +12,27 @@ add_executable(wifipi.device
     src/init.c
     src/mbox.c
     src/sdio.c
-    src/firmware.c
     src/end.c
 )
 target_link_libraries(wifipi.device devicetree amiga)
+
+add_executable(wifipi.rom
+    src/start.c
+    src/device.c
+    src/init.c
+    src/mbox.c
+    src/sdio.c
+    src/end.c
+)
+target_link_libraries(wifipi.rom devicetree)
+target_link_options(wifipi.rom PRIVATE -Wl,-e_rom_start -Wl,-T${CMAKE_SOURCE_DIR}/extrom.lds)
+add_custom_command(
+    TARGET wifipi.rom POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -v -O binary "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom" "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom.bin"
+    COMMAND rm "/Users/michal/tftpboot/wifipi.rom"
+    COMMAND dd if="${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom.bin" of="/Users/michal/tftpboot/wifipi.rom" bs=512k skip=30
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
+set_target_properties(wifipi.rom PROPERTIES LINK_DEPENDS ${CMAKE_SOURCE_DIR}/extrom.lds)
 
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/wifipi.device DESTINATION ./Emu68-WiFi/)

@@ -6,6 +6,7 @@
 #include <exec/devices.h>
 
 #include <dos/dos.h>
+#include <libraries/dos.h>
 #include <intuition/intuitionbase.h>
 #include <libraries/expansionbase.h>
 
@@ -16,7 +17,7 @@
 
 #define WIFIPI_VERSION  0
 #define WIFIPI_REVISION 1
-#define WIFIPI_PRIORITY 0
+#define WIFIPI_PRIORITY -100
 
 struct WiFiUnit;
 
@@ -27,6 +28,7 @@ struct WiFiBase
     struct ExecBase *   w_SysBase;
     struct Library *    w_UtilityBase;
     struct WiFiUnit *   w_Unit;
+    struct Library *    w_DosBase;
     APTR                w_DeviceTreeBase;
     APTR                w_SDIO;
     APTR                w_MailBox;
@@ -46,6 +48,13 @@ struct WiFiBase
     ULONG               w_CardRCA;
     ULONG               w_LastCMD;
     UBYTE               w_LastCMDSuccess;
+    ULONG               w_LastBackplaneWindow;
+
+    APTR                w_FirmwareBase;
+    ULONG               w_FirmwareSize;
+
+    APTR                w_ConfigBase;
+    ULONG               w_ConfigSize;
 };
 
 struct WiFiUnit

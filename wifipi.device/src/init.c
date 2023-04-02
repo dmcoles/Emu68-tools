@@ -1,7 +1,9 @@
 #include <exec/devices.h>
 #include <exec/execbase.h>
+#include <dos/dos.h>
 #include <proto/exec.h>
 #include <proto/devicetree.h>
+#include <proto/dos.h>
 
 #include "wifipi.h"
 #include "sdio.h"
@@ -18,12 +20,12 @@ CONST_APTR GetPropValueRecursive(APTR key, CONST_STRPTR property, APTR DeviceTre
 {
     do {
         /* Find the property first */
-        APTR property = DT_FindProperty(key, property);
+        APTR prop = DT_FindProperty(key, property);
 
-        if (property)
+        if (prop)
         {
             /* If property is found, get its value and exit */
-            return DT_GetPropValue(property);
+            return DT_GetPropValue(prop);
         }
         
         /* Property was not found, go to the parent and repeat */
@@ -199,7 +201,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 
         tmp = rd32(WiFiBase->w_GPIO, 0xec);
         tmp &= 0xffff000f;  // Clear PU/PD setting for GPIO 34..39
-        tmp |= 0x00005550;  // 01 in 35..59 == pull-up
+        tmp |= 0x00005540;  // 01 in 35..59 == pull-up
         wr32(WiFiBase->w_GPIO, 0xec, tmp);
 
         D(bug("[WiFi] Enable GPCLK2, 32kHz on GPIO43 and output on GPIO41\n"));
@@ -211,9 +213,32 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         tmp |= 1 << 3;      // Set GPIO41 as output
         wr32(WiFiBase->w_GPIO, 0x10, tmp);
 
+        D(bug("[WiFi] GP2CTL = %08lx\n", rd32((void*)0xf2101000, 0x80)));
+        D(bug("[WiFi] GP2DIV = %08lx\n", rd32((void*)0xf2101000, 0x84)));
+
         D(bug("[WiFi] Setting GPCLK2 to 32kHz\n"));
-        wr32((void*)0xf2101000, 0x84, 0x00249f00);
-        wr32((void*)0xf2101000, 0x80, 0x291);
+
+        D(bug("[WiFi] Stopping clock...\n"));
+        wr32((void*)0xf2101000, 0x80, 0x5a000000 | (rd32((void*)0xf2101000, 0x80) & ~0x10));
+
+        while(rd32((void*)0xf2101000, 0x80) & 0x80);
+
+        D(bug("[WiFi] Clock stopped, GP2CTL = %08lx...\n", rd32((void*)0xf2101000, 0x80)));
+
+        /* Clock source is oscillator, divier for 32kHz */
+        wr32((void*)0xf2101000, 0x80, 0x5a000001);
+        wr32((void*)0xf2101000, 0x84, 0x5a249000);
+
+        D(bug("[WiFi] Starting clock...\n"));
+        wr32((void*)0xf2101000, 0x80, 0x5a000000 | (rd32((void*)0xf2101000, 0x80) | 0x10));
+
+        while(0 == (rd32((void*)0xf2101000, 0x80) & 0x80));
+
+        D(bug("[WiFi] Clock is up...\n"));
+
+        D(bug("[WiFi] GP2CTL = %08lx\n", rd32((void*)0xf2101000, 0x80)));
+        D(bug("[WiFi] GP2DIV = %08lx\n", rd32((void*)0xf2101000, 0x84)));
+
 
         D(bug("[WiFi] Enabling EMMC clock\n"));
         ULONG clk = get_clock_state(1, WiFiBase);
@@ -225,8 +250,114 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         D(bug("[WiFi] Clock speed: %ld MHz\n", clk / 1000000));
         WiFiBase->w_SDIOClock = clk;
 
-//        D(bug("[WiFi] Setting GPIO41 to 1\n"));
-//        wr32(WiFiBase->w_GPIO, 0x20, 1 << (41 - 32));
+        if (FindTask(NULL)->tc_Node.ln_Type == NT_PROCESS)
+        {
+            UBYTE *src_conf;
+            UBYTE *dst_conf;
+            BPTR file;
+            LONG size;
+            WiFiBase->w_DosBase = OpenLibrary("dos.library", 0);
+            struct Library *DOSBase = (struct DOSBase *)WiFiBase->w_DosBase;
+
+            D(bug("[WiFi] I'm a process, DosBase=%08lx\n", WiFiBase->w_DosBase));
+            file = Open("S:brcmfmac43455-sdio.bin", MODE_OLDFILE);
+            Seek(file, 0, OFFSET_END);
+            size = Seek(file, 0, OFFSET_BEGINING);
+
+            D(bug("[WiFi] Firmware file size: %ld bytes\n", size));
+
+            WiFiBase->w_FirmwareBase = AllocMem(size, MEMF_ANY);
+            if (Read(file, WiFiBase->w_FirmwareBase, size) != size)
+            {
+                D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
+            }
+            Close(file);
+
+            WiFiBase->w_FirmwareSize = (ULONG)size;
+
+
+
+            file = Open("S:brcmfmac43455-sdio.txt", MODE_OLDFILE);
+            Seek(file, 0, OFFSET_END);
+            size = Seek(file, 0, OFFSET_BEGINING);
+
+            D(bug("[WiFi] Config file size: %ld bytes\n", size));
+
+            ULONG src_pos = 0;
+            ULONG dst_pos = 0;
+            src_conf = AllocMem(size, MEMF_ANY);
+            dst_conf = AllocMem(size, MEMF_ANY);
+            if (Read(file, src_conf, size) != size)
+            {
+                D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
+            }
+            Close(file);
+
+            ULONG parsed_size = 0;
+            D(bug("[WiFi] Removing comments and whitespace from config file\n"));
+
+            do
+            {
+                // Remove whitespace and newlines at beginning of the line
+                while(src_pos < (ULONG)size && (src_conf[src_pos] == ' ' || src_conf[src_pos] == '\t' || src_conf[src_pos] == '\n'))
+                {
+                    src_pos++;
+                    continue;
+                }
+                
+                // If line begins with '#' then it is a comment, remove until end of line
+                if (src_conf[src_pos] == '#')
+                {
+                    while(src_conf[src_pos] != 10 && src_pos < (ULONG)size) {
+                        src_pos++;
+                    }
+
+                    // Skip new line
+                    src_pos++;
+                    continue;
+                }
+                
+                // Now there is a token, copy it until newline character
+                while(src_pos < (ULONG)size && src_conf[src_pos] != '\n')
+                    dst_conf[dst_pos++] = src_conf[src_pos++];
+                
+                // Skip new line
+                src_pos++;
+                
+                // Go back to remove trailing whitespace
+                while(dst_conf[--dst_pos] == ' ');
+
+                dst_pos++;
+
+                // Apply 0 at the end of the entry
+                dst_conf[dst_pos++] = 0;
+
+            } while(src_pos < (ULONG)size);
+
+            // and the end apply the end of config marker
+            dst_conf[dst_pos++] = 0x00;
+            dst_conf[dst_pos++] = 0x00;
+            dst_conf[dst_pos++] = 0x00;
+            dst_conf[dst_pos++] = 0x00;
+            dst_conf[dst_pos++] = 0xaa;
+            dst_conf[dst_pos++] = 0x00;
+            dst_conf[dst_pos++] = 0x55;
+            dst_conf[dst_pos++] = 0xff;
+
+            D(bug("[WiFi] Stripped config length: %ld bytes\n", dst_pos));
+
+            WiFiBase->w_ConfigBase = AllocMem(dst_pos, MEMF_ANY);
+            WiFiBase->w_ConfigSize = dst_pos;
+            CopyMem(dst_conf, WiFiBase->w_ConfigBase, dst_pos);
+
+            FreeMem(src_conf, size);
+            FreeMem(dst_conf, size);
+        }
+        else
+            D(bug("[WiFi] I'm a task\n"));
+
+        D(bug("[WiFi] Setting GPIO41 to 1\n"));
+        wr32(WiFiBase->w_GPIO, 0x20, 1 << (41 - 32));
 
         sdio_init(WiFiBase);
     }
