@@ -27,7 +27,7 @@ const struct Resident RomTag __attribute__((used)) = {
     RTC_MATCHWORD,
     (struct Resident *)&RomTag,
     (APTR)&deviceEnd,
-    RTF_AUTOINIT,
+    RTF_AUTOINIT | RTF_AFTERDOS,
     WIFIPI_VERSION,
     NT_DEVICE,
     WIFIPI_PRIORITY,
@@ -42,6 +42,13 @@ const char deviceIdString[] = VERSION_STRING;
 static uint32_t WiFi_ExtFunc()
 {
     return 0;
+}
+
+void NewList(struct List *lh)
+{
+    lh->lh_Head = (struct Node *)&(lh->lh_Tail);
+    lh->lh_Tail = NULL;
+    lh->lh_TailPred = (struct Node *)&(lh->lh_Head);
 }
 
 static BPTR WiFi_Expunge(struct WiFiBase * WiFiBase asm("a6"))
@@ -209,7 +216,7 @@ ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
     return 0;
 }
 
-static uint32_t wifipi_functions[] = {
+static const uint32_t wifipi_functions[] = {
     (uint32_t)WiFi_Open,
     (uint32_t)WiFi_Close,
     (uint32_t)WiFi_Expunge,

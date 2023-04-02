@@ -471,13 +471,11 @@ UBYTE sdio_write_and_read_byte(UBYTE function, ULONG address, UBYTE value, struc
 
 void sdio_backplane_window(ULONG addr, struct WiFiBase *WiFiBase)
 {
-    static ULONG last = 0;
-
     /* Align address properly */
     addr = addr & SB_WIN_MASK;
 
-    if (addr != last) {
-        last = addr;
+    if (addr != WiFiBase->w_LastBackplaneWindow) {
+        WiFiBase->w_LastBackplaneWindow = addr;
         addr >>= 8;
 
         sdio_write_byte(SD_FUNC_BAK, 0x1000a, addr, WiFiBase);
@@ -826,26 +824,176 @@ int sdio_init(struct WiFiBase *WiFiBase)
     D(bug("[WiFi] SRAM UNKNOWN REG=%08x for IDX 2\n", tmp32));
     sdio_bak_write32(SRAM_BANKX_IDX_REG, 3, WiFiBase);
     
-    #if 0
     // [18.037502]
-    if (!sdio_cmd52_reads_check(SD_FUNC_BUS, 0x00f1, 0xff, 1, 1))
-        disp_log_break();
-    sdio_cmd52_writes(SD_FUNC_BUS, 0x00f1, 3, 1);
-    sdio_cmd53_read(SD_FUNC_BAK, 0x8600, u32d.bytes, 4);
-    u32d.bytes[1] |= 0x40;
-    sdio_cmd53_write(SD_FUNC_BAK, 0x8600, u32d.bytes, 4);
+    if ((sdio_read_byte(SD_FUNC_CIA, 0x00f1, WiFiBase) & 0xff) != 1)
+    {
+        D(bug("[WiFi] Expected 0x00f1 reg of CIA to be 1\n"));
+    }
+    sdio_write_byte(SD_FUNC_CIA, 0x00f1, 3, WiFiBase);
+
+    UBYTE tmp8_4[4];
+
+    sdio_read_bytes(SD_FUNC_BAK, 0x8600, &tmp8_4, 4, WiFiBase);  // !!sdio_cmd53_read(SD_FUNC_BAK, 0x8600, u32d.bytes, 4);
+    tmp8_4[1] |= 0x40;                                           // !!u32d.bytes[1] |= 0x40;
+    sdio_write_bytes(SD_FUNC_BAK, 0x8600, &tmp8_4, 4, WiFiBase); // !!sdio_cmd53_write(SD_FUNC_BAK, 0x8600, u32d.bytes, 4);
+
     // [18.052762]
-    sdio_cmd52_writes(SD_FUNC_BUS, BUS_IOEN_REG, 1<<SD_FUNC_BAK, 1);
-    sdio_cmd52_writes(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0, 1);
-    usdelay(45000);
-    sdio_cmd52_writes(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 8, 1);
-    if (!sdio_cmd52_reads_check(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0xff, 0x48, 1))
-        disp_log_break();
-    #endif
+    sdio_write_byte(SD_FUNC_CIA, BUS_IOEN_REG, 1 << SD_FUNC_BAK, WiFiBase);
+    sdio_write_byte(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0, WiFiBase);
+    delay_us(45000, WiFiBase);
+    sdio_write_byte(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 8, WiFiBase);
+
+    if ((sdio_read_byte(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, WiFiBase) & 0xff) != 0x48)
+    {
+        D(bug("[WiFi] Expected BAK_CHIP_CLOCK_CSR_REG reg of BAK to be 0x48\n"));
+    }
 
     /* Now it's time to upload the firmware */
+    D(bug("[WiFi] Loading firmware...\n"));
+    ULONG remaining = (ULONG)WiFiBase->w_FirmwareSize;
+    UBYTE *sdio_bin = WiFiBase->w_FirmwareBase;
+    for (ULONG addr = 0; addr < (ULONG)WiFiBase->w_FirmwareSize; )
+    {
+        ULONG sz = remaining > 64 ? 64 : remaining;
 
+        ULONG a = sdio_backplane_addr(addr, WiFiBase);
 
+        sdio_write_bytes(SD_FUNC_BAK, SB_32BIT_WIN + a, &sdio_bin[addr], sz, WiFiBase);
+
+        addr += sz;
+        remaining -= sz;
+    }
+
+    sdio_backplane_addr(0x58000, WiFiBase);
+    sdio_read_bytes(SD_FUNC_BAK, 0xee80, &tmp32, 4, WiFiBase);
+    
+    D(bug("[WiFi] Read from 0xee80 backplane 0x58000 returned %08lx\n", tmp32));
+
+    D(bug("[WiFi] Loading nvram...\n"));
+    ULONG a = sdio_backplane_addr(0x078000, WiFiBase);
+    const UBYTE *config_data = (const UBYTE *)WiFiBase->w_ConfigBase;
+    const ULONG config_len = WiFiBase->w_ConfigSize;
+
+    remaining = config_len;
+    for (ULONG addr = 0; addr < config_len; )
+    {
+        ULONG sz = remaining > 64 ? 64 : remaining;
+
+        sdio_write_bytes(SD_FUNC_BAK, 0xfd54 + a, (void*)&config_data[addr], sz, WiFiBase);
+
+        addr += sz;
+        remaining -= sz;
+    }
+
+    UBYTE tmp8[64];
+    sdio_read_bytes(SD_FUNC_BAK, 0xffd4, tmp8, 44, WiFiBase);
+
+    D(bug("[WiFi] 44-byte read after config upload:"));
+    for (int i=0; i < 44; i++)
+    {
+        if (i % 32 == 0)
+        {
+            D(bug("\n[WiFi]   "));
+        }
+        D(bug(" %02lx", tmp8[i]));
+    }
+    D(bug("\n"));
+
+    sdio_bak_read32(SRAM_IOCTRL_REG, &tmp32, WiFiBase);
+    D(bug("[WiFi] SRAM_IOCTRL_REG=%08lx\n", tmp32));
+    sdio_bak_read32(SRAM_RESETCTRL_REG, &tmp32, WiFiBase);
+    D(bug("[WiFi] SRAM_RESETCTRL_REG=%08lx\n", tmp32));
+    sdio_bak_write32(SB_INT_STATUS_REG, 0xffffffff, WiFiBase);
+
+    sdio_bak_write32(ARM_IOCTRL_REG, 0x03, WiFiBase);
+    sdio_bak_write32(ARM_RESETCTRL_REG, 0x00, WiFiBase);
+    sdio_bak_write32(ARM_IOCTRL_REG, 0x01, WiFiBase);
+
+    sdio_bak_read32(ARM_IOCTRL_REG, &tmp32, WiFiBase);
+    D(bug("[WiFi] ARM_IOCTRL_REG=%08lx\n", tmp32));
+
+    sdio_backplane_window(BAK_BASE_ADDR, WiFiBase);
+    sdio_write_byte(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0, WiFiBase);
+    delay_us(100000, WiFiBase);
+    sdio_write_byte(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0x10, WiFiBase);
+    delay_us(100000, WiFiBase);
+
+    tmp = sdio_read_byte(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, WiFiBase);
+    if (tmp != 0xd0)
+    {
+        D(bug("[WiFi] Got BAK_CHIP_CLOCK_CSR_REG of %02lx but expected 0xd0\n", tmp));
+    }
+
+    sdio_write_byte(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0xd2, WiFiBase);
+    sdio_bak_write32(SB_TO_SB_MBOX_DATA_REG, 0x40000, WiFiBase);
+
+    D(bug("[WiFi] Enabling function 2 (radio)\n"));
+    sdio_write_byte(SD_FUNC_CIA, BUS_IOEN_REG, (1 << SD_FUNC_BAK) | (1 << SD_FUNC_RAD), WiFiBase);
+    int timeout=20;
+    do {
+        D(bug("[WiFi] Waiting...\n"));
+        delay_us(300000, WiFiBase);
+        if (timeout-- == 0)
+            break;
+    } while(0 == (sdio_read_byte(SD_FUNC_CIA, BUS_IORDY_REG, WiFiBase) & (1 << SD_FUNC_RAD)));
+    D(bug("[WiFi] Radio function is up\n"));
+
+    sdio_bak_write32(SB_INT_HOST_MASK_REG, 0x200000f0, WiFiBase);
+    sdio_bak_read32(SR_CONTROL1, &tmp32, WiFiBase);
+    D(bug("[WiFi] SR_CONTROL1 = %08lx\n", tmp32));
+
+    sdio_backplane_window(BAK_BASE_ADDR, WiFiBase);
+
+    sdio_write_byte(SD_FUNC_BAK, BAK_WAKEUP_REG, 2, WiFiBase);
+    sdio_write_byte(SD_FUNC_BUS, BUS_BRCM_CARDCAP, 6, WiFiBase);
+    sdio_write_byte(SD_FUNC_BUS, BUS_INTEN_REG, 0x07, WiFiBase);
+    tmp = sdio_read_byte(SD_FUNC_BUS, BUS_INTPEND_REG, WiFiBase);
+    D(bug("[WiFi] BUS_INTPEND_REG = %02lx\n", tmp));
+
+    sdio_bak_read32(SB_INT_STATUS_REG, &tmp32, WiFiBase);
+    D(bug("[WiFi] SB_INT_STATUS_REG = %08lx\n", tmp32));
+    sdio_bak_write32(SB_INT_STATUS_REG, 0x200000c0, WiFiBase);
+
+    sdio_bak_read32(SB_TO_HOST_MBOX_DATA_REG, &tmp32, WiFiBase);
+    D(bug("[WiFi] SB_TO_HOST_MBOX_DATA_REG = %08lx\n", tmp32));
+
+    sdio_bak_write32(SB_TO_SB_MBOX_REG, 0x02, WiFiBase);
+    sdio_bak_read32(SR_CONTROL1, &tmp32, WiFiBase);
+    D(bug("[WiFi] SR_CONTROL1 = %08lx\n", tmp32));
+
+    sdio_bak_read32(0x68000 | 0x7ffc, &tmp32, WiFiBase);
+    D(bug("[WiFi] Value at 0x6fffc = %08lx\n", tmp32));
+    sdio_backplane_window(0x38000, WiFiBase);
+
+    sdio_read_bytes(SD_FUNC_BAK, 0x70d4, tmp8, 64, WiFiBase);
+
+    D(bug("[WiFi] 64-byte read after init:"));
+    for (int i=0; i < 44; i++)
+    {
+        if (i % 32 == 0)
+        {
+            D(bug("\n[WiFi]   "));
+        }
+        D(bug(" %02lx", tmp8[i]));
+    }
+    D(bug("\n"));
+
+    sdio_bak_read32(SB_INT_STATUS_REG, &tmp32, WiFiBase);
+    D(bug("[WiFi] SB_INT_STATUS_REG = %08lx\n", tmp32));
+
+    sdio_bak_write32(SB_INT_STATUS_REG, 0x80, WiFiBase);
+    sdio_read_bytes(SD_FUNC_RAD, SB_32BIT_WIN, tmp8, 64, WiFiBase);
+
+    D(bug("[WiFi] 64-byte read from RAD function:"));
+    for (int i=0; i < 44; i++)
+    {
+        if (i % 32 == 0)
+        {
+            D(bug("\n[WiFi]   "));
+        }
+        D(bug(" %02lx", tmp8[i]));
+    }
+    D(bug("\n"));
 
     return 0;
 }
