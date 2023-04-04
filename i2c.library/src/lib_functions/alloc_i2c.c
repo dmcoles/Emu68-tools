@@ -32,7 +32,10 @@ BYTE AllocI2C(
 	i2cBase->Overflows = 0;
 	i2cBase->Errors = 0;
 
-	i2cBase->HwType = 21; // big enough to not collide with conventional hardware identifiers?
+	i2cBase->HwType = 2; // use legacy value because not every app supports arbitrary numbers
+
+	struct ExecBase *SysBase = i2cBase->SysBase;
+	InitSemaphore(&i2cBase->SemIo);
 
 	// hardcoded BSC0 on pins 44,45
 	// TODO: get from devicetree

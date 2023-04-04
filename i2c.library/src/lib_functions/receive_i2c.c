@@ -21,16 +21,22 @@ ULONG ReceiveI2C(
 )
 {
 	D(bug("ReceiveI2C(%02x, %d, %08x)\n", ubAddress, uwDataSize, pData));
+	struct ExecBase *SysBase = i2cBase->SysBase;
 
-	// TODO: Semaphore shared with SendI2C
 	// bcm expects read/write bit to be omitted from address
 	ubAddress >>= 1;
 
+	ObtainSemaphore(&i2cBase->SemIo);
+	++i2cBase->RecvCalls;
 	volatile tI2cRegs * const pI2c = (volatile tI2cRegs *)i2cBase->I2cHwRegs;
-	UBYTE isSuccess = 1, ubIoError = I2C_OK, ubAllocError = I2C_OK;
-
 	D(bug("  S: %08x\n", rd32le(&pI2c->S)));
 
+	if(rd32le(&pI2c->S) & I2C_S_TA) {
+		ReleaseSemaphore(&i2cBase->SemIo);
+		return RESULT(0, I2C_HARDW_BUSY, 0);
+	}
+
+	UBYTE isSuccess = 1, ubIoError = I2C_OK, ubAllocError = I2C_OK;
 	wr32le(&pI2c->A, ubAddress);
 	wr32le(&pI2c->C, I2C_C_CLEAR_FIFO_ONE_SHOT);
 	wr32le(&pI2c->S, I2C_S_CLKT | I2C_S_ERR | I2C_S_DONE);
@@ -68,10 +74,9 @@ ULONG ReceiveI2C(
 		ubIoError = I2C_NO_REPLY;
 	}
 
-	++i2cBase->RecvCalls;
 	i2cBase->RecvBytes += uwBytesRead;
 
+	ReleaseSemaphore(&i2cBase->SemIo);
 	D(bug("ReceiveI2C returns %08x\n", RESULT(isSuccess, ubIoError, ubAllocError)));
-
 	return RESULT(isSuccess, ubIoError, ubAllocError);
 }

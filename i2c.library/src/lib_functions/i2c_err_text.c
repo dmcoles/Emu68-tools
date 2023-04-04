@@ -9,29 +9,34 @@
 #include <i2c_private.h>
 
 STRPTR I2CErrText(
-	REGARG(ULONG errnum, "d0"),
+	REGARG(ULONG ulErrorCode, "d0"),
 	REGARG(struct I2C_Base *i2cBase, "a6")
 )
 {
-	// Original errors from i2clib40src:
-	// "OK"
-	// // I/O errors:
-	// "data rejected"
-	// "no reply"
-	// "SDA trashed"
-	// "SDA always LO"
-	// "SDA always HI"
-	// "hardware is busy"
-	// // allocation errors
-	// "port is busy"
-	// "port bits are busy"
-	// 'no '
-	// "misc.resource"
-	// "temporary shutdown"
-  // // extras:
-	// "error"
-	// "???"
+	UBYTE isSuccess = (ulErrorCode >> 0) & 0xFF;
+	UBYTE ubIoError = (ulErrorCode >> 8) & 0xFF;
+	UBYTE ubAllocError = (ulErrorCode >> 16) & 0xFF;
+	if(isSuccess) {
+		return "OK";
+	}
+
+	switch(ubIoError) {
+		case 1:  return "data rejected";
+		case 2:  return "no reply";
+		case 3:  return "SDA trashed";
+		case 4:  return "SDA always LO";
+		case 5:  return "SDA always HI";
+		case 8:
+			// Decode alloc error
+			switch(ubAllocError) {
+				case 0: return "hardware is busy"; // IO error 8
+				case 1: return "port is busy";
+				case 2: return "port bits are busy";
+				case 3: return "no ";
+				case 5: return "temporary shutdown";
+			}
+	}
 
 	// According to autodocs, errors should be at most 20-character long
-	return errnum == I2C_OK ? "OK" : "???";
+	return "???";
 }

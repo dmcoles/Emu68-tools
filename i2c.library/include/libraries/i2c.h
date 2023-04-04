@@ -70,6 +70,7 @@ struct I2C_Base
     // The data beyond this point is private and is different between most
     // of the various i2c.library implementations anyway.
     struct ExecBase *SysBase;
+    struct SignalSemaphore SemIo;
     BPTR SegList;
     APTR I2cHwRegs;
 };
