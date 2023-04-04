@@ -18,6 +18,7 @@ add_subdirectory(emmc.device)
 add_subdirectory(i2c.library)
 add_subdirectory(lattice_i2c_prog)
 add_subdirectory(SetClockI2C)
+add_subdirectory(uuid.library)
 
 # Contribs
 add_subdirectory(Emu68Contribs/Emu68Info)
