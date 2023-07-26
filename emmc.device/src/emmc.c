@@ -591,8 +591,6 @@ int emmc_microsd_init(struct EMMCBase *EMMCBase)
 
     bug("[brcm-emmc] card CID: %08lx%08lx%08lx%08lx\n", card_cid_3, card_cid_2, card_cid_1, card_cid_0);
 
-<<<<<<< HEAD
-=======
 
     EMMCBase->emmc_CID[0] = card_cid_3;
     EMMCBase->emmc_CID[1] = card_cid_2;
@@ -782,7 +780,6 @@ int emmc_microsd_init(struct EMMCBase *EMMCBase)
 	// Reset interrupt register
 	wr32(EMMCBase->emmc_Regs, EMMC_INTERRUPT, 0xffffffff);
 
->>>>>>> e909126 (make sure high-speed mode is enabled on microSD)
     return 0;
 }
 
