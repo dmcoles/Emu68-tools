@@ -11,6 +11,10 @@
 #include <libraries/configvars.h>
 #include <stdint.h>
 
+#if defined(__INTELLISENSE__)
+#define asm(x) /* x */
+#endif
+
 #define EMMC_VERSION  1
 #define EMMC_REVISION 0
 #define EMMC_PRIORITY 20

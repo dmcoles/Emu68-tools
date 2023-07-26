@@ -9,6 +9,7 @@
 
 #include "emmc.h"
 #include "findtoken.h"
+#include "mbox.h"
 
 extern const char deviceName[];
 extern const char deviceIdString[];
