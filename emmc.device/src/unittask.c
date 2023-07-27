@@ -250,7 +250,7 @@ static void LoadFilesystem(struct EMMCUnit *unit, ULONG dosType)
 
                     if (EMMCBase->emmc_Verbose)
                     {
-                        bug("[brcm-sdhc:%ld] Checking FSHD for DosType %08lx\n", unit->su_UnitNum, buff->fshd.fhb_DosType);
+                        bug("[brcm-emmc:%ld] Checking FSHD for DosType %08lx\n", unit->su_UnitNum, buff->fshd.fhb_DosType);
                     }
 
                     if (buff->fshd.fhb_DosType == dosType)
@@ -261,7 +261,7 @@ static void LoadFilesystem(struct EMMCUnit *unit, ULONG dosType)
 
                         if (EMMCBase->emmc_Verbose)
                         {
-                            bug("[brcm-sdhc:%ld] DOSType match!\n", unit->su_UnitNum);
+                            bug("[brcm-emmc:%ld] DOSType match!\n", unit->su_UnitNum);
                         }   
 
                         // Check LSEG location
@@ -313,7 +313,7 @@ static void LoadFilesystem(struct EMMCUnit *unit, ULONG dosType)
 
                         if (EMMCBase->emmc_Verbose)
                         {
-                            bug("[brcm-sdhc:%ld] Loaded %ld bytes into buffer at %08lx\n", unit->su_UnitNum, loaded, (ULONG)buffer);
+                            bug("[brcm-emmc:%ld] Loaded %ld bytes into buffer at %08lx\n", unit->su_UnitNum, loaded, (ULONG)buffer);
                         }
 
                         struct SmartBuffer bu;
@@ -476,6 +476,8 @@ UBYTE FixNameConflict(UBYTE *name, struct ExpansionBase *ExpansionBase)
             }
         }
     }
+
+    return done;
 }
 
 static void MountPartitions(struct EMMCUnit *unit)
@@ -495,7 +497,7 @@ static void MountPartitions(struct EMMCUnit *unit)
 
     if (EMMCBase->emmc_Verbose)
     {
-        bug("[brcm-sdhc:%ld] MountPartitions\n", unit->su_UnitNum);
+        bug("[brcm-emmc:%ld] MountPartitions\n", unit->su_UnitNum);
     }
 
     /* RigidDiskBlock has to be found within first 16 sectors. Check them now */
@@ -566,7 +568,7 @@ static void MountPartitions(struct EMMCUnit *unit)
                             
                             if (EMMCBase->emmc_Verbose)
                             {
-                                bug("[brcm-sdhc:%ld] FileSysEntry seems to be %08lx\n", unit->su_UnitNum, (ULONG)fse);
+                                bug("[brcm-emmc:%ld] FileSysEntry seems to be %08lx\n", unit->su_UnitNum, (ULONG)fse);
                             }
 
                             for (int i=0; i < buff.part.pb_DriveName[0]; i++) {
@@ -606,7 +608,7 @@ static void MountPartitions(struct EMMCUnit *unit)
 
                             if (EMMCBase->emmc_Verbose)
                             {
-                                bug("[brcm-sdhc:%ld] Mounting Boot Node %s\n", (ULONG)name);
+                                bug("[brcm-emmc:%ld] Mounting Boot Node %s\n", unit->su_UnitNum, (ULONG)name);
                             }
                             AddBootNode(paramPkt[DE_BOOTPRI + 4], 0, devNode, cdev);
                         }

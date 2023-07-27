@@ -67,7 +67,7 @@ void cmd_int(ULONG cmd, ULONG arg, ULONG timeout, struct EMMCBase *EMMCBase)
 #if 0
     {
         ULONG args[] = {cmd, arg};
-        RawDoFmt("[brcm-sdhc] sending command %08lx, arg %08lx\n", args, (APTR)putch, NULL);
+        RawDoFmt("[brcm-emmc] sending command %08lx, arg %08lx\n", args, (APTR)putch, NULL);
     }
 #endif
 
@@ -680,12 +680,12 @@ int emmc_microsd_init(struct EMMCBase *EMMCBase)
 	    }
 	    else
 	    {
-            //RawDoFmt("[brcm-sdhc] card is busy, retrying\n", NULL, (APTR)putch, NULL);
+            //RawDoFmt("[brcm-emmc] card is busy, retrying\n", NULL, (APTR)putch, NULL);
             delay(500000, EMMCBase);
 	    }       
 	}
 
-    bug("[brcm-sdhc] card identified: OCR: %04lx, SDHC support: %ld\n", EMMCBase->emmc_CardOCR, EMMCBase->emmc_CardSupportsSDHC);
+    bug("[brcm-emmc] card identified: OCR: %04lx, SDHC support: %ld\n", EMMCBase->emmc_CardOCR, EMMCBase->emmc_CardSupportsSDHC);
 
 
     // At this point, we know the card is definitely an SD card, so will definitely
