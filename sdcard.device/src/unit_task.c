@@ -626,6 +626,14 @@ static void MountPartitions(struct SDCardUnit *unit)
                                 }
                             }
 
+                            if (SDCardBase->sd_Verbose)
+                            {
+                                ULONG args[] = {
+                                    unit->su_UnitNum,
+                                    (ULONG)name
+                                };
+                                RawDoFmt("[brcm-sdhc:%ld] Mounting Boot Node %s\n", args, (APTR)putch, NULL);
+                            }
                             AddBootNode(paramPkt[DE_BOOTPRI + 4], 0, devNode, cdev);
                         }
                     }
