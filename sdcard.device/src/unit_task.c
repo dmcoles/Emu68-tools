@@ -491,6 +491,8 @@ UBYTE FixNameConflict(UBYTE *name, struct ExpansionBase *ExpansionBase)
             }
         }
     }
+
+    return done;
 }
 
 static void MountPartitions(struct SDCardUnit *unit)
