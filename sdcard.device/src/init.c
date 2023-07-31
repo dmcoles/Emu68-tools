@@ -635,8 +635,8 @@ APTR Init(struct ExecBase *SysBase asm("a6"))
         CloseLibrary((struct Library*)ExpansionBase);
     }
 
-    SDCardBase->sd_Interrupt.is_Code = (APTR)sdhost_irq_gate;
-    AddIntServer(INTB_EXTER, &SDCardBase->sd_Interrupt);
+    //SDCardBase->sd_Interrupt.is_Code = (APTR)sdhost_irq_gate;
+    //AddIntServer(INTB_EXTER, &SDCardBase->sd_Interrupt);
 
     //wr32((APTR)0xf3000000, 0x34, 0x30124f80);
 

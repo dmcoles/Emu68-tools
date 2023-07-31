@@ -17,7 +17,7 @@ SECTIONS
     _off    = _diag_start - _rom_start;
     _int    = 0x00;
 
-    .text 0x1000 : 
+    .text 0x0 : 
     {
         _rom_start = .;
 

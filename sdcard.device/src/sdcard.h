@@ -10,6 +10,10 @@
 #ifndef _SDCARD_H
 #define _SDCARD_H
 
+#if defined(__INTELLISENSE__)
+#define asm(x) /* x */
+#endif
+
 #include <exec/types.h>
 #include <exec/nodes.h>
 #include <exec/libraries.h>

@@ -400,6 +400,101 @@ struct FileSysEntry * findFSE(struct SDCardUnit *unit, ULONG dosType)
     return ret;
 }
 
+/* Try to avoid name conflicts, name is here a BSTR!!! */
+UBYTE FixNameConflict(UBYTE *name, struct ExpansionBase *ExpansionBase)
+{
+    UBYTE done = 0;
+    UBYTE orig_length = name[0];
+    LONG number = -1;
+    
+    while(!done)
+    {
+        struct BootNode *bn;
+
+        /* Assume success */
+        done = 1;
+
+        /* Go through all boot nodes */
+        for (bn = (struct BootNode *)ExpansionBase->MountList.lh_Head; 
+             bn->bn_Node.ln_Succ; 
+             bn = (struct BootNode *)bn->bn_Node.ln_Succ)
+        {
+            struct DeviceNode *dn = bn->bn_DeviceNode;
+
+            /* Empty device node? Ignore this one! */
+            if (dn == NULL)
+                continue;          
+            
+            /* Get a DeviceNode dn_Name as a C pointer */
+            UBYTE *dnName = (UBYTE *)(dn->dn_Name << 2);
+
+            /* If length of name matches */
+            if (dnName[0] == name[0])
+            {
+                /* If length matches, assume a match (not done) */
+                done = 0;
+
+                for (ULONG i=0; i < dnName[0]; i++)
+                {
+                    /* If any portion of name does not match, break */
+                    if (dnName[i+1] != name[i+1])
+                    {
+                        done = 1;
+                        break;
+                    }
+                }
+
+                /* There was a match, append a dot and a number to the name */
+                if (!done)
+                {
+                    UBYTE arr[10];
+                    UBYTE *arr_ptr = arr;
+                    UBYTE *name_ptr;
+
+                    number++;
+
+                    /* There was no number yet? append a dot and start numbering */
+                    if (number == 0)
+                    {
+                        name[orig_length + 1] = '.';
+                        name[orig_length + 2] = '0';
+                        name[0] = orig_length + 2;
+                        
+                    }
+                    else
+                    {
+                        LONG num = number;
+
+                        /* Convert number to string in nasty way */
+                        while(num != 0)
+                        {
+                            *arr_ptr++ = '0' + num % 10;
+                            num = num / 10;
+                        }
+
+                        /* Fix BSTR length*/
+                        name[0] = orig_length + 1 + (arr_ptr - arr);
+
+                        /* Copy number to the name, right behind dot */
+                        name_ptr = name + orig_length + 2;
+
+                        /* Copy in reversed order */
+                        while (arr_ptr != arr)
+                        {
+                            *name_ptr++ = *--arr_ptr;
+                        }
+                    }
+
+                    /* Stop scanning BootNode list, we had a match and need to restart now */
+                    break;
+                }
+            }
+        }
+    }
+
+    return done;
+}
+
 static void MountPartitions(struct SDCardUnit *unit)
 {
     struct SDCardBase *SDCardBase = unit->su_Base;
@@ -477,61 +572,72 @@ static void MountPartitions(struct SDCardUnit *unit)
                     /* If NOMOUNT *is not* set, attempt to mount the partition */
                     if ((buff.part.pb_Flags & PBFF_NOMOUNT) == 0)
                     {
-                        ULONG *paramPkt = AllocMem(24 * sizeof(ULONG), MEMF_PUBLIC);
-                        UBYTE *name = AllocMem(buff.part.pb_DriveName[0] + 5, MEMF_PUBLIC);
-                        struct ConfigDev *cdev = SDCardBase->sd_ConfigDev;
-                        struct FileSysEntry *fse = findFSE(unit, buff.part.pb_Environment[DE_DOSTYPE]);
+                        if (FixNameConflict(buff.part.pb_DriveName, ExpansionBase))
+                        {                       
+                            ULONG *paramPkt = AllocMem(24 * sizeof(ULONG), MEMF_PUBLIC);
+                            UBYTE *name = AllocMem(buff.part.pb_DriveName[0] + 5, MEMF_PUBLIC);
+                            struct ConfigDev *cdev = SDCardBase->sd_ConfigDev;
+                            struct FileSysEntry *fse = findFSE(unit, buff.part.pb_Environment[DE_DOSTYPE]);
 
-                        if (fse == NULL) {
-                            LoadFilesystem(unit, buff.part.pb_Environment[DE_DOSTYPE]);
-                            fse = findFSE(unit, buff.part.pb_Environment[DE_DOSTYPE]);
-                        }
-                        
-                        if (SDCardBase->sd_Verbose)
-                        {
-                            ULONG args[] = {
-                                unit->su_UnitNum,
-                                (ULONG)fse
-                            };
-                            RawDoFmt("[brcm-sdhc:%ld] FileSysEntry seems to be %08lx\n", args, (APTR)putch, NULL);
-                        }
-
-                        for (int i=0; i < buff.part.pb_DriveName[0]; i++) {
-                            name[i] = buff.part.pb_DriveName[1+i];
-                        }
-                        name[buff.part.pb_DriveName[0]] = 0;
-
-                        paramPkt[0] = (ULONG)name;
-                        paramPkt[1] = (ULONG)SDCardBase->sd_Device.dd_Library.lib_Node.ln_Name;
-                        paramPkt[2] = unit->su_UnitNum;
-                        paramPkt[3] = 0;
-                        for (int i=0; i < 20; i++) {
-                            paramPkt[4+i] = buff.part.pb_Environment[i];
-                        }
-
-                        if ((buff.part.pb_Flags & PBFF_BOOTABLE) == 0) {
-                            paramPkt[DE_BOOTPRI + 4] = -128;
-                            cdev = NULL;
-                        }
-
-                        struct DeviceNode *devNode = MakeDosNode(paramPkt);
-
-                        if (fse) {
-                            // Process PatchFlags
-                            ULONG *dstPatch = &devNode->dn_Type;
-                            ULONG *srcPatch = &fse->fse_Type;
-                            ULONG patchFlags = fse->fse_PatchFlags;
-                            while (patchFlags) {
-                                if (patchFlags & 1) {
-                                    *dstPatch = *srcPatch;
-                                }
-                                patchFlags >>= 1;
-                                srcPatch++;
-                                dstPatch++;
+                            if (fse == NULL) {
+                                LoadFilesystem(unit, buff.part.pb_Environment[DE_DOSTYPE]);
+                                fse = findFSE(unit, buff.part.pb_Environment[DE_DOSTYPE]);
                             }
-                        }
+                            
+                            if (SDCardBase->sd_Verbose)
+                            {
+                                ULONG args[] = {
+                                    unit->su_UnitNum,
+                                    (ULONG)fse
+                                };
+                                RawDoFmt("[brcm-sdhc:%ld] FileSysEntry seems to be %08lx\n", args, (APTR)putch, NULL);
+                            }
 
-                        AddBootNode(paramPkt[DE_BOOTPRI + 4], 0, devNode, cdev);
+                            for (int i=0; i < buff.part.pb_DriveName[0]; i++) {
+                                name[i] = buff.part.pb_DriveName[1+i];
+                            }
+                            name[buff.part.pb_DriveName[0]] = 0;
+
+                            paramPkt[0] = (ULONG)name;
+                            paramPkt[1] = (ULONG)SDCardBase->sd_Device.dd_Library.lib_Node.ln_Name;
+                            paramPkt[2] = unit->su_UnitNum;
+                            paramPkt[3] = 0;
+                            for (int i=0; i < 20; i++) {
+                                paramPkt[4+i] = buff.part.pb_Environment[i];
+                            }
+
+                            if ((buff.part.pb_Flags & PBFF_BOOTABLE) == 0) {
+                                paramPkt[DE_BOOTPRI + 4] = -128;
+                                cdev = NULL;
+                            }
+
+                            struct DeviceNode *devNode = MakeDosNode(paramPkt);
+
+                            if (fse) {
+                                // Process PatchFlags
+                                ULONG *dstPatch = &devNode->dn_Type;
+                                ULONG *srcPatch = &fse->fse_Type;
+                                ULONG patchFlags = fse->fse_PatchFlags;
+                                while (patchFlags) {
+                                    if (patchFlags & 1) {
+                                        *dstPatch = *srcPatch;
+                                    }
+                                    patchFlags >>= 1;
+                                    srcPatch++;
+                                    dstPatch++;
+                                }
+                            }
+
+                            if (SDCardBase->sd_Verbose)
+                            {
+                                ULONG args[] = {
+                                    unit->su_UnitNum,
+                                    (ULONG)name
+                                };
+                                RawDoFmt("[brcm-sdhc:%ld] Mounting Boot Node %s\n", args, (APTR)putch, NULL);
+                            }
+                            AddBootNode(paramPkt[DE_BOOTPRI + 4], 0, devNode, cdev);
+                        }
                     }
                 }
             }
