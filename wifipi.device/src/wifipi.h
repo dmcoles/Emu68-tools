@@ -12,6 +12,10 @@
 
 #include <stdint.h>
 
+#if defined(__INTELLISENSE__)
+#define asm(x) /* x */
+#endif
+
 #define STR(s) #s
 #define XSTR(s) STR(s)
 
