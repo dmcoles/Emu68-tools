@@ -297,6 +297,16 @@ static inline void setINSN_DEPTH(ULONG depth)
     asm volatile("movec %0, #0xeb"::"r"(reg));
 }
 
+static inline void setSLOWDOWN_CHIP(ULONG slow)
+{
+    ULONG reg;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(reg));
+    if (slow) reg |= 1;
+    else reg &= 0xfffffffe;
+    asm volatile("movec %0, #0x1e0"::"r"(reg));
+}
+
 static inline void setLOOP_COUNT(ULONG depth)
 {
     ULONG reg;
@@ -1476,7 +1486,7 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
     OPT_INSN_COUNT,
@@ -1484,6 +1494,8 @@ enum {
     OPT_LOOP_CNT,
     OPT_FAST_CACHE,
     OPT_SLOW_CACHE,
+    OPT_CHIP_SLOWDOWN,
+    OPT_NO_CHIP_SLOWDOWN,
     OPT_SOFT_FLUSH,
     OPT_SOFT_FLUSH_LIMIT,
     OPT_GUI,
@@ -1538,6 +1550,24 @@ int main(int wantGUI)
                     UserState(ssp);
             }
 
+            if (result[OPT_INLINE_RANGE])
+            {
+                ULONG irng = *(ULONG*)(result[OPT_INLINE_RANGE]);
+                
+                if (irng < 1)
+                    irng = 1;
+                if (irng > 65535)
+                    irng = 65535;
+
+                if (!silent)
+                    Printf("- Changing JIT inlining range to %ld\n", irng);
+
+                APTR ssp = SuperState();
+                setINLINE_RANGE(irng);
+                if (ssp)
+                    UserState(ssp);
+            }
+
             if (result[OPT_SLOW_CACHE]) {
                 if (!silent)
                     Printf("- Enabling checksummed slow JIT cache\n");
@@ -1555,6 +1585,26 @@ int main(int wantGUI)
 
                 APTR ssp = SuperState();
                 setCACHE_IE(1);
+                if (ssp)
+                    UserState(ssp);
+            }
+
+            if (result[OPT_CHIP_SLOWDOWN]) {
+                if (!silent)
+                    Printf("- Enabling slowdown of JIT running from CHIP memory\n");
+
+                APTR ssp = SuperState();
+                setSLOWDOWN_CHIP(1);
+                if (ssp)
+                    UserState(ssp);
+            }
+
+            if (result[OPT_NO_CHIP_SLOWDOWN] && !result[OPT_CHIP_SLOWDOWN]) {
+                if (!silent)
+                    Printf("- Disabling slowdown of JIT running from CHIP memory\n");
+
+                APTR ssp = SuperState();
+                setSLOWDOWN_CHIP(0);
                 if (ssp)
                     UserState(ssp);
             }
