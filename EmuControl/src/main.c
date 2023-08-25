@@ -66,7 +66,7 @@ APTR                    MailBox;
 static const char version[] __attribute__((used)) = "$VER: " VERSION_STRING;
 
 Object *app;
-Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache;
+Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP;
 Object *MainArea, *MIPS_M68k, *MIPS_ARM, *JITUsage, *Effectiveness, *CacheMiss, *SoftThresh;
 Object *JITCount, *EnableDebug, *EnableDisasm, *DebugMin, *DebugMax, *CoreTemp, *CoreVolt;
 
@@ -280,6 +280,15 @@ static inline ULONG getSOFT_THRESH()
     return res;
 }
 
+static inline ULONG getSLOWDOWN_CHIP()
+{
+    ULONG res;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(res));
+    if (res & 1) return 1;
+    else return 0;
+}
+
 static inline void setSOFT_THRESH(ULONG thresh)
 {
     asm volatile("movec %0, #0xea"::"r"(thresh));
@@ -305,6 +314,7 @@ static inline void setSLOWDOWN_CHIP(ULONG slow)
     if (slow) reg |= 1;
     else reg &= 0xfffffffe;
     asm volatile("movec %0, #0x1e0"::"r"(reg));
+    asm volatile("cinva ic":::"memory");
 }
 
 static inline void setLOOP_COUNT(ULONG depth)
@@ -999,6 +1009,22 @@ ULONG ChangeFastCache()
     return 0;
 }
 
+ULONG ChangeSlowCHIP()
+{
+    ULONG value;
+
+    get(SlowCHIP, MUIA_Selected, &value);
+
+    APTR ssp = SuperState();
+
+    setSLOWDOWN_CHIP(value);
+    
+    if (ssp)
+        UserState(ssp);
+    
+    return 0;
+}
+
 ULONG DoFlushCache()
 {
     ULONG value;
@@ -1151,6 +1177,10 @@ struct Hook hook_FlushCache = {
     .h_Entry = DoFlushCache
 };
 
+struct Hook hook_SlowCHIP = {
+    .h_Entry = ChangeSlowCHIP
+};
+
 BOOL previewOnly;
 
 void MUIMain()
@@ -1211,6 +1241,7 @@ void MUIMain()
                                     Child, HGroup,
                                         Child, SoftFlush = MUI_MakeObject(MUIO_Button, "Soft flush"),
                                         Child, FastCache = MUI_MakeObject(MUIO_Button, "Fast cache"),
+                                        Child, SlowCHIP = MUI_MakeObject(MUIO_Button, "Slow CHIP"),
                                         Child, CacheFlush = MUI_MakeObject(MUIO_Button, "Flush JIT cache"),
                                     End,
                                 End,
@@ -1329,7 +1360,7 @@ void MUIMain()
         {
             ULONG isOpen;
             APTR ssp;
-            ULONG tmp, cacr, thresh, debug_low, debug_high, debug_ctrl;
+            ULONG tmp, cacr, thresh, debug_low, debug_high, debug_ctrl, ctrl2;
 
             DoMethod(MainWindow, MUIM_Notify, MUIA_Window_CloseRequest, TRUE,
                 (ULONG)app, 2, MUIM_Application_ReturnID, MUIV_Application_ReturnID_Quit);
@@ -1342,6 +1373,7 @@ void MUIMain()
 
             set(SoftFlush, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(FastCache, MUIA_InputMode, MUIV_InputMode_Toggle);
+            set(SlowCHIP, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDebug, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDisasm, MUIA_InputMode, MUIV_InputMode_Toggle);
 
@@ -1361,6 +1393,7 @@ void MUIMain()
                 asm volatile("movec #0xeb, %0; movec CACR, %1":"=r"(tmp), "=r"(cacr));
                 asm volatile("movec #0xea, %0; movec #0xed, %1":"=r"(thresh), "=r"(debug_ctrl));
                 asm volatile("movec #0xee, %0; movec #0xef, %1":"=r"(debug_low), "=r"(debug_high));
+                asm volatile("movec #0x1e0, %0":"=r"(ctrl2));
 
                 if (ssp)
                     UserState(ssp);
@@ -1370,6 +1403,8 @@ void MUIMain()
                     set(EnableDebug, MUIA_Selected, TRUE);
                 if (debug_ctrl & 4)
                     set(EnableDisasm, MUIA_Selected, TRUE);
+                if (ctrl2 & 1)
+                    set(SlowCHIP, MUIA_Selected, TRUE);
 
                 if (tmp & 0xff000000)
                     set(INSNDepth, MUIA_Numeric_Value, ((tmp >> 24) & 0xff));
@@ -1411,6 +1446,8 @@ void MUIMain()
                     (ULONG)app, 2, MUIM_CallHook, &hook_EnableDisasm);
                 DoMethod(CacheFlush, MUIM_Notify, MUIA_Pressed, FALSE,
                     (ULONG)app, 2, MUIM_CallHook, &hook_FlushCache);
+                DoMethod(SlowCHIP, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                    (ULONG)app, 2, MUIM_CallHook, &hook_SlowCHIP);
 
                 DoMethod(DebugMin, MUIM_Notify, MUIA_String_Acknowledge, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_UpdateDebugLo);
@@ -1486,7 +1523,7 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
     OPT_INSN_COUNT,

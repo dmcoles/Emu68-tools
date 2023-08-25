@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14.0)
-project(EmuControl VERSION 1.1.0)
+project(EmuControl VERSION 1.2.0)
 get_verstring(VERSTRING)
 
 add_link_options(-ffreestanding -m68040 -nostdlib -nostartfiles -Wl,-e,__start)
