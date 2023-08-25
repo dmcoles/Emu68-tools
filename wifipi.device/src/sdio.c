@@ -713,7 +713,7 @@ int sdio_init(struct WiFiBase *WiFiBase)
         /* Set 4bit width in CONTROL0 register */
         wr32(WiFiBase->w_SDIO, EMMC_CONTROL0, 2 | rd32(WiFiBase->w_SDIO, EMMC_CONTROL0));
     }
-
+#if 0
     /* Check if card supports high speed mode */
     UBYTE cccr13 = sdio_read_byte(SD_FUNC_CIA, BUS_SPEED_CTRL_REG, WiFiBase);
     if (SUCCESS(WiFiBase))
@@ -726,8 +726,8 @@ int sdio_init(struct WiFiBase *WiFiBase)
             delay_us(10000, WiFiBase);
         }
     }
-
-#if 1
+#endif
+#if 0
     D(bug("[WiFi] Dumping CCCR contents:"));
     for (int i=0; i < 0x17; i++)
     {

@@ -164,9 +164,11 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         {
             int size_cells = 1;
             int address_cells = 1;
+            int cpu_address_cells = 1;
 
             const ULONG * siz = GetPropValueRecursive(key, "#size_cells", DeviceTreeBase);
             const ULONG * addr = GetPropValueRecursive(key, "#address-cells", DeviceTreeBase);
+            const ULONG * cpu_addr = DT_GetPropValue(DT_FindProperty(DT_OpenKey("/"), "#address-cells"));
 
             if (siz != NULL)
                 size_cells = *siz;
@@ -174,10 +176,13 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
             if (addr != NULL)
                 address_cells = *addr;
 
+            if (cpu_addr != NULL)
+                cpu_address_cells = *cpu_addr;
+
             const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "ranges"));
 
-            ULONG phys_vc4 = reg[address_cells - 1];
-            ULONG phys_cpu = reg[2 * address_cells - 1];
+                ULONG phys_vc4 = reg[address_cells - 1];
+                ULONG phys_cpu = reg[address_cells + cpu_address_cells - 1];
 
             WiFiBase->w_MailBox = (APTR)((ULONG)WiFiBase->w_MailBox - phys_vc4 + phys_cpu);
             WiFiBase->w_SDIO = (APTR)((ULONG)WiFiBase->w_SDIO - phys_vc4 + phys_cpu);
@@ -239,7 +244,6 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         D(bug("[WiFi] GP2CTL = %08lx\n", rd32((void*)0xf2101000, 0x80)));
         D(bug("[WiFi] GP2DIV = %08lx\n", rd32((void*)0xf2101000, 0x84)));
 
-
         D(bug("[WiFi] Enabling EMMC clock\n"));
         ULONG clk = get_clock_state(1, WiFiBase);
         D(bug("[WiFi] Old clock state: %lx\n", clk));
@@ -257,9 +261,9 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
             BPTR file;
             LONG size;
             WiFiBase->w_DosBase = OpenLibrary("dos.library", 0);
-            struct Library *DOSBase = (struct DOSBase *)WiFiBase->w_DosBase;
+            struct Library *DOSBase = (struct Library *)WiFiBase->w_DosBase;
 
-            D(bug("[WiFi] I'm a process, DosBase=%08lx\n", WiFiBase->w_DosBase));
+            D(bug("[WiFi] I'm a process, DosBase=%08lx\n", (ULONG)WiFiBase->w_DosBase));
             file = Open("S:brcmfmac43455-sdio.bin", MODE_OLDFILE);
             Seek(file, 0, OFFSET_END);
             size = Seek(file, 0, OFFSET_BEGINING);
@@ -289,7 +293,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
             dst_conf = AllocMem(size, MEMF_ANY);
             if (Read(file, src_conf, size) != size)
             {
-                D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
+                D(bug("[WiFi] Something went wrong when reading WiFi config7\n"));
             }
             Close(file);
 
