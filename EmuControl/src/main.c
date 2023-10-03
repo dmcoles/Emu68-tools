@@ -68,7 +68,7 @@ static const char version[] __attribute__((used)) = "$VER: " VERSION_STRING;
 Object *app;
 Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP, *SlowDBF;
 Object *MainArea, *MIPS_M68k, *MIPS_ARM, *JITUsage, *Effectiveness, *CacheMiss, *SoftThresh;
-Object *JITCount, *EnableDebug, *EnableDisasm, *DebugMin, *DebugMax, *CoreTemp, *CoreVolt;
+Object *JITCount, *EnableDebug, *EnableDisasm, *DebugMin, *DebugMax, *CoreTemp, *CoreVolt, *CCRDepth;
 
 /*
     Some properties, like e.g. #size-cells, are not always available in a key, but in that case the properties
@@ -296,6 +296,26 @@ static inline ULONG getSLOWDOWN_DBF()
     asm volatile("movec #0x1e0, %0":"=r"(res));
     if (res & 2) return 1;
     else return 0;
+}
+
+static inline ULONG getCCR_DEPTH()
+{
+    ULONG res;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(res));
+    return (res >> 3) & 0x1f;
+}
+
+static inline void setCCR_DEPTH(ULONG depth)
+{
+    ULONG reg;
+    if (depth > 31)
+        depth = 31;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(reg));
+    reg = (reg & 0xffffff07);
+    reg |= (depth & 0x1f) << 3;
+    asm volatile("movec %0, #0x1e0"::"r"(reg));
 }
 
 static inline void setSOFT_THRESH(ULONG thresh)
@@ -1061,6 +1081,22 @@ ULONG ChangeSlowDBF()
     return 0;
 }
 
+ULONG ChangeCCRDepth()
+{
+    ULONG ccrDepth;
+
+    get(CCRDepth, MUIA_Numeric_Value, &ccrDepth);
+
+    APTR ssp = SuperState();
+
+    setCCR_DEPTH(ccrDepth);
+
+    if (ssp)
+        UserState(ssp);
+    
+    return 0;
+}
+
 ULONG DoFlushCache()
 {
     ULONG value;
@@ -1217,6 +1253,10 @@ struct Hook hook_SlowCHIP = {
     .h_Entry = ChangeSlowCHIP
 };
 
+struct Hook hook_CCRDepth = {
+    .h_Entry = ChangeCCRDepth
+};
+
 struct Hook hook_SlowDBF = {
     .h_Entry = ChangeSlowDBF
 };
@@ -1271,6 +1311,12 @@ void MUIMain()
                                             MUIA_Numeric_Max, 16,
                                             MUIA_Numeric_Value, 1,
                                         End,
+                                        Child, Label("CCR scan depth"),
+                                        Child, CCRDepth = SliderObject,
+                                            MUIA_Numeric_Min, 0,
+                                            MUIA_Numeric_Max, 31,
+                                            MUIA_Numeric_Value, 20,
+                                        End,   
                                         Child, Label("Soft flush threshold"),
                                         Child, SoftThresh = SliderObject,
                                             MUIA_Numeric_Min, 1,
@@ -1449,6 +1495,8 @@ void MUIMain()
                     set(SlowCHIP, MUIA_Selected, TRUE);
                 if (ctrl2 & 2)
                     set(SlowDBF, MUIA_Selected, TRUE);
+                
+                set(CCRDepth, MUIA_Numeric_Value, (ctrl2 >> 3) & 0x1f);
 
                 if (tmp & 0xff000000)
                     set(INSNDepth, MUIA_Numeric_Value, ((tmp >> 24) & 0xff));
@@ -1494,6 +1542,8 @@ void MUIMain()
                     (ULONG)app, 2, MUIM_CallHook, &hook_SlowCHIP);
                 DoMethod(SlowDBF, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_SlowDBF);
+                DoMethod(CCRDepth, MUIM_Notify, MUIA_Numeric_Value, MUIV_EveryTime,
+                    (ULONG)app, 2, MUIM_CallHook, &hook_CCRDepth);
 
                 DoMethod(DebugMin, MUIM_Notify, MUIA_String_Acknowledge, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_UpdateDebugLo);
@@ -1569,7 +1619,7 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
     OPT_INSN_COUNT,
@@ -1583,6 +1633,7 @@ enum {
     OPT_NO_DBF_SLOWDOWN,
     OPT_SOFT_FLUSH,
     OPT_SOFT_FLUSH_LIMIT,
+    OPT_CCR_SCAN_DEPTH,
     OPT_GUI,
     OPT_SILENT,
     OPT_DEFAULTS,
@@ -1714,6 +1765,20 @@ int main(int wantGUI)
                     UserState(ssp);
             }
 
+            if (result[OPT_CCR_SCAN_DEPTH]) {
+                ULONG ccrd = *(ULONG*)(result[OPT_CCR_SCAN_DEPTH]);
+                
+                if (ccrd > 31)
+                    ccrd = 31;
+
+                if (!silent)
+                    Printf("- Changing CCR scan depth to %ld\n", ccrd);
+
+                APTR ssp = SuperState();
+                setCCR_DEPTH(ccrd);
+                if (ssp)
+                    UserState(ssp);
+            }
 
             FreeArgs(args);
         }
