@@ -66,7 +66,7 @@ APTR                    MailBox;
 static const char version[] __attribute__((used)) = "$VER: " VERSION_STRING;
 
 Object *app;
-Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP;
+Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP, *SlowDBF;
 Object *MainArea, *MIPS_M68k, *MIPS_ARM, *JITUsage, *Effectiveness, *CacheMiss, *SoftThresh;
 Object *JITCount, *EnableDebug, *EnableDisasm, *DebugMin, *DebugMax, *CoreTemp, *CoreVolt;
 
@@ -289,6 +289,15 @@ static inline ULONG getSLOWDOWN_CHIP()
     else return 0;
 }
 
+static inline ULONG getSLOWDOWN_DBF()
+{
+    ULONG res;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(res));
+    if (res & 2) return 1;
+    else return 0;
+}
+
 static inline void setSOFT_THRESH(ULONG thresh)
 {
     asm volatile("movec %0, #0xea"::"r"(thresh));
@@ -313,6 +322,17 @@ static inline void setSLOWDOWN_CHIP(ULONG slow)
     asm volatile("movec #0x1e0, %0":"=r"(reg));
     if (slow) reg |= 1;
     else reg &= 0xfffffffe;
+    asm volatile("movec %0, #0x1e0"::"r"(reg));
+    asm volatile("cinva ic":::"memory");
+}
+
+static inline void setSLOWDOWN_DBF(ULONG slow)
+{
+    ULONG reg;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(reg));
+    if (slow) reg |= 2;
+    else reg &= 0xfffffffd;
     asm volatile("movec %0, #0x1e0"::"r"(reg));
     asm volatile("cinva ic":::"memory");
 }
@@ -1025,6 +1045,22 @@ ULONG ChangeSlowCHIP()
     return 0;
 }
 
+ULONG ChangeSlowDBF()
+{
+    ULONG value;
+
+    get(SlowDBF, MUIA_Selected, &value);
+
+    APTR ssp = SuperState();
+
+    setSLOWDOWN_DBF(value);
+    
+    if (ssp)
+        UserState(ssp);
+    
+    return 0;
+}
+
 ULONG DoFlushCache()
 {
     ULONG value;
@@ -1181,6 +1217,10 @@ struct Hook hook_SlowCHIP = {
     .h_Entry = ChangeSlowCHIP
 };
 
+struct Hook hook_SlowDBF = {
+    .h_Entry = ChangeSlowDBF
+};
+
 BOOL previewOnly;
 
 void MUIMain()
@@ -1242,6 +1282,7 @@ void MUIMain()
                                         Child, SoftFlush = MUI_MakeObject(MUIO_Button, "Soft flush"),
                                         Child, FastCache = MUI_MakeObject(MUIO_Button, "Fast cache"),
                                         Child, SlowCHIP = MUI_MakeObject(MUIO_Button, "Slow CHIP"),
+                                        Child, SlowDBF = MUI_MakeObject(MUIO_Button, "Slow DBF"),
                                         Child, CacheFlush = MUI_MakeObject(MUIO_Button, "Flush JIT cache"),
                                     End,
                                 End,
@@ -1374,6 +1415,7 @@ void MUIMain()
             set(SoftFlush, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(FastCache, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(SlowCHIP, MUIA_InputMode, MUIV_InputMode_Toggle);
+            set(SlowDBF, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDebug, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDisasm, MUIA_InputMode, MUIV_InputMode_Toggle);
 
@@ -1405,6 +1447,8 @@ void MUIMain()
                     set(EnableDisasm, MUIA_Selected, TRUE);
                 if (ctrl2 & 1)
                     set(SlowCHIP, MUIA_Selected, TRUE);
+                if (ctrl2 & 2)
+                    set(SlowDBF, MUIA_Selected, TRUE);
 
                 if (tmp & 0xff000000)
                     set(INSNDepth, MUIA_Numeric_Value, ((tmp >> 24) & 0xff));
@@ -1448,6 +1492,8 @@ void MUIMain()
                     (ULONG)app, 2, MUIM_CallHook, &hook_FlushCache);
                 DoMethod(SlowCHIP, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_SlowCHIP);
+                DoMethod(SlowDBF, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                    (ULONG)app, 2, MUIM_CallHook, &hook_SlowDBF);
 
                 DoMethod(DebugMin, MUIM_Notify, MUIA_String_Acknowledge, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_UpdateDebugLo);
@@ -1523,7 +1569,7 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
     OPT_INSN_COUNT,
@@ -1533,6 +1579,8 @@ enum {
     OPT_SLOW_CACHE,
     OPT_CHIP_SLOWDOWN,
     OPT_NO_CHIP_SLOWDOWN,
+    OPT_DBF_SLOWDOWN,
+    OPT_NO_DBF_SLOWDOWN,
     OPT_SOFT_FLUSH,
     OPT_SOFT_FLUSH_LIMIT,
     OPT_GUI,
@@ -1645,6 +1693,27 @@ int main(int wantGUI)
                 if (ssp)
                     UserState(ssp);
             }
+
+            if (result[OPT_DBF_SLOWDOWN]) {
+                if (!silent)
+                    Printf("- Enabling slowdown of DBF busy loops running from CHIP memory\n");
+
+                APTR ssp = SuperState();
+                setSLOWDOWN_DBF(1);
+                if (ssp)
+                    UserState(ssp);
+            }
+
+            if (result[OPT_NO_DBF_SLOWDOWN] && !result[OPT_DBF_SLOWDOWN]) {
+                if (!silent)
+                    Printf("- Disabling slowdown of DBF busy loops running from CHIP memory\n");
+
+                APTR ssp = SuperState();
+                setSLOWDOWN_DBF(0);
+                if (ssp)
+                    UserState(ssp);
+            }
+
 
             FreeArgs(args);
         }
