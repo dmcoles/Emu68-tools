@@ -16,6 +16,7 @@
 #include <proto/intuition.h>
 #include <proto/gadtools.h>
 #include <proto/devicetree.h>
+#include <proto/mathieeesingbas.h>
 #include <clib/muimaster_protos.h>
 #include <clib/alib_protos.h>
 #include <utility/tagitem.h>
@@ -23,6 +24,9 @@
 #include <stdint.h>
 
 #include "messages.h"
+
+#define FLOAT ULONG
+#define F_1000  (0x447a0000)
 
 int main(int);
 
@@ -60,6 +64,7 @@ struct ExecBase *       SysBase;
 struct IntuitionBase *  IntuitionBase;
 struct GfxBase *        GfxBase;
 struct DosLibrary *     DOSBase;
+struct MathIEEEBase *   MathIeeeSingBasBase;
 
 static const char version[] __attribute__((used)) = "$VER: " VERSION_STRING;
 
@@ -80,10 +85,10 @@ ULONG UpdateKernel()
         cmd.SetKernel.kernel = 0;
 
     get(KernB, MUIA_Numeric_Value, &value);
-    cmd.SetKernel.b = (double)value / 1000.0;
+    cmd.SetKernel.b = IEEESPDiv(IEEESPFlt(value), F_1000);
 
     get(KernC, MUIA_Numeric_Value, &value);
-    cmd.SetKernel.c = (double)value / 1000.0;
+    cmd.SetKernel.c = IEEESPDiv(IEEESPFlt(value), F_1000);
 
     cmd.cmd = VCMD_SET_KERNEL;
     PutMsg(vc4Port, &cmd.msg);
@@ -226,8 +231,8 @@ void MUIMain()
             if (cmd.GetKernel.kernel)
                 set(Kernel, MUIA_Selected, TRUE);
             
-            set(KernB, MUIA_Numeric_Value, (ULONG)(1000.0 * cmd.GetKernel.b));
-            set(KernC, MUIA_Numeric_Value, (ULONG)(1000.0 * cmd.GetKernel.c));
+            set(KernB, MUIA_Numeric_Value, IEEESPFix(IEEESPMul(F_1000, cmd.GetKernel.b)));
+            set(KernC, MUIA_Numeric_Value, IEEESPFix(IEEESPMul(F_1000, cmd.GetKernel.c)));
         }
 
         DoMethod(Kernel, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
@@ -285,11 +290,16 @@ int main(int wb)
         GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 37);
         if (GfxBase != NULL)
         {
-            MUIMasterBase = OpenLibrary("muimaster.library", 0);
-            if (MUIMasterBase != NULL)
+            MathIeeeSingBasBase = (struct MathIEEEBase *)OpenLibrary("mathieeesingbas.library", 0);
+            if (MathIeeeSingBasBase != NULL)
             {
-                MUIMain();
-                CloseLibrary(MUIMasterBase);
+                MUIMasterBase = OpenLibrary("muimaster.library", 0);
+                if (MUIMasterBase != NULL)
+                {
+                    MUIMain();
+                    CloseLibrary(MUIMasterBase);
+                }
+                CloseLibrary((struct Library *)MathIeeeSingBasBase);
             }
             CloseLibrary((struct Library *)GfxBase);
         }
