@@ -3,60 +3,192 @@
 #include <exec/execbase.h>
 
 #include <proto/exec.h>
+#include <proto/mathieeesingbas.h>
 #include <hardware/cia.h>
+
+#include <common/compiler.h>
+
+/* Make sure MathIEEE will not force gcc to do weird FLOT convertions when calling lib functions */
+#define FLOAT ULONG
 
 #include "emu68-vc4.h"
 #include "vc4.h"
 #include "boardinfo.h"
 #include "mbox.h"
 
-static int mitchell_netravali(double x, double b, double c)
+int mitchell_netravali(ULONG x, ULONG b, ULONG c, struct Library *MathIeeeSingBasBase)
 {
-    double k;
+    const ULONG float_6 = 0x40c00000;
+    const ULONG float_0p5 = 0x3f000000;
+    const ULONG float_255 = 0x437f0000;
+    const ULONG float_2 = 0x40000000;
+    const ULONG float_1 = 0x3f800000;
 
-    if (x < 0)
-        x = -x;
+    ULONG k;
+
+    x = IEEESPAbs(x);
     
-    if (x < 1) {
-        k = (12.0 - 9.0 * b - 6.0 * c) * x * x * x + (-18.0 + 12.0 * b + 6.0 * c) * x * x + (6.0 - 2.0 * b);
+    if (IEEESPCmp(x, float_1) < 0) {
+        const ULONG float_18 = 0x41900000;
+        const ULONG float_12 = 0x41400000;
+        const ULONG float_9 = 0x41100000;
+        
+        ULONG a1, a2, a3;
+        a1 = IEEESPAdd(
+                float_12,
+                IEEESPNeg(
+                    IEEESPAdd(
+                        IEEESPMul(
+                            float_9,
+                            b),
+                        IEEESPMul(
+                            float_6,
+                            c)))
+            );
+        a1 = IEEESPMul(IEEESPMul(IEEESPMul(a1, x), x), x);
+
+        a2 = IEEESPSub(
+                IEEESPAdd(
+                    IEEESPMul(float_12, b),
+                    IEEESPMul(float_6, c)),
+                float_18
+            );
+        a2 = IEEESPMul(IEEESPMul(a2, x), x);
+
+        a3 = IEEESPAdd(
+                float_6,
+                IEEESPNeg(
+                    IEEESPMul(
+                        float_2,
+                        b)
+                    )
+                );   
+
+        k = IEEESPAdd(IEEESPAdd(a1, a2), a3);
+        //k = (12.0 - 9.0 * b - 6.0 * c) * x * x * x + (-18.0 + 12.0 * b + 6.0 * c) * x * x + (6.0 - 2.0 * b);
     }
-    else if (x < 2) {
-        k = (-b - 6.0 * c) * x * x * x + (6.0 * b + 30.0 * c) * x * x + (-12.0 * b - 48.0 * c) * x + 8.0 * b + 24.0 * c;
+    else if (IEEESPCmp(x, float_2) < 0) {
+        const ULONG float_8 = 0x41000000;
+        const ULONG float_24 = 0x41c00000;
+        const ULONG float_30 = 0x41f00000;
+        const ULONG float_m12 = 0xc1400000;
+        const ULONG float_m48 = 0xc2400000;
+        ULONG a1, a2, a3;
+        
+        a1 = IEEESPNeg(
+            IEEESPAdd(
+                b,
+                IEEESPMul(
+                    float_6,
+                    c
+                )
+            )
+        );
+        a1 = IEEESPMul(IEEESPMul(IEEESPMul(a1, x), x), x);
+
+        a2 = IEEESPAdd(
+            IEEESPMul(
+                float_6,
+                b
+            ),
+            IEEESPMul(
+                float_30,
+                c
+            )
+        );
+        a2 = IEEESPMul(IEEESPMul(a2, x), x);
+
+        a3 = IEEESPMul(
+            IEEESPAdd(
+                IEEESPMul(
+                    float_m12,
+                    b
+                ),
+                IEEESPMul(
+                    float_m48,
+                    c
+                )
+            ),
+            x
+        );
+
+        k = IEEESPAdd(
+            a1,
+            IEEESPAdd(
+                a2,
+                a3
+            )
+        );
+        k = IEEESPAdd(
+            k,
+            IEEESPAdd(
+                IEEESPMul(
+                    float_8,
+                    b
+                ),
+                IEEESPMul(
+                    float_24,
+                    c
+                )
+            )
+        );
+
+        //k = (-b - 6.0 * c) * x * x * x + (6.0 * b + 30.0 * c) * x * x + (-12.0 * b - 48.0 * c) * x + 8.0 * b + 24.0 * c;
     }
     else
         k = 0;
     
-    k = 255.0 * k / 6.0 + 0.5;
+    k = IEEESPMul(
+        float_255,
+        k
+    );
+    k = IEEESPAdd(
+        IEEESPDiv(
+            k,
+            float_6
+        ),
+        float_0p5
+    );
+    //k = 255.0 * k / 6.0 + 0.5;
 
-    return (int)k;
+    return IEEESPFix(k);
 }
 
 int unity_kernel = 0xfd0;
 int kernel_start = 0xff0;
 
-int compute_scaling_kernel(uint32_t *dlist_memory, double b, double c)
+int compute_scaling_kernel(uint32_t *dlist_memory, ULONG b, ULONG c)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4;
-    uint32_t half_kernel[6] = {0, 0, 0, 0, 0, 0};
+    struct Library *MathIeeeSingBasBase = OpenLibrary("mathieeesingbas.library", 0);
 
-    for (int i=0; i < 16; i++) {
-        int val = mitchell_netravali(2.0 - (double)i / 7.5, b, c);
-#if 0
-        LONG args[] = {
-            i, val
-        };
-        RawDoFmt("[vc4] Kernel[%ld] = %ld\n", args, (APTR)putch, NULL);
-#endif
-        half_kernel[i / 3] |= (val & 0x1ff) << (9 * (i % 3));
-    }
-    half_kernel[5] |= half_kernel[5] << 9;
+    if (MathIeeeSingBasBase != NULL)
+    {
+        uint32_t half_kernel[6] = {0, 0, 0, 0, 0, 0};
 
-    for (int i=0; i<11; i++) {
-        if (i < 6) {
-            dlist_memory[kernel_start + i] = LE32(half_kernel[i]);
-        } else {
-            dlist_memory[kernel_start + i] = LE32(half_kernel[11 - i - 1]);
+        for (int i=0; i < 16; i++) {
+            const ULONG float_7p5 = 0x40f00000;
+            const ULONG float_2 = 0x40000000;
+            ULONG x = IEEESPFlt(i);
+            x = IEEESPDiv(x, float_7p5);
+            x = IEEESPNeg(x);
+            x = IEEESPAdd(x, float_2);
+
+            int val = mitchell_netravali(x, b, c, MathIeeeSingBasBase);
+
+            half_kernel[i / 3] |= (val & 0x1ff) << (9 * (i % 3));
         }
+        half_kernel[5] |= half_kernel[5] << 9;
+
+        for (int i=0; i<11; i++) {
+            if (i < 6) {
+                dlist_memory[kernel_start + i] = LE32(half_kernel[i]);
+            } else {
+                dlist_memory[kernel_start + i] = LE32(half_kernel[11 - i - 1]);
+            }
+        }
+
+        CloseLibrary(MathIeeeSingBasBase);
     }
 
     return kernel_start;
@@ -69,12 +201,6 @@ int compute_nearest_neighbour_kernel(uint32_t *dlist_memory)
 
     for (int i=0; i < 16; i++) {
         int val = i < 8 ? 0 : 255;
-#if 0
-        LONG args[] = {
-            i, val
-        };
-        RawDoFmt("[vc4] Kernel[%ld] = %ld\n", args, (APTR)putch, NULL);
-#endif
         half_kernel[i / 3] |= (val & 0x1ff) << (9 * (i % 3));
     }
     half_kernel[5] |= half_kernel[5] << 9;
@@ -90,7 +216,7 @@ int compute_nearest_neighbour_kernel(uint32_t *dlist_memory)
     return kernel_start;
 }
 
-UWORD CalculateBytesPerRow(struct BoardInfo *b asm("a0"), UWORD width asm("d0"), RGBFTYPE format asm("d7"))
+UWORD CalculateBytesPerRow(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD width, "d0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -126,7 +252,7 @@ UWORD CalculateBytesPerRow(struct BoardInfo *b asm("a0"), UWORD width asm("d0"),
     }
 }
 
-void SetDAC(struct BoardInfo *b asm("a0"), RGBFTYPE format asm("d7"))
+void SetDAC(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -138,7 +264,7 @@ void SetDAC(struct BoardInfo *b asm("a0"), RGBFTYPE format asm("d7"))
 }
 
 
-void SetGC(struct BoardInfo *b asm("a0"), struct ModeInfo *mode_info asm("a1"), BOOL border asm("d0"))
+void SetGC(REGARG(struct BoardInfo *b, "a0"), REGARG(struct ModeInfo *mode_info, "a1"), REGARG(BOOL border, "d0"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -165,7 +291,7 @@ void SetGC(struct BoardInfo *b asm("a0"), struct ModeInfo *mode_info asm("a1"), 
     }
 }
 
-UWORD SetSwitch(struct BoardInfo *b asm("a0"), UWORD enabled asm("d0"))
+UWORD SetSwitch(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD enabled, "d0"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -268,7 +394,9 @@ int AllocSlot(UWORD size, struct VC4Base *VC4Base)
     return ret;
 }
 
-void SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD width asm("d0"), WORD x_offset asm("d1"), WORD y_offset asm("d2"), RGBFTYPE format asm("d7"))
+void SetPanning(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE *addr, "a1"), 
+                REGARG(UWORD width, "d0"), REGARG(WORD x_offset, "d1"), REGARG(WORD y_offset, "d2"), 
+                REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -582,7 +710,8 @@ void SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD wid
 }
 
 
-void SetColorArray (__REGA0(struct BoardInfo *b), __REGD0(UWORD start), __REGD1(UWORD num)) {
+void SetColorArray(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD start, "d0"), REGARG(UWORD num, "d1"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     volatile uint32_t *displist = (uint32_t *)0xf2402000;
@@ -605,7 +734,8 @@ void SetColorArray (__REGA0(struct BoardInfo *b), __REGD0(UWORD start), __REGD1(
 }
 
 
-APTR CalculateMemory (__REGA0(struct BoardInfo *b), __REGA1(unsigned long addr), __REGD7(RGBFTYPE format)) {
+APTR CalculateMemory(REGARG(struct BoardInfo *b, "a0"), REGARG(unsigned long addr, "a1"), REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
 
@@ -616,7 +746,6 @@ APTR CalculateMemory (__REGA0(struct BoardInfo *b), __REGA1(unsigned long addr),
 
     return (APTR)addr;
 }
-
 
 enum fake_rgbftypes {
     RGBF_8BPP_CLUT,
@@ -642,7 +771,8 @@ enum fake_rgbftypes {
 };
 #define BIP(a) (1 << a)
 
-ULONG GetCompatibleFormats (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format)) {
+ULONG GetCompatibleFormats(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     if (0)
@@ -654,7 +784,7 @@ ULONG GetCompatibleFormats (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE forma
 }
 
 //static int display_enabled = 0;
-UWORD SetDisplay (__REGA0(struct BoardInfo *b), __REGD0(UWORD enabled))
+UWORD SetDisplay(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD enabled, "d0"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -673,8 +803,9 @@ UWORD SetDisplay (__REGA0(struct BoardInfo *b), __REGD0(UWORD enabled))
 }
 
 
-LONG ResolvePixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInfo *mode_info), __REGD0(ULONG pixel_clock), __REGD7(RGBFTYPE format)) {
-
+LONG ResolvePixelClock(REGARG(struct BoardInfo *b, "a0"), REGARG(struct ModeInfo *mode_info, "a1"),
+                       REGARG(ULONG pixel_clock, "d0"), REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     
@@ -695,7 +826,9 @@ LONG ResolvePixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInfo *m
     return 0;
 }
 
-ULONG GetPixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInfo *mode_info), __REGD0(ULONG index), __REGD7(RGBFTYPE format)) {
+ULONG GetPixelClock(REGARG(struct BoardInfo *b, "a0"), REGARG(struct ModeInfo *mode_info, "a1"),
+                    REGARG(ULONG index, "d0"), REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     
     ULONG clock = mode_info->HorTotal * mode_info->VerTotal * VC4Base->vc4_VertFreq;
@@ -707,21 +840,27 @@ ULONG GetPixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInfo *mode
 }
 
 // None of these five really have to do anything.
-void SetClock (__REGA0(struct BoardInfo *b)) {
-}
-void SetMemoryMode (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format)) {
-}
-
-void SetWriteMask (__REGA0(struct BoardInfo *b), __REGD0(UBYTE mask)) {
+void SetClock(REGARG(struct BoardInfo *b, "a0"))
+{
 }
 
-void SetClearMask (__REGA0(struct BoardInfo *b), __REGD0(UBYTE mask)) {
+void SetMemoryMode(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
+{
 }
 
-void SetReadPlane (__REGA0(struct BoardInfo *b), __REGD0(UBYTE plane)) {
+void SetWriteMask(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE mask, "d0"))
+{
 }
 
-void SetSprite (__REGA0(struct BoardInfo *b), __REGD0(BOOL enable), __REGD7(RGBFTYPE format))
+void SetClearMask(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE mask, "d0"))
+{
+}
+
+void SetReadPlane(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE plane, "d0"))
+{
+}
+
+void SetSprite(REGARG(struct BoardInfo *b, "a0"), REGARG(BOOL enable, "d0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
 
@@ -753,7 +892,8 @@ void SetSprite (__REGA0(struct BoardInfo *b), __REGD0(BOOL enable), __REGD7(RGBF
     }
 }
 
-void SetSpritePosition (__REGA0(struct BoardInfo *b), __REGD0(WORD x), __REGD1(WORD y), __REGD7(RGBFTYPE format))
+void SetSpritePosition(REGARG(struct BoardInfo *b, "a0"), REGARG(WORD x, "d0"),
+                       REGARG(WORD y, "d1"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
 
@@ -790,7 +930,7 @@ void SetSpritePosition (__REGA0(struct BoardInfo *b), __REGD0(WORD x), __REGD1(W
 }
 
 
-void SetSpriteImage (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format))
+void SetSpriteImage(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = *(struct ExecBase **)4;
@@ -857,7 +997,9 @@ void SetSpriteImage (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format))
     CacheClearE(VC4Base->vc4_SpriteShape, MAXSPRITEHEIGHT * MAXSPRITEWIDTH, CACRF_ClearD);
 }
 
-void SetSpriteColor (__REGA0(struct BoardInfo *b), __REGD0(UBYTE idx), __REGD1(UBYTE R), __REGD2(UBYTE G), __REGD3(UBYTE B), __REGD7(RGBFTYPE format))
+void SetSpriteColor(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE idx, "d0"),
+                    REGARG(UBYTE R, "d1"), REGARG(UBYTE G, "d2"), REGARG(UBYTE B, "d3"),
+                    REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     if (idx < 3) {
@@ -868,7 +1010,7 @@ void SetSpriteColor (__REGA0(struct BoardInfo *b), __REGD0(UBYTE idx), __REGD1(U
     }
 }
 
-ULONG GetVBeamPos(struct BoardInfo *b asm("a0"))
+ULONG GetVBeamPos(REGARG(struct BoardInfo *b, "a0"))
 {
     volatile ULONG *stat = (ULONG*)(0xf2400000 + SCALER_DISPSTAT1);
     ULONG vbeampos = LE32(*stat) & 0xfff;
@@ -876,7 +1018,8 @@ ULONG GetVBeamPos(struct BoardInfo *b asm("a0"))
     return vbeampos;
 }
 
-void WaitVerticalSync (__REGA0(struct BoardInfo *b), __REGD0(BOOL toggle)) {
+void WaitVerticalSync(REGARG(struct BoardInfo *b, "a0"), REGARG(BOOL toggle, "d0"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     volatile ULONG *stat = (ULONG*)(0xf2400000 + SCALER_DISPSTAT1);
 
