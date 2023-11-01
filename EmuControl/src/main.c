@@ -1730,7 +1730,10 @@ int main(int wantGUI)
                 if (p)
                 {
                     if (LoadPreset(p, name)) {
-                        Printf("Loading preset '%s'\n", (ULONG)name);
+                        if (!silent)
+                            Printf("Loading preset '%s'\n", (ULONG)name);
+
+                        wantGUI = 0;
 
                         if (p->pr_InlineLoopCnt == 0)
                             p->pr_InlineLoopCnt = 1;
@@ -1765,121 +1768,145 @@ int main(int wantGUI)
                             UserState(ssp);
                     }
                     FreeMem(p, sizeof(struct Preset));
-                    FreeArgs(args);
-                    CloseLibrary((struct Library *)DOSBase);
-                    return 0;
                 }
             }
-
-            if (result[OPT_INSN_COUNT]) {
-                ULONG icnt = *(ULONG*)(result[OPT_INSN_COUNT]);
-                
-                if (icnt < 1)
-                    icnt = 1;
-                if (icnt > 256)
-                    icnt = 256;
-
-                if (!silent)
-                    Printf("- Changing JIT instruction depth to %ld\n", icnt);
-
-                APTR ssp = SuperState();
-                setINSN_DEPTH(icnt);
-                if (ssp)
-                    UserState(ssp);
-            }
-
-            if (result[OPT_INLINE_RANGE])
+            else if (result[OPT_DEFAULTS])
             {
-                ULONG irng = *(ULONG*)(result[OPT_INLINE_RANGE]);
+                if (!silent)
+                    Printf("Resetting to defaults\n");
                 
-                if (irng < 1)
-                    irng = 1;
-                if (irng > 65535)
-                    irng = 65535;
-
-                if (!silent)
-                    Printf("- Changing JIT inlining range to %ld\n", irng);
-
+                wantGUI = 0;
+                
                 APTR ssp = SuperState();
-                setINLINE_RANGE(irng);
-                if (ssp)
-                    UserState(ssp);
-            }
 
-            if (result[OPT_SLOW_CACHE]) {
-                if (!silent)
-                    Printf("- Enabling checksummed slow JIT cache\n");
-
-                APTR ssp = SuperState();
-                setCACHE_IE(0);
-                if (ssp)
-                    UserState(ssp);
-            }
-
-            if (result[OPT_FAST_CACHE] && !result[OPT_SLOW_CACHE]) {
-
-                if (!silent)
-                    Printf("- Enabling fast JIT cache\n");
-
-                APTR ssp = SuperState();
-                setCACHE_IE(1);
-                if (ssp)
-                    UserState(ssp);
-            }
-
-            if (result[OPT_CHIP_SLOWDOWN]) {
-                if (!silent)
-                    Printf("- Enabling slowdown of JIT running from CHIP memory\n");
-
-                APTR ssp = SuperState();
-                setSLOWDOWN_CHIP(1);
-                if (ssp)
-                    UserState(ssp);
-            }
-
-            if (result[OPT_NO_CHIP_SLOWDOWN] && !result[OPT_CHIP_SLOWDOWN]) {
-                if (!silent)
-                    Printf("- Disabling slowdown of JIT running from CHIP memory\n");
-
-                APTR ssp = SuperState();
+                setINLINE_RANGE(8191);
+                setSOFT_THRESH(500);
+                setDEBUG_LOW(0);
+                setDEBUG_HIGH(0xffffffff);
+                setDEBUG_EN(0);
+                setDEBUG_DISASM(0);
+                setINSN_DEPTH(256);
+                setLOOP_COUNT(8);
+                setCCR_DEPTH(20);
                 setSLOWDOWN_CHIP(0);
-                if (ssp)
-                    UserState(ssp);
-            }
-
-            if (result[OPT_DBF_SLOWDOWN]) {
-                if (!silent)
-                    Printf("- Enabling slowdown of DBF busy loops running from CHIP memory\n");
-
-                APTR ssp = SuperState();
-                setSLOWDOWN_DBF(1);
-                if (ssp)
-                    UserState(ssp);
-            }
-
-            if (result[OPT_NO_DBF_SLOWDOWN] && !result[OPT_DBF_SLOWDOWN]) {
-                if (!silent)
-                    Printf("- Disabling slowdown of DBF busy loops running from CHIP memory\n");
-
-                APTR ssp = SuperState();
                 setSLOWDOWN_DBF(0);
-                if (ssp)
-                    UserState(ssp);
+                setSOFT_FLUSH(1);
+                setCACHE_IE(1);
+
+                if (ssp) UserState(ssp);
             }
+            else
+            {
+                if (result[OPT_INSN_COUNT]) {
+                    ULONG icnt = *(ULONG*)(result[OPT_INSN_COUNT]);
+                    
+                    if (icnt < 1)
+                        icnt = 1;
+                    if (icnt > 256)
+                        icnt = 256;
 
-            if (result[OPT_CCR_SCAN_DEPTH]) {
-                ULONG ccrd = *(ULONG*)(result[OPT_CCR_SCAN_DEPTH]);
-                
-                if (ccrd > 31)
-                    ccrd = 31;
+                    if (!silent)
+                        Printf("- Changing JIT instruction depth to %ld\n", icnt);
 
-                if (!silent)
-                    Printf("- Changing CCR scan depth to %ld\n", ccrd);
+                    APTR ssp = SuperState();
+                    setINSN_DEPTH(icnt);
+                    if (ssp)
+                        UserState(ssp);
+                }
 
-                APTR ssp = SuperState();
-                setCCR_DEPTH(ccrd);
-                if (ssp)
-                    UserState(ssp);
+                if (result[OPT_INLINE_RANGE])
+                {
+                    ULONG irng = *(ULONG*)(result[OPT_INLINE_RANGE]);
+                    
+                    if (irng < 1)
+                        irng = 1;
+                    if (irng > 65535)
+                        irng = 65535;
+
+                    if (!silent)
+                        Printf("- Changing JIT inlining range to %ld\n", irng);
+
+                    APTR ssp = SuperState();
+                    setINLINE_RANGE(irng);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_SLOW_CACHE]) {
+                    if (!silent)
+                        Printf("- Enabling checksummed slow JIT cache\n");
+
+                    APTR ssp = SuperState();
+                    setCACHE_IE(0);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_FAST_CACHE] && !result[OPT_SLOW_CACHE]) {
+
+                    if (!silent)
+                        Printf("- Enabling fast JIT cache\n");
+
+                    APTR ssp = SuperState();
+                    setCACHE_IE(1);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_CHIP_SLOWDOWN]) {
+                    if (!silent)
+                        Printf("- Enabling slowdown of JIT running from CHIP memory\n");
+
+                    APTR ssp = SuperState();
+                    setSLOWDOWN_CHIP(1);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_NO_CHIP_SLOWDOWN] && !result[OPT_CHIP_SLOWDOWN]) {
+                    if (!silent)
+                        Printf("- Disabling slowdown of JIT running from CHIP memory\n");
+
+                    APTR ssp = SuperState();
+                    setSLOWDOWN_CHIP(0);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_DBF_SLOWDOWN]) {
+                    if (!silent)
+                        Printf("- Enabling slowdown of DBF busy loops running from CHIP memory\n");
+
+                    APTR ssp = SuperState();
+                    setSLOWDOWN_DBF(1);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_NO_DBF_SLOWDOWN] && !result[OPT_DBF_SLOWDOWN]) {
+                    if (!silent)
+                        Printf("- Disabling slowdown of DBF busy loops running from CHIP memory\n");
+
+                    APTR ssp = SuperState();
+                    setSLOWDOWN_DBF(0);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_CCR_SCAN_DEPTH]) {
+                    ULONG ccrd = *(ULONG*)(result[OPT_CCR_SCAN_DEPTH]);
+                    
+                    if (ccrd > 31)
+                        ccrd = 31;
+
+                    if (!silent)
+                        Printf("- Changing CCR scan depth to %ld\n", ccrd);
+
+                    APTR ssp = SuperState();
+                    setCCR_DEPTH(ccrd);
+                    if (ssp)
+                        UserState(ssp);
+                }
             }
 
             FreeArgs(args);
