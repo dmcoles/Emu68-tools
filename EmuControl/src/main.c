@@ -70,6 +70,7 @@ Object *app;
 Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP, *SlowDBF;
 Object *MainArea, *MIPS_M68k, *MIPS_ARM, *JITUsage, *Effectiveness, *CacheMiss, *SoftThresh;
 Object *JITCount, *EnableDebug, *EnableDisasm, *DebugMin, *DebugMax, *CoreTemp, *CoreVolt, *CCRDepth;
+Object *MenuOpen, *MenuSaveAs, *MenuQuit, *MenuDefaults;
 
 /*
     Some properties, like e.g. #size-cells, are not always available in a key, but in that case the properties
@@ -1206,6 +1207,25 @@ ULONG ChangeDebugDisasm()
     return 0;
 }
 
+ULONG ResetToDefaults()
+{
+    set(DebugMin, MUIA_String_Contents, (ULONG)"00000000");
+    set(DebugMax, MUIA_String_Contents, (ULONG)"ffffffff");
+    set(EnableDebug, MUIA_Selected, FALSE);
+    set(EnableDisasm, MUIA_Selected, FALSE);
+    set(SlowCHIP, MUIA_Selected, FALSE);
+    set(SlowDBF, MUIA_Selected, FALSE);
+    set(FastCache, MUIA_Selected, TRUE);
+    set(SoftFlush, MUIA_Selected, TRUE);
+    set(CCRDepth, MUIA_Numeric_Value, 20);
+    set(INSNDepth, MUIA_Numeric_Value, 256);
+    set(LoopCount, MUIA_Numeric_Value, 8);
+    set(SoftThresh, MUIA_Numeric_Value, 500);
+    set(InlineRange, MUIA_Numeric_Value, 13);
+    
+    return 0;
+}
+
 struct Hook hook_INSNDepth = {
     .h_Entry = ChangeINSNDepth
 };
@@ -1262,6 +1282,10 @@ struct Hook hook_SlowDBF = {
     .h_Entry = ChangeSlowDBF
 };
 
+struct Hook hook_ResetToDefaults = {
+    .h_Entry = ResetToDefaults
+};
+
 BOOL previewOnly;
 
 void MUIMain()
@@ -1281,6 +1305,27 @@ void MUIMain()
                 MUIA_Application_Description, (ULONG)APPNAME,
                 MUIA_Application_Base, (ULONG)"EMUCONTROL",
                 MUIA_Application_SingleTask, TRUE,
+
+                MUIA_Application_Menustrip, MenustripObject,
+                    MUIA_Family_Child, MenuObject,
+                        MUIA_Menu_Title, (ULONG)"Project",
+                        MUIA_Family_Child, MenuOpen = MenuitemObject,
+                            MUIA_Menuitem_Title, (ULONG)"Open",
+                        End,
+                        MUIA_Family_Child, MenuSaveAs = MenuitemObject,
+                            MUIA_Menuitem_Title, (ULONG)"Save As",
+                        End,
+                        MUIA_Family_Child, MenuQuit = MenuitemObject,
+                            MUIA_Menuitem_Title, (ULONG)"Quit",
+                        End,
+                    End,
+                    MUIA_Family_Child, MenuObject,
+                        MUIA_Menu_Title, (ULONG)"Edit",
+                        MUIA_Family_Child, MenuDefaults = MenuitemObject,
+                            MUIA_Menuitem_Title, (ULONG)"Reset to Defaults",
+                        End,
+                    End,
+                End,
 
                 SubWindow, MainWindow = WindowObject,
                     MUIA_Window_Title, (ULONG)APPNAME,
@@ -1452,12 +1497,18 @@ void MUIMain()
 
             DoMethod(MainWindow, MUIM_Notify, MUIA_Window_CloseRequest, TRUE,
                 (ULONG)app, 2, MUIM_Application_ReturnID, MUIV_Application_ReturnID_Quit);
-            
+
             DoMethod(app, MUIM_Notify, MUIA_Application_DoubleStart, MUIV_EveryTime,
                 (ULONG)app, 3, MUIM_Set, MUIA_Application_Iconified, FALSE);
 
             DoMethod(app, MUIM_Notify, MUIA_Application_DoubleStart, MUIV_EveryTime,
                 (ULONG)MainWindow, 1, MUIM_Window_ToFront);
+
+            DoMethod(MenuQuit, MUIM_Notify, MUIA_Menuitem_Trigger, MUIV_EveryTime,
+                (ULONG)app, 2, MUIM_Application_ReturnID, MUIV_Application_ReturnID_Quit);
+
+            DoMethod(MenuDefaults, MUIM_Notify, MUIA_Menuitem_Trigger, MUIV_EveryTime,
+                (ULONG)app, 2, MUIM_CallHook, (ULONG)&hook_ResetToDefaults);
 
             set(SoftFlush, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(FastCache, MUIA_InputMode, MUIV_InputMode_Toggle);
