@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include "mbox.h"
+#include "presets.h"
 
 int main(int);
 
@@ -1619,9 +1620,10 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "LOAD/K,ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
+    OPT_PRESET_LOAD,
     OPT_INSN_COUNT,
     OPT_INLINE_RANGE,
     OPT_LOOP_CNT,
@@ -1668,6 +1670,55 @@ int main(int wantGUI)
 
             if (!silent)
                 Printf("%s\n", (ULONG)&VERSION_STRING[6]);
+
+            if (result[OPT_PRESET_LOAD])
+            {
+                STRPTR name = (STRPTR)(result[OPT_PRESET_LOAD]);
+                struct Preset *p = AllocMem(sizeof(struct Preset), MEMF_CLEAR);
+
+                if (p)
+                {
+                    if (LoadPreset(p, name)) {
+                        Printf("Loading preset '%s'\n", (ULONG)name);
+
+                        if (p->pr_InlineLoopCnt == 0)
+                            p->pr_InlineLoopCnt = 1;
+                        else if (p->pr_InlineLoopCnt > 16)
+                            p->pr_InlineLoopCnt = 16;
+
+                        if (p->pr_CCRDepth > 31)
+                            p->pr_CCRDepth = 31;
+
+                        if (p->pr_SoftFlushThreshold == 0)
+                            p->pr_SoftFlushThreshold = 1;
+                        else if (p->pr_SoftFlushThreshold > 4000)
+                            p->pr_SoftFlushThreshold = 4000;
+
+                        APTR ssp = SuperState();
+
+                        setINLINE_RANGE(p->pr_InlineRange);
+                        setSOFT_THRESH(p->pr_SoftFlushThreshold);
+                        setDEBUG_LOW(p->pr_DebugStart);
+                        setDEBUG_HIGH(p->pr_DebugEnd);
+                        setDEBUG_EN(p->pr_DebugFlag & DBGF_DEBUG_ON);
+                        setDEBUG_DISASM(p->pr_DebugFlag & DBGF_DISASM_ON);
+                        setINSN_DEPTH((ULONG)p->pr_INSNDepth + 1);
+                        setLOOP_COUNT(p->pr_InlineLoopCnt);
+                        setCCR_DEPTH(p->pr_CCRDepth);
+                        setSLOWDOWN_CHIP(p->pr_JITFlags & JITF_SLOW_CHIP);
+                        setSLOWDOWN_DBF(p->pr_JITFlags & JITF_SLOW_DBF);
+                        setSOFT_FLUSH(p->pr_JITFlags & JITF_SOFT_FLUSH);
+                        setCACHE_IE(p->pr_JITFlags & JITF_FAST_CACHE);
+                            
+                        if (ssp)
+                            UserState(ssp);
+                    }
+                    FreeMem(p, sizeof(struct Preset));
+                    FreeArgs(args);
+                    CloseLibrary((struct Library *)DOSBase);
+                    return 0;
+                }
+            }
 
             if (result[OPT_INSN_COUNT]) {
                 ULONG icnt = *(ULONG*)(result[OPT_INSN_COUNT]);

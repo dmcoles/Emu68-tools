@@ -9,6 +9,7 @@ add_compile_definitions(PRIVATE VERSION_STRING="${VERSTRING}")
 add_executable(EmuControl
     src/main.c
     src/mbox.c
+    src/presets.c
 )
 
 target_link_libraries(EmuControl mui amiga devicetree)
