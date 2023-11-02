@@ -21,9 +21,9 @@ struct PrefHeader
     ULONG ph_Flags;
 } prhd = { 1, 0, 0 };
 
-static const char default_dir[] = "SYS:Prefs/Presets";
+const char default_dir[] = "SYS:Prefs/Presets";
 
-int SavePreset(struct Preset * preset, char *name)
+int SavePreset(struct Preset * preset, char *name, char *path)
 {
     char dirname[256];
     int retval = 0;
@@ -31,8 +31,16 @@ int SavePreset(struct Preset * preset, char *name)
 
     if (IFFParseBase != NULL)
     {
-        // Copy default path first
-        CopyMem((void*)default_dir, dirname, sizeof(default_dir));
+        // If no path was given, copy default path first, otherwise copy specified path
+        if (path == NULL) {
+            CopyMem((void*)default_dir, dirname, sizeof(default_dir));
+        } else {
+            int n=0;
+            do {
+                dirname[n++] = *path++;
+            } while(*path && n < (sizeof(dirname) - 1));
+            dirname[n] = 0;
+        }
 
         // Append file name. If it was given as absolute path, it will overwrite default dir
         if (AddPart(dirname, name, sizeof(dirname)) == DOSFALSE)
@@ -80,7 +88,7 @@ int SavePreset(struct Preset * preset, char *name)
     return retval;
 }
 
-int LoadPreset(struct Preset * preset, char * name)
+int LoadPreset(struct Preset * preset, char * name, char *path)
 {
     char dirname[256];
     int retval = 0;
@@ -88,8 +96,16 @@ int LoadPreset(struct Preset * preset, char * name)
 
     if (IFFParseBase != NULL)
     {
-        // Copy default path first
-        CopyMem((void*)default_dir, dirname, sizeof(default_dir));
+        // If no path was given, copy default path first, otherwise copy specified path
+        if (path == NULL) {
+            CopyMem((void*)default_dir, dirname, sizeof(default_dir));
+        } else {
+            int n=0;
+            do {
+                dirname[n++] = *path++;
+            } while(*path && n < (sizeof(dirname) - 1));
+            dirname[n] = 0;
+        }
 
         // Append file name. If it was given as absolute path, it will overwrite default dir
         if (AddPart(dirname, name, sizeof(dirname)) == DOSFALSE)

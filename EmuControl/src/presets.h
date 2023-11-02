@@ -25,7 +25,7 @@ struct Preset {
 #define DBGF_DISASM_ON      0x02
 
 
-int SavePreset(struct Preset * preset, char *name);
-int LoadPreset(struct Preset * preset, char *name);
+int SavePreset(struct Preset * preset, char *name, char *path);
+int LoadPreset(struct Preset * preset, char *name, char *path);
 
 #endif /* _PRESETS_H */

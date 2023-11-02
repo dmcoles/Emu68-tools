@@ -10,12 +10,14 @@
 #include <dos/dosextens.h>
 #include <dos/rdargs.h>
 #include <libraries/mui.h>
+#include <libraries/asl.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/graphics.h>
 #include <proto/intuition.h>
 #include <proto/gadtools.h>
 #include <proto/devicetree.h>
+#include <proto/asl.h>
 #include <clib/muimaster_protos.h>
 #include <clib/alib_protos.h>
 #include <utility/tagitem.h>
@@ -925,6 +927,96 @@ ULONG update()
     old_cmiss = cmiss;
 }
 
+ULONG DoSavePreset()
+{
+    struct Library *AslBase = OpenLibrary("asl.library", 0);
+    extern const char default_dir[];
+    if (AslBase != NULL)
+    {
+        struct FileRequester *fr = AllocAslRequest(ASL_FileRequest, NULL);
+        if (fr != NULL)
+        {
+            BOOL result = AslRequestTags(fr,
+                ASLFR_TitleText, (ULONG)"Give preset a name...",
+                ASLFR_DoSaveMode, TRUE,
+                ASLFR_RejectIcons, TRUE,
+                ASLFR_InitialDrawer, (ULONG)default_dir,
+                TAG_DONE, 0UL
+            );
+
+            if (result)
+            {
+                struct Preset p;
+                char *charptr;
+                char *c;
+                ULONG tmp;
+                
+                get(DebugMin, MUIA_String_Contents, (ULONG*)&charptr);
+                p.pr_DebugStart = 0;
+                c = charptr;
+                while (*c) {
+                    p.pr_DebugStart <<= 4;
+                    if (*c >= '0' && *c <= '9')
+                        p.pr_DebugStart |= (*c - '0') & 0xf;
+                    else if (*c >= 'A' && *c <= 'F')
+                        p.pr_DebugStart |= (*c - 'A' + 10) & 0xf;
+                    else if (*c >= 'a' && *c <= 'f')
+                        p.pr_DebugStart |= (*c - 'a' + 10) & 0xf;
+                    c++;
+                }
+
+                get(DebugMax, MUIA_String_Contents, (ULONG*)&charptr);
+                p.pr_DebugEnd = 0;
+                c = charptr;
+                while (*c) {
+                    p.pr_DebugEnd <<= 4;
+                    if (*c >= '0' && *c <= '9')
+                        p.pr_DebugEnd |= (*c - '0') & 0xf;
+                    else if (*c >= 'A' && *c <= 'F')
+                        p.pr_DebugEnd |= (*c - 'A' + 10) & 0xf;
+                    else if (*c >= 'a' && *c <= 'f')
+                        p.pr_DebugEnd |= (*c - 'a' + 10) & 0xf;
+                    c++;
+                }
+
+                p.pr_DebugFlag = 0;
+                get(EnableDisasm, MUIA_Selected, &tmp);
+                if (tmp) p.pr_DebugFlag |= DBGF_DISASM_ON;
+                get(EnableDebug, MUIA_Selected, &tmp);
+                if (tmp) p.pr_DebugFlag |= DBGF_DEBUG_ON;
+
+                p.pr_JITFlags = 0;
+                get(SlowCHIP, MUIA_Selected, &tmp);
+                if (tmp) p.pr_JITFlags |= JITF_SLOW_CHIP;
+                get(SlowDBF, MUIA_Selected, &tmp);
+                if (tmp) p.pr_JITFlags |= JITF_SLOW_DBF;
+                get(FastCache, MUIA_Selected, &tmp);
+                if (tmp) p.pr_JITFlags |= JITF_FAST_CACHE;
+                get(SoftFlush, MUIA_Selected, &tmp);
+                if (tmp) p.pr_JITFlags |= JITF_SOFT_FLUSH;
+                get(CCRDepth, MUIA_Numeric_Value, &tmp);
+                p.pr_CCRDepth = tmp;
+                get(INSNDepth, MUIA_Numeric_Value, &tmp);
+                p.pr_INSNDepth = tmp - 1;
+                get(LoopCount, MUIA_Numeric_Value, &tmp);
+                p.pr_InlineLoopCnt = tmp;
+                get(SoftThresh, MUIA_Numeric_Value, &tmp);
+                p.pr_SoftFlushThreshold = tmp;
+                get(InlineRange, MUIA_Numeric_Value, &tmp);
+                p.pr_InlineRange = (1 << tmp) - 1;
+                
+                SavePreset(&p, fr->fr_File, fr->fr_Drawer);
+            }
+
+            FreeAslRequest(fr);
+        }
+
+        CloseLibrary(AslBase);
+    }
+
+    return 0;
+}
+
 ULONG SliderDispatcher(struct IClass *ic asm("a0"), Object *o asm("a2"), Msg message asm("a1"))
 {
     static char str[16];
@@ -1286,6 +1378,10 @@ struct Hook hook_ResetToDefaults = {
     .h_Entry = ResetToDefaults
 };
 
+struct Hook hook_SavePreset = {
+    .h_Entry = DoSavePreset
+};
+
 BOOL previewOnly;
 
 void MUIMain()
@@ -1510,6 +1606,9 @@ void MUIMain()
             DoMethod(MenuDefaults, MUIM_Notify, MUIA_Menuitem_Trigger, MUIV_EveryTime,
                 (ULONG)app, 2, MUIM_CallHook, (ULONG)&hook_ResetToDefaults);
 
+            DoMethod(MenuSaveAs, MUIM_Notify, MUIA_Menuitem_Trigger, MUIV_EveryTime,
+                (ULONG)app, 2, MUIM_CallHook, (ULONG)&hook_SavePreset);
+
             set(SoftFlush, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(FastCache, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(SlowCHIP, MUIA_InputMode, MUIV_InputMode_Toggle);
@@ -1729,7 +1828,7 @@ int main(int wantGUI)
 
                 if (p)
                 {
-                    if (LoadPreset(p, name)) {
+                    if (LoadPreset(p, name, NULL)) {
                         if (!silent)
                             Printf("Loading preset '%s'\n", (ULONG)name);
 
