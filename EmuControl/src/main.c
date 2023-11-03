@@ -24,6 +24,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#include <common/compiler.h>
+
 #include "mbox.h"
 #include "presets.h"
 
@@ -1017,7 +1019,98 @@ ULONG DoSavePreset()
     return 0;
 }
 
-ULONG SliderDispatcher(struct IClass *ic asm("a0"), Object *o asm("a2"), Msg message asm("a1"))
+ULONG DoLoadPreset()
+{
+    struct Library *AslBase = OpenLibrary("asl.library", 0);
+    extern const char default_dir[];
+    if (AslBase != NULL)
+    {
+        struct FileRequester *fr = AllocAslRequest(ASL_FileRequest, NULL);
+        if (fr != NULL)
+        {
+            BOOL result = AslRequestTags(fr,
+                ASLFR_TitleText, (ULONG)"Open existing preset...",
+                ASLFR_DoSaveMode, FALSE,
+                ASLFR_RejectIcons, TRUE,
+                ASLFR_InitialDrawer, (ULONG)default_dir,
+                TAG_DONE, 0UL
+            );
+
+            if (result)
+            {
+                struct Preset p;
+                char *charptr;
+                char *c;
+                ULONG tmp;
+
+                if (LoadPreset(&p, fr->fr_File, fr->fr_Drawer))
+                {
+                    char tmp_str[32];
+                    _sprintf(tmp_str, "%08lx", p.pr_DebugStart);
+                    set(DebugMin, MUIA_String_Contents, (ULONG)tmp_str);
+
+                    _sprintf(tmp_str, "%08lx", p.pr_DebugEnd);
+                    set(DebugMax, MUIA_String_Contents, (ULONG)tmp_str);
+
+                    if (p.pr_DebugFlag & DBGF_DEBUG_ON)
+                        set(EnableDebug, MUIA_Selected, TRUE);
+                    else
+                        set(EnableDebug, MUIA_Selected, FALSE);
+
+                    if (p.pr_DebugFlag & DBGF_DISASM_ON)
+                        set(EnableDisasm, MUIA_Selected, TRUE);
+                    else
+                        set(EnableDisasm, MUIA_Selected, FALSE);
+
+                    if (p.pr_JITFlags & JITF_FAST_CACHE)
+                        set(FastCache, MUIA_Selected, TRUE);
+                    else
+                        set(FastCache, MUIA_Selected, FALSE);
+
+                    if (p.pr_JITFlags & JITF_FAST_CACHE)
+                        set(FastCache, MUIA_Selected, TRUE);
+                    else
+                        set(FastCache, MUIA_Selected, FALSE);
+
+                    if (p.pr_JITFlags & JITF_SOFT_FLUSH)
+                        set(SoftFlush, MUIA_Selected, TRUE);
+                    else
+                        set(SoftFlush, MUIA_Selected, FALSE);
+
+                    if (p.pr_JITFlags & JITF_SLOW_CHIP)
+                        set(SlowCHIP, MUIA_Selected, TRUE);
+                    else
+                        set(SlowCHIP, MUIA_Selected, FALSE);
+
+                    if (p.pr_JITFlags & JITF_SLOW_DBF)
+                        set(SlowDBF, MUIA_Selected, TRUE);
+                    else
+                        set(SlowDBF, MUIA_Selected, FALSE);
+
+                    set(CCRDepth, MUIA_Numeric_Value, p.pr_CCRDepth);
+                    set(INSNDepth, MUIA_Numeric_Value, p.pr_INSNDepth + 1);
+                    set(LoopCount, MUIA_Numeric_Value, p.pr_InlineLoopCnt);
+                    set(SoftThresh, MUIA_Numeric_Value, p.pr_SoftFlushThreshold);
+
+                    for (int i=0; i <= 16; i++) {
+                        if ((1 << i) > p.pr_InlineRange) {
+                            set(InlineRange, MUIA_Numeric_Value, i);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            FreeAslRequest(fr);
+        }
+
+        CloseLibrary(AslBase);
+    }
+
+    return 0;
+}
+
+ULONG SliderDispatcher(REGARG(struct IClass *ic, "a0"), REGARG(Object *o, "a2"), REGARG(Msg message, "a1"))
 {
     static char str[16];
 
@@ -1033,7 +1126,7 @@ ULONG SliderDispatcher(struct IClass *ic asm("a0"), Object *o asm("a2"), Msg mes
     }
 }
 
-ULONG UpdaterDispatcher(struct IClass *ic asm("a0"), Msg message asm("a1"), Object *o asm("a2"))
+ULONG UpdaterDispatcher(REGARG(struct IClass *ic, "a0"), REGARG(Msg message, "a1"), REGARG(Object *o, "a2"))
 {
     ULONG *mId = (ULONG *)message;
 
@@ -1382,6 +1475,10 @@ struct Hook hook_SavePreset = {
     .h_Entry = DoSavePreset
 };
 
+struct Hook hook_LoadPreset = {
+    .h_Entry = DoLoadPreset
+};
+
 BOOL previewOnly;
 
 void MUIMain()
@@ -1396,7 +1493,7 @@ void MUIMain()
         app = ApplicationObject, 
                 MUIA_Application_Title, (ULONG)APPNAME,
                 MUIA_Application_Version, (ULONG)version,
-                MUIA_Application_Copyright, (ULONG)"(C) 2022 Michal Schulz",
+                MUIA_Application_Copyright, (ULONG)"(C) 2022-2023 Michal Schulz",
                 MUIA_Application_Author, (ULONG)"Michal Schulz",
                 MUIA_Application_Description, (ULONG)APPNAME,
                 MUIA_Application_Base, (ULONG)"EMUCONTROL",
@@ -1605,6 +1702,9 @@ void MUIMain()
 
             DoMethod(MenuDefaults, MUIM_Notify, MUIA_Menuitem_Trigger, MUIV_EveryTime,
                 (ULONG)app, 2, MUIM_CallHook, (ULONG)&hook_ResetToDefaults);
+
+            DoMethod(MenuOpen, MUIM_Notify, MUIA_Menuitem_Trigger, MUIV_EveryTime,
+                (ULONG)app, 2, MUIM_CallHook, (ULONG)&hook_LoadPreset);
 
             DoMethod(MenuSaveAs, MUIM_Notify, MUIA_Menuitem_Trigger, MUIV_EveryTime,
                 (ULONG)app, 2, MUIM_CallHook, (ULONG)&hook_SavePreset);

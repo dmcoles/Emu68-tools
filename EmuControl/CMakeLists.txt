@@ -12,7 +12,7 @@ add_executable(EmuControl
     src/presets.c
 )
 
-target_link_libraries(EmuControl mui amiga devicetree)
+target_link_libraries(EmuControl mui amiga devicetree common)
 
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/EmuControl DESTINATION ./EmuControl/)
 install(FILES EmuControl.info DESTINATION ./EmuControl/)
