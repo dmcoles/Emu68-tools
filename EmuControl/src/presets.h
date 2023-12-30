@@ -21,6 +21,7 @@ struct Preset {
 #define JITF_FAST_CACHE     0x02
 #define JITF_SLOW_CHIP      0x04
 #define JITF_SLOW_DBF       0x08
+#define JITF_BLIT_WAIT      0x10
 
 #define DBGF_DEBUG_ON       0x01
 #define DBGF_DISASM_ON      0x02
