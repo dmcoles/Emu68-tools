@@ -19,7 +19,7 @@ struct PrefHeader
     UBYTE ph_Version;
     UBYTE ph_Type;
     ULONG ph_Flags;
-} prhd = { 1, 0, 0 };
+} prhd = { 2, 0, 0 };
 
 const char default_dir[] = "SYS:Prefs/Presets";
 
@@ -129,9 +129,17 @@ int LoadPreset(struct Preset * preset, char * name, char *path)
                 StopChunk(iff, ID_PREF, ID_EMUC);
                 ParseIFF(iff, IFFPARSE_SCAN);
 
-                if (FindProp(iff, ID_PREF, ID_PRHD))
+                struct StoredProperty *sp = FindProp(iff, ID_PREF, ID_PRHD);
+
+                if (sp)
                 {
+                    struct PrefHeader *pf = (struct PrefHeader *)sp->sp_Data;
                     ReadChunkBytes(iff, preset, sizeof(struct Preset));
+                    /* For version 1 of the header set SlowChipSpacing to 0xff which disables changing it */
+                    if (pf->ph_Version == 1)
+                    {
+                        preset->pr_SlowChipSpacing = 0xff;
+                    }
                     retval = 1;
                 }
 

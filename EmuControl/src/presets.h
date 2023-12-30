@@ -14,6 +14,7 @@ struct Preset {
     UBYTE pr_InlineLoopCnt;
     UBYTE pr_CCRDepth;
     UBYTE pr_JITFlags;
+    UBYTE pr_SlowChipSpacing;
 };
 
 #define JITF_SOFT_FLUSH     0x01

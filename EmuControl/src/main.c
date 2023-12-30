@@ -324,6 +324,35 @@ static inline void setCCR_DEPTH(ULONG depth)
     asm volatile("movec %0, #0x1e0"::"r"(reg));
 }
 
+static inline ULONG getSLOW_CHIP_SPACING()
+{
+    ULONG res;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(res));
+    return 1 + ((res >> 8) & 0x07);
+}
+
+static inline void setSLOW_CHIP_SPACING(ULONG spacing)
+{
+    ULONG reg;
+
+    // If spacing is set to 0xff do not set it at all
+    if (spacing == 0xff)
+        return;
+    
+    // Spacing is in range 1 to 8
+    if (spacing == 0)
+        spacing = 1;
+    if (spacing > 8)
+        spacing = 8;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(reg));
+    reg = (reg & 0xfffff8ff);
+    reg |= ((spacing - 1) & 0x07) << 8;
+    asm volatile("movec %0, #0x1e0"::"r"(reg));
+}
+
+
 static inline void setSOFT_THRESH(ULONG thresh)
 {
     asm volatile("movec %0, #0xea"::"r"(thresh));
@@ -1537,6 +1566,7 @@ void MUIMain()
                                             MUIA_Numeric_Min, 1,
                                             MUIA_Numeric_Max, 256,
                                             MUIA_Numeric_Value, 1,
+                                            MUIA_ShortHelp, (ULONG)"Maximal number of m68k instructions\ntranslated into single block of ARM code",
                                         End,
                                         Child, Label("JIT inlining range"),
                                         Child, InlineRange = NewObject(logSlider->mcc_Class, NULL,
@@ -1870,7 +1900,7 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "LOAD/K,ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "LOAD/K,ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,SCS=SlowCHIPSpacing/K/N,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
     OPT_PRESET_LOAD,
@@ -1881,6 +1911,7 @@ enum {
     OPT_SLOW_CACHE,
     OPT_CHIP_SLOWDOWN,
     OPT_NO_CHIP_SLOWDOWN,
+    OPT_CHIP_SLOWDOWN_SPACING,
     OPT_DBF_SLOWDOWN,
     OPT_NO_DBF_SLOWDOWN,
     OPT_SOFT_FLUSH,
@@ -1962,6 +1993,7 @@ int main(int wantGUI)
                         setSLOWDOWN_DBF(p->pr_JITFlags & JITF_SLOW_DBF);
                         setSOFT_FLUSH(p->pr_JITFlags & JITF_SOFT_FLUSH);
                         setCACHE_IE(p->pr_JITFlags & JITF_FAST_CACHE);
+                        setSLOW_CHIP_SPACING(p->pr_SlowChipSpacing);
                             
                         if (ssp)
                             UserState(ssp);
@@ -2009,6 +2041,23 @@ int main(int wantGUI)
 
                     APTR ssp = SuperState();
                     setINSN_DEPTH(icnt);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_CHIP_SLOWDOWN_SPACING]) {
+                    ULONG sp = *(ULONG*)(result[OPT_CHIP_SLOWDOWN_SPACING]);
+                    
+                    if (sp < 1)
+                        sp = 1;
+                    if (sp > 8)
+                        sp = 8;
+
+                    if (!silent)
+                        Printf("- Changing Chip slowdown spacing to %ld\n", sp);
+
+                    APTR ssp = SuperState();
+                    setSLOW_CHIP_SPACING(sp);
                     if (ssp)
                         UserState(ssp);
                 }
