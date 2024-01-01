@@ -101,3 +101,34 @@ ULONG enable_unicam_domain(struct UnicamBase *UnicamBase)
 
     return LE32(FBReq[6]);
 }
+
+struct Size get_display_size(struct UnicamBase *UnicamBase)
+{
+	struct ExecBase *SysBase = UnicamBase->u_SysBase;
+    ULONG *FBReq = UnicamBase->u_Request;
+    int c = 1;
+	ULONG len = 0;
+    struct Size dimension;
+
+    FBReq[c++] = 0;
+    FBReq[c++] = LE32(0x40003);
+    FBReq[c++] = LE32(8);
+    FBReq[c++] = 0;
+    FBReq[c++] = LE32(0);
+    FBReq[c++] = LE32(0);
+    FBReq[c++] = 0;
+
+	len = c * sizeof(ULONG);
+
+    FBReq[0] = LE32(c << 2);
+
+	CachePreDMA(FBReq, &len, 0);
+    mbox_send(8, (ULONG)FBReq, UnicamBase);
+    mbox_recv(8, UnicamBase);
+	CachePostDMA(FBReq, &len, 0);
+
+    dimension.width = LE32(FBReq[5]);
+    dimension.height = LE32(FBReq[6]);
+
+    return dimension;
+}

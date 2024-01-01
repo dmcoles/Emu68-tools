@@ -15,8 +15,12 @@
 #include <proto/devicetree.h>
 #include <common/compiler.h>
 
+#include <inline/unicam.h>
+
 #include "unicam.h"
 #include "smoothing.h"
+#include "mbox.h"
+#include "videocore.h"
 
 extern const char deviceName[];
 extern const char deviceIdString[];
@@ -50,27 +54,19 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             BYTE start_on_boot = 0;
             BYTE use_smoothing = 0;
             BYTE use_integer_scaling = 0;
-            BYTE kernel_b = 25;    // 0.25
-            BYTE kernel_c = 75;    // 0.75
-
+            BYTE kernel_b = 25 * 256 / 100;    // 0.25
+            BYTE kernel_c = 75 * 256 / 100;    // 0.75
             APTR key;
-#if UNICAM_FUNC_COUNT
             ULONG relFuncTable[UNICAM_FUNC_COUNT + 1];
-            relFuncTable[0] = (ULONG)&EMMC_Open;
-            relFuncTable[1] = (ULONG)&EMMC_Close;
-            relFuncTable[2] = (ULONG)&EMMC_Expunge;
-            relFuncTable[3] = (ULONG)&EMMC_ExtFunc;
-            relFuncTable[4] = (ULONG)&EMMC_BeginIO;
-            relFuncTable[5] = (ULONG)&EMMC_AbortIO;
-            relFuncTable[6] = (ULONG)-1;
-#endif
+
+            relFuncTable[0] = (ULONG)&L_UnicamStart;
+            relFuncTable[1] = (ULONG)&L_UnicamStop;
+            relFuncTable[2] = (ULONG)-1;
 
             UnicamBase = (struct UnicamBase *)((UBYTE *)base_pointer + BASE_NEG_SIZE);
             UnicamBase->u_SysBase = SysBase;
 
-#if UNICAM_FUNC_COUNT
             MakeFunctions(UnicamBase, relFuncTable, 0);
-#endif
 
             UnicamBase->u_ConfigDev = binding.cb_ConfigDev;
             UnicamBase->u_ROMBase = binding.cb_ConfigDev->cd_BoardAddr;
@@ -87,6 +83,12 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             UnicamBase->u_Request = (ULONG *)(((intptr_t)UnicamBase->u_RequestBase + 127) & ~127);
 
             UnicamBase->u_IsVC6 = 0;
+            UnicamBase->u_Offset.x = 0;
+            UnicamBase->u_Offset.y = 0;
+            UnicamBase->u_Size.width = 720;
+            UnicamBase->u_Size.height = 576;
+            UnicamBase->u_Phase = 128;
+            UnicamBase->u_Scaler = 3;
 
             SumLibrary((struct Library*)UnicamBase);
 
@@ -142,6 +144,99 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     val = 100;
                 
                 kernel_c = (val * 256) / 100;
+            }
+
+            if ((cmd = FindToken(cmdline, "unicam.scaler=")))
+            {
+                UnicamBase->u_Scaler = (cmd[14] - '0') & 3;
+            }
+
+            if ((cmd = FindToken(cmdline, "unicam.phase=")))
+            {
+                ULONG val = 0;
+
+                for (int i=0; i < 3; i++)
+                {
+                    if (cmd[13 + i] < '0' || cmd[13 + i] > '9')
+                        break;
+
+                    val = val * 10 + cmd[13 + i] - '0';
+                }
+
+                if (val > 255)
+                    val = 255;
+                
+                UnicamBase->u_Phase = val;
+            }
+
+            if ((cmd = FindToken(cmdline, "unicam.size=")))
+            {
+                ULONG x = 0, y = 0;
+                const char *c = &cmd[12];
+
+                for (int i=0; i < 4; i++)
+                {
+                    if (*c < '0' || *c > '9')
+                    {
+                        break;
+                    }
+                    x = x * 10 + *c++ - '0';
+                }
+
+                if (x != 0 && *c == ',')
+                {
+                    for (int i=0; i < 4; i++)
+                    {
+                        if (*c < '0' || *c > '9')
+                        {
+                            break;
+                        }
+                        y = y * 10 + *c++ - '0';
+                    }   
+                }
+
+                if (x != 0 && y != 0 && x <= 720 && y <= 576)
+                {
+                    UnicamBase->u_Size.width = x;
+                    UnicamBase->u_Size.height = y;
+                }
+            }
+
+            if ((cmd = FindToken(cmdline, "unicam.offset=")))
+            {
+                ULONG x = 0, y = 0;
+                const char *c = &cmd[14];
+
+                for (int i=0; i < 4; i++)
+                {
+                    if (*c < '0' || *c > '9')
+                    {
+                        break;
+                    }
+                    x = x * 10 + *c++ - '0';
+                }
+
+                if (x != 0 && *c == ',')
+                {
+                    for (int i=0; i < 4; i++)
+                    {
+                        if (*c < '0' || *c > '9')
+                        {
+                            break;
+                        }
+                        y = y * 10 + *c++ - '0';
+                    }   
+                }
+
+                if ((x + UnicamBase->u_Size.width) <= 720)
+                {
+                    UnicamBase->u_Offset.x = x;
+                }
+
+                if ((y + UnicamBase->u_Size.height) <= 576)
+                {
+                    UnicamBase->u_Offset.y = y;
+                }
             }
 
             key = DT_OpenKey("/gpu");
@@ -220,18 +315,73 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 ULONG phys_vc4 = reg[address_cells - 1];
                 ULONG phys_cpu = reg[address_cells + cpu_address_cells - 1];
 
-                if (UnicamBase->u_MailBox != 0)
+                if (UnicamBase->u_MailBox != 0) {
                     UnicamBase->u_MailBox = (APTR)((ULONG)UnicamBase->u_MailBox - phys_vc4 + phys_cpu);
-                
-                #if 0
-                if (EMMCBase->emmc_Regs != 0)
-                    EMMCBase->emmc_Regs = (APTR)((ULONG)EMMCBase->emmc_Regs - phys_vc4 + phys_cpu);
-                #endif
+                }
+
+                UnicamBase->u_PeriphBase = (APTR)phys_cpu;
 
                 DT_CloseKey(key);
             }
 
+            UnicamBase->u_ReceiveBuffer = NULL;
+            /* Get location of receive buffer. If it does not exist, reserve it now */
+            key = DT_OpenKey("/emu68");
+            if (key)
+            {
+                const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "unicam-mem"));
+
+                if (reg != NULL)
+                {
+                    UnicamBase->u_ReceiveBuffer = (APTR)reg[0];
+                    UnicamBase->u_ReceiveBufferSize = reg[1];
+                }
+
+                DT_CloseKey(key);
+            }
+
+            if (UnicamBase->u_ReceiveBuffer == NULL)
+            {
+                const ULONG size = sizeof(ULONG) * 768 * 576;
+                UnicamBase->u_ReceiveBuffer = AllocMem(size, MEMF_FAST);
+                UnicamBase->u_ReceiveBufferSize = size;
+            }
+
             AddResource(UnicamBase);
+
+            if (start_on_boot)
+            {
+                UnicamBase->u_UnicamKernel = 0xf00;
+                ULONG *dlistPtr = (ULONG *)((ULONG)UnicamBase->u_PeriphBase + 
+                    UnicamBase->u_IsVC6 ? 0x00404000 : 0x00402000);
+
+                UnicamStart(UnicamBase->u_ReceiveBuffer, 1, 0x22, 720, 576, 16);
+
+                while (UnicamBase->u_DisplaySize.width == 0 || UnicamBase->u_DisplaySize.height == 0)
+                {
+                    UnicamBase->u_DisplaySize = get_display_size(UnicamBase);
+                }
+
+                if (use_smoothing)
+                {
+                    compute_scaling_kernel(&dlistPtr[UnicamBase->u_UnicamKernel], kernel_b, kernel_c);
+                }
+                else
+                {
+                    compute_nearest_neighbour_kernel(&dlistPtr[UnicamBase->u_UnicamKernel]);
+                }
+
+                if (UnicamBase->u_IsVC6)
+                {
+                    VC6_ConstructUnicamDL(UnicamBase, UnicamBase->u_UnicamKernel);
+                }
+                else
+                {
+                    VC4_ConstructUnicamDL(UnicamBase, UnicamBase->u_UnicamKernel);
+                }
+
+                *(volatile uint32_t *)(UnicamBase->u_PeriphBase + 0x00400024) = LE32(UnicamBase->u_UnicamDL);
+            }
 
             binding.cb_ConfigDev->cd_Flags &= ~CDF_CONFIGME;
             binding.cb_ConfigDev->cd_Driver = UnicamBase;

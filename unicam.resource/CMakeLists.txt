@@ -8,11 +8,18 @@ add_compile_definitions(PRIVATE VERSION_STRING="${VERSTRING}")
 
 set_source_files_properties(src/main.c PROPERTIES COMPILE_FLAGS -mno-pcrel)
 
+add_library(unicam INTERFACE)
+target_include_directories(unicam INTERFACE include)
+
 add_executable(unicam.resource
     src/main.c
     src/init.c
     src/mbox.c
     src/smoothing.c
+    src/start.c
+    src/stop.c
+    src/unicam.c
+    src/videocore.c
 )
 
 add_custom_command(
@@ -21,4 +28,4 @@ add_custom_command(
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 set_target_properties(unicam.resource PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/ldscript.lds)
-target_link_libraries(unicam.resource devicetree common)
+target_link_libraries(unicam.resource unicam devicetree common)
