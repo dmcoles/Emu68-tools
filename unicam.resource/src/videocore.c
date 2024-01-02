@@ -399,8 +399,8 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         displist[cnt++] = LE32(0);
 
         /* Set PPF Scaler */
-        displist[cnt++] = LE32((scale << 8) | (UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
-        displist[cnt++] = LE32((scale << 8) | (UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
+        displist[cnt++] = LE32((scale << 8) | ((ULONG)UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
+        displist[cnt++] = LE32((scale << 8) | ((ULONG)UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
         displist[cnt++] = LE32(0); // Scratch written by HVS
 
         displist[cnt++] = LE32(kernel);

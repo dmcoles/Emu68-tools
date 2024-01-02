@@ -52,8 +52,6 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
         if (base_pointer != NULL)
         {
             BYTE start_on_boot = 0;
-            BYTE use_smoothing = 0;
-            BYTE use_integer_scaling = 0;
             BYTE kernel_b = 25 * 256 / 100;    // 0.25
             BYTE kernel_c = 75 * 256 / 100;    // 0.75
             APTR key;
@@ -87,8 +85,10 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             UnicamBase->u_Offset.y = 0;
             UnicamBase->u_Size.width = 720;
             UnicamBase->u_Size.height = 576;
-            UnicamBase->u_Phase = 128;
+            UnicamBase->u_Phase = 64;
             UnicamBase->u_Scaler = 3;
+            UnicamBase->u_Smooth = 0;
+            UnicamBase->u_Integer = 0;
 
             SumLibrary((struct Library*)UnicamBase);
 
@@ -102,12 +102,12 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 
             if (FindToken(cmdline, "unicam.integer"))
             {
-                use_integer_scaling = 1;
+                UnicamBase->u_Integer = 1;
             }
 
             if (FindToken(cmdline, "unicam.smooth"))
             {
-                use_smoothing = 1;
+                UnicamBase->u_Smooth = 1;
             }
 
             if ((cmd = FindToken(cmdline, "unicam.b=")))
@@ -216,7 +216,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     x = x * 10 + *c++ - '0';
                 }
 
-                if (x != 0 && *c == ',')
+                if (*c == ',')
                 {
                     for (int i=0; i < 4; i++)
                     {
@@ -351,7 +351,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 
             if (start_on_boot)
             {
-                UnicamBase->u_UnicamKernel = 0xf00;
+                UnicamBase->u_UnicamKernel = 0x400;
                 ULONG *dlistPtr = (ULONG *)((ULONG)UnicamBase->u_PeriphBase + 
                     UnicamBase->u_IsVC6 ? 0x00404000 : 0x00402000);
 
@@ -362,7 +362,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     UnicamBase->u_DisplaySize = get_display_size(UnicamBase);
                 }
 
-                if (use_smoothing)
+                if (UnicamBase->u_Smooth)
                 {
                     compute_scaling_kernel(&dlistPtr[UnicamBase->u_UnicamKernel], kernel_b, kernel_c);
                 }

@@ -41,6 +41,8 @@ struct UnicamBase {
 
     UBYTE               u_Scaler;
     UBYTE               u_Phase;
+    UBYTE               u_Integer;
+    UBYTE               u_Smooth;
     BOOL                u_IsVC6;
 };
 
