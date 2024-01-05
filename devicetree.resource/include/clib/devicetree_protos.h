@@ -1,4 +1,4 @@
-/* Automatically generated header (sfdc 1.11b)! Do not edit! */
+/* Automatically generated header (sfdc 1.11f)! Do not edit! */
 
 #ifndef CLIB_DEVICETREE_PROTOS_H
 #define CLIB_DEVICETREE_PROTOS_H
@@ -30,6 +30,7 @@ CONST_STRPTR DT_GetPropName(APTR property);
 CONST_APTR DT_GetPropValue(APTR property);
 APTR DT_GetParent(APTR key);
 CONST_STRPTR DT_GetKeyName(APTR key);
+APTR DT_FindPropertyRecursive(APTR key, CONST_STRPTR property);
 
 #ifdef __cplusplus
 }

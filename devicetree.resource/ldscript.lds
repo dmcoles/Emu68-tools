@@ -9,7 +9,7 @@ ENTRY(_rom_start)
 SECTIONS
 {
     /* Board parameters which will be subsequently used to generate proper expansion rom structures */
-    _type   = 0x91;         /* ERT_ZORROIII | ERTF_DIAGVALID | size = 1 (64K) */
+    _type   = 0x92;         /* ERT_ZORROIII | ERTF_DIAGVALID | size = 2 (128K) */
     _pID    = 0x21;
     _flags  = 0xd0;         /* Memtype, ZorroIII flag, cannot shutoff */
     _mID    = 0x6d73;

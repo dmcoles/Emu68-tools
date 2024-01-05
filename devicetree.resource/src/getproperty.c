@@ -8,9 +8,11 @@
 */
 
 #include <exec/types.h>
+#include <common/compiler.h>
 #include "devicetree.h"
 
-APTR DT_GetProperty(of_node_t *key asm("a0"), of_property_t *prev asm("a1"), struct DeviceTreeBase *DTBase asm("a6"))
+APTR L_GetProperty(REGARG(of_node_t *key, "a0"), REGARG(of_property_t *prev, "a1"), 
+                    REGARG(struct DeviceTreeBase *DTBase, "a6"))
 {
     if (prev != NULL)
         return prev->op_next;

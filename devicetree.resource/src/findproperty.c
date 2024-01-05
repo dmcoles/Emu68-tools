@@ -8,9 +8,13 @@
 */
 
 #include <exec/types.h>
+#include <common/compiler.h>
+#include <proto/devicetree.h>
+
 #include "devicetree.h"
 
-APTR DT_FindProperty(of_node_t *node asm("a0"), CONST_STRPTR propname asm("a1"), struct DeviceTreeBase *DTBase asm("a6"))
+APTR L_FindProperty(REGARG(of_node_t *node, "a0"), REGARG(CONST_STRPTR propname, "a1"), 
+                     REGARG(struct DeviceTreeBase *DTBase, "a6"))
 {
     of_property_t *p, *prop = NULL;
 
@@ -26,4 +30,24 @@ APTR DT_FindProperty(of_node_t *node asm("a0"), CONST_STRPTR propname asm("a1"),
         }
     }
     return prop;
+}
+
+APTR L_FindPropertyRecursive(REGARG(of_node_t *node, "a0"), REGARG(CONST_STRPTR propname, "a1"), 
+                             REGARG(struct DeviceTreeBase *DeviceTreeBase, "a6"))
+{
+    do {
+        /* Find the property first */
+        APTR prop = DT_FindProperty(node, propname);
+
+        if (prop)
+        {
+            /* If property is found, return it */
+            return prop;
+        }
+        
+        /* Property was not found, go to the parent and repeat */
+        node = (of_node_t *)DT_GetParent(node);
+    } while (node);
+
+    return NULL;
 }
