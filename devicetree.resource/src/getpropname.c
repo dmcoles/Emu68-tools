@@ -8,9 +8,10 @@
 */
 
 #include <exec/types.h>
+#include <common/compiler.h>
 #include "devicetree.h"
 
-CONST_STRPTR DT_GetPropName(of_property_t *p asm("a0"), struct DeviceTreeBase *DTBase asm("a6"))
+CONST_STRPTR L_GetPropName(REGARG(of_property_t *p, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"))
 {
     /* If property address is given, look into it */
     if (p)

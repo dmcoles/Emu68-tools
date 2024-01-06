@@ -16,6 +16,7 @@
 #include <exec/execbase.h>
 #include <exec/libraries.h>
 #include <stdint.h>
+#include <common/compiler.h>
 
 typedef struct of_property {
     struct of_property *op_next;
@@ -44,7 +45,7 @@ struct DeviceTreeBase {
 extern const char deviceName[];
 extern const char deviceIdString[];
 
-#define BASE_NEG_SIZE (10 * 6)
+#define BASE_NEG_SIZE (11 * 6)
 #define BASE_POS_SIZE ((sizeof(struct DeviceTreeBase)))
 #define DT_PRIORITY     120
 #define DT_VERSION      1
@@ -114,5 +115,15 @@ struct fdt_prop_entry {
 #define FDT_MAGIC       0xd00dfeed
 
 void Add_DT_Memory(struct ExecBase *SysBase, APTR DeviceTreeBase);
-
+void L_CloseKey(REGARG(of_node_t *node, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+APTR L_FindProperty(REGARG(of_node_t *node, "a0"), REGARG(CONST_STRPTR propname, "a1"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+APTR L_GetChild(REGARG(of_node_t *key, "a0"), REGARG(of_node_t *prev, "a1"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+CONST_STRPTR L_GetKeyName(REGARG(of_node_t *p, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+APTR L_GetParent(REGARG(of_node_t *key, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+APTR L_GetProperty(REGARG(of_node_t *key, "a0"), REGARG(of_property_t *prev, "a1"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+ULONG L_GetPropLen(REGARG(of_property_t *p, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+CONST_STRPTR L_GetPropName(REGARG(of_property_t *p, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+CONST_STRPTR L_GetPropValue(REGARG(of_property_t *p, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+APTR L_OpenKey(REGARG(CONST_STRPTR key, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"));
+APTR L_FindPropertyRecursive(REGARG(of_node_t *node, "a0"), REGARG(CONST_STRPTR propname, "a1"), REGARG(struct DeviceTreeBase *DeviceTreeBase, "a6"));
 #endif /* __DEVICETREE_H */

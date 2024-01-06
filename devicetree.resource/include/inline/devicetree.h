@@ -1,4 +1,4 @@
-/* Automatically generated header (sfdc 1.11b)! Do not edit! */
+/* Automatically generated header (sfdc 1.11f)! Do not edit! */
 
 #ifndef _INLINE_DEVICETREE_H
 #define _INLINE_DEVICETREE_H
@@ -53,11 +53,15 @@ typedef ULONG _sfdc_vararg;
       , DEVICETREE_BASE_NAME)
 
 #define DT_GetParent(___key) \
-      LP1(0x36, APTR, DT_GetParent , APTR, ___key, a0, \
+      LP1(0x36, APTR, DT_GetParent , APTR, ___key, a0,\
       , DEVICETREE_BASE_NAME)
 
 #define DT_GetKeyName(___key) \
-      LP1(0x3c, CONST_STRPTR, DT_GetKeyName , APTR, ___key, a0, \
+      LP1(0x3c, CONST_STRPTR, DT_GetKeyName , APTR, ___key, a0,\
+      , DEVICETREE_BASE_NAME)
+
+#define DT_FindPropertyRecursive(___key, ___property) \
+      LP2(0x42, APTR, DT_FindPropertyRecursive , APTR, ___key, a0, CONST_STRPTR, ___property, a1,\
       , DEVICETREE_BASE_NAME)
 
 #endif /* !_INLINE_DEVICETREE_H */

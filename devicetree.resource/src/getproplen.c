@@ -8,9 +8,10 @@
 */
 
 #include <exec/types.h>
+#include <common/compiler.h>
 #include "devicetree.h"
 
-ULONG DT_GetPropLen(of_property_t *p asm("a0"), struct DeviceTreeBase *DTBase asm("a6"))
+ULONG L_GetPropLen(REGARG(of_property_t *p, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"))
 {
     /* If property address is given, look into it */
     if (p)

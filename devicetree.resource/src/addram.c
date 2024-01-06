@@ -5,7 +5,9 @@
 #include <exec/memory.h>
 #include <stdint.h>
 
-static void putch(UBYTE data asm("d0"), APTR ignore asm("a3"))
+#include <common/compiler.h>
+
+static void putch(REGARG(UBYTE data, "d0"), REGARG(APTR ignore, "a3"))
 {
     *(UBYTE*)0xdeadbeef = data;
 }
@@ -81,7 +83,7 @@ void Add_DT_Memory(struct ExecBase *SysBase, APTR DeviceTreeBase)
             CloseLibrary(ExpansionBase);
         }
         
-        /* Trim remaining blocks to with within 2GB space */
+        /* Trim remaining blocks to fit within 2GB space */
         if ((base + size) > 0x80000000)
         {
             size = 0x80000000 - base;

@@ -15,28 +15,11 @@
 #include <libraries/configregs.h>
 #include <libraries/configvars.h>
 
-#include <clib/devicetree_protos.h>
+#include <common/compiler.h>
 
 #include "devicetree.h"
 
-UBYTE rom_end;
-
-extern UWORD relFuncTable[];
-asm(
-"       .globl _relFuncTable    \n"
-"_relFuncTable:                 \n"
-"       .short _DT_OpenKey      \n"
-"       .short _DT_CloseKey     \n"
-"       .short _DT_GetChild     \n"
-"       .short _DT_FindProperty \n"
-"       .short _DT_GetProperty  \n"
-"       .short _DT_GetPropLen   \n"
-"       .short _DT_GetPropName  \n"
-"       .short _DT_GetPropValue \n"
-"       .short _DT_GetParent    \n"
-"       .short _DT_GetKeyName   \n"
-"       .short -1               \n"
-);
+extern UBYTE rom_end;
 
 of_node_t * dt_build_node(of_node_t *parent, struct DeviceTreeBase *DeviceTreeBase)
 {
@@ -145,7 +128,7 @@ of_node_t * dt_parse(void *dt, struct DeviceTreeBase *DeviceTreeBase)
     return DeviceTreeBase->dt_Root;
 }
 
-APTR Init(struct ExecBase *SysBase asm("a6"))
+APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 {
     struct DeviceTreeBase *DeviceTreeBase = NULL;
     struct ExpansionBase *ExpansionBase = NULL;
@@ -160,31 +143,45 @@ APTR Init(struct ExecBase *SysBase asm("a6"))
 
     if (base_pointer)
     {
+        ULONG relFuncTable[12];
+            
+        relFuncTable[0] = (ULONG)&L_OpenKey;
+        relFuncTable[1] = (ULONG)&L_CloseKey;
+        relFuncTable[2] = (ULONG)&L_GetChild;
+        relFuncTable[3] = (ULONG)&L_FindProperty;
+        relFuncTable[4] = (ULONG)&L_GetProperty;
+        relFuncTable[5] = (ULONG)&L_GetPropLen;
+        relFuncTable[6] = (ULONG)&L_GetPropName;
+        relFuncTable[7] = (ULONG)&L_GetPropValue;
+        relFuncTable[8] = (ULONG)&L_GetParent;
+        relFuncTable[9] = (ULONG)&L_GetKeyName;
+        relFuncTable[10] = (ULONG)&L_FindPropertyRecursive;
+        
+        relFuncTable[11] = (ULONG)-1;
+
         DeviceTreeBase = (struct DeviceTreeBase *)((UBYTE *)base_pointer + BASE_NEG_SIZE);
-        MakeFunctions(DeviceTreeBase, relFuncTable, binding.cb_ConfigDev->cd_BoardAddr);
+        MakeFunctions(DeviceTreeBase, relFuncTable, 0);
         
         DeviceTreeBase->dt_Node.lib_Node.ln_Type = NT_RESOURCE;
         DeviceTreeBase->dt_Node.lib_Node.ln_Pri = 120;
-        DeviceTreeBase->dt_Node.lib_Node.ln_Name = (STRPTR)((ULONG)deviceName + (ULONG)binding.cb_ConfigDev->cd_BoardAddr);
+        DeviceTreeBase->dt_Node.lib_Node.ln_Name = (STRPTR)deviceName;
 
         DeviceTreeBase->dt_Node.lib_NegSize = BASE_NEG_SIZE;
         DeviceTreeBase->dt_Node.lib_PosSize = BASE_POS_SIZE;
         DeviceTreeBase->dt_Node.lib_Version = DT_VERSION;
         DeviceTreeBase->dt_Node.lib_Revision = DT_REVISION;
-        DeviceTreeBase->dt_Node.lib_IdString = (STRPTR)((ULONG)deviceIdString + (ULONG)binding.cb_ConfigDev->cd_BoardAddr);    
+        DeviceTreeBase->dt_Node.lib_IdString = (STRPTR)deviceIdString;
 
         DeviceTreeBase->dt_ExecBase = SysBase;
         DeviceTreeBase->dt_StrNull = "(null)";
-        DeviceTreeBase->dt_StrNull += (ULONG)binding.cb_ConfigDev->cd_BoardAddr;
 
-        dt_parse((APTR)((ULONG)binding.cb_ConfigDev->cd_BoardAddr + (ULONG)&rom_end), DeviceTreeBase);
+        dt_parse(&rom_end, DeviceTreeBase);
 
         SumLibrary((struct Library*)DeviceTreeBase);
         AddResource(DeviceTreeBase);
 
         /* Add non-autoconfig memory to the system */
-        void (*fun)(struct ExecBase *, APTR) = (APTR)((ULONG)Add_DT_Memory + (ULONG)binding.cb_ConfigDev->cd_BoardAddr);
-        fun(SysBase, DeviceTreeBase);
+        Add_DT_Memory(SysBase, DeviceTreeBase);
 
         binding.cb_ConfigDev->cd_Flags &= ~CDF_CONFIGME;
         binding.cb_ConfigDev->cd_Driver = DeviceTreeBase;
