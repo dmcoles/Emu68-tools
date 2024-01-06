@@ -71,7 +71,7 @@ APTR                    MailBox;
 static const char version[] __attribute__((used)) = "$VER: " VERSION_STRING;
 
 Object *app;
-Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP, *SlowDBF;
+Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP, *SlowDBF, *BlitWait;
 Object *MainArea, *MIPS_M68k, *MIPS_ARM, *JITUsage, *Effectiveness, *CacheMiss, *SoftThresh;
 Object *JITCount, *EnableDebug, *EnableDisasm, *DebugMin, *DebugMax, *CoreTemp, *CoreVolt, *CCRDepth;
 Object *MenuOpen, *MenuSaveAs, *MenuQuit, *MenuDefaults;
@@ -388,6 +388,17 @@ static inline void setSLOWDOWN_DBF(ULONG slow)
     asm volatile("movec #0x1e0, %0":"=r"(reg));
     if (slow) reg |= 2;
     else reg &= 0xfffffffd;
+    asm volatile("movec %0, #0x1e0"::"r"(reg));
+    asm volatile("cinva ic":::"memory");
+}
+
+static inline void setBLIT_WAIT(ULONG enable)
+{
+    ULONG reg;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(reg));
+    if (enable) reg |= 1UL << 11;
+    else reg &= ~(1UL << 11);
     asm volatile("movec %0, #0x1e0"::"r"(reg));
     asm volatile("cinva ic":::"memory");
 }
@@ -1021,6 +1032,8 @@ ULONG DoSavePreset()
                 if (tmp) p.pr_JITFlags |= JITF_SLOW_CHIP;
                 get(SlowDBF, MUIA_Selected, &tmp);
                 if (tmp) p.pr_JITFlags |= JITF_SLOW_DBF;
+                get(BlitWait, MUIA_Selected, &tmp);
+                if (tmp) p.pr_JITFlags |= JITF_BLIT_WAIT;
                 get(FastCache, MUIA_Selected, &tmp);
                 if (tmp) p.pr_JITFlags |= JITF_FAST_CACHE;
                 get(SoftFlush, MUIA_Selected, &tmp);
@@ -1115,6 +1128,11 @@ ULONG DoLoadPreset()
                         set(SlowDBF, MUIA_Selected, TRUE);
                     else
                         set(SlowDBF, MUIA_Selected, FALSE);
+
+                    if (p.pr_JITFlags & JITF_BLIT_WAIT)
+                        set(BlitWait, MUIA_Selected, TRUE);
+                    else
+                        set(BlitWait, MUIA_Selected, FALSE);
 
                     set(CCRDepth, MUIA_Numeric_Value, p.pr_CCRDepth);
                     set(INSNDepth, MUIA_Numeric_Value, p.pr_INSNDepth + 1);
@@ -1297,6 +1315,22 @@ ULONG ChangeSlowDBF()
     return 0;
 }
 
+ULONG ChangeBlitWait()
+{
+    ULONG value;
+
+    get(BlitWait, MUIA_Selected, &value);
+
+    APTR ssp = SuperState();
+
+    setBLIT_WAIT(value);
+    
+    if (ssp)
+        UserState(ssp);
+    
+    return 0;
+}
+
 ULONG ChangeCCRDepth()
 {
     ULONG ccrDepth;
@@ -1429,6 +1463,7 @@ ULONG ResetToDefaults()
     set(EnableDisasm, MUIA_Selected, FALSE);
     set(SlowCHIP, MUIA_Selected, FALSE);
     set(SlowDBF, MUIA_Selected, FALSE);
+    set(BlitWait, MUIA_Selected, FALSE);
     set(FastCache, MUIA_Selected, TRUE);
     set(SoftFlush, MUIA_Selected, TRUE);
     set(CCRDepth, MUIA_Numeric_Value, 20);
@@ -1494,6 +1529,10 @@ struct Hook hook_CCRDepth = {
 
 struct Hook hook_SlowDBF = {
     .h_Entry = ChangeSlowDBF
+};
+
+struct Hook hook_BlitWait = {
+    .h_Entry = ChangeBlitWait
 };
 
 struct Hook hook_ResetToDefaults = {
@@ -1598,6 +1637,7 @@ void MUIMain()
                                         Child, FastCache = MUI_MakeObject(MUIO_Button, "Fast cache"),
                                         Child, SlowCHIP = MUI_MakeObject(MUIO_Button, "Slow CHIP"),
                                         Child, SlowDBF = MUI_MakeObject(MUIO_Button, "Slow DBF"),
+                                        Child, BlitWait = MUI_MakeObject(MUIO_Button, "Blit wait"),
                                         Child, CacheFlush = MUI_MakeObject(MUIO_Button, "Flush JIT cache"),
                                     End,
                                 End,
@@ -1743,6 +1783,7 @@ void MUIMain()
             set(FastCache, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(SlowCHIP, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(SlowDBF, MUIA_InputMode, MUIV_InputMode_Toggle);
+            set(BlitWait, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDebug, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDisasm, MUIA_InputMode, MUIV_InputMode_Toggle);
 
@@ -1776,6 +1817,8 @@ void MUIMain()
                     set(SlowCHIP, MUIA_Selected, TRUE);
                 if (ctrl2 & 2)
                     set(SlowDBF, MUIA_Selected, TRUE);
+                if (ctrl2 & (1<<11))
+                    set(BlitWait, MUIA_Selected, TRUE);
                 
                 set(CCRDepth, MUIA_Numeric_Value, (ctrl2 >> 3) & 0x1f);
 
@@ -1823,6 +1866,8 @@ void MUIMain()
                     (ULONG)app, 2, MUIM_CallHook, &hook_SlowCHIP);
                 DoMethod(SlowDBF, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_SlowDBF);
+                DoMethod(BlitWait, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                    (ULONG)app, 2, MUIM_CallHook, &hook_BlitWait);
                 DoMethod(CCRDepth, MUIM_Notify, MUIA_Numeric_Value, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_CCRDepth);
 
@@ -1900,7 +1945,7 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "LOAD/K,ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,SCS=SlowCHIPSpacing/K/N,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "LOAD/K,ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,SCS=SlowCHIPSpacing/K/N,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,BW=BlitWait/S,NBW=NoBlitWait/S,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
     OPT_PRESET_LOAD,
@@ -1917,6 +1962,8 @@ enum {
     OPT_SOFT_FLUSH,
     OPT_SOFT_FLUSH_LIMIT,
     OPT_CCR_SCAN_DEPTH,
+    OPT_BLIT_WAIT,
+    OPT_NO_BLIT_WAIT,
     OPT_GUI,
     OPT_SILENT,
     OPT_DEFAULTS,
@@ -1994,6 +2041,7 @@ int main(int wantGUI)
                         setSOFT_FLUSH(p->pr_JITFlags & JITF_SOFT_FLUSH);
                         setCACHE_IE(p->pr_JITFlags & JITF_FAST_CACHE);
                         setSLOW_CHIP_SPACING(p->pr_SlowChipSpacing);
+                        setBLIT_WAIT(p->pr_JITFlags & JITF_BLIT_WAIT);
                             
                         if (ssp)
                             UserState(ssp);
@@ -2023,6 +2071,7 @@ int main(int wantGUI)
                 setSLOWDOWN_DBF(0);
                 setSOFT_FLUSH(1);
                 setCACHE_IE(1);
+                setBLIT_WAIT(0);
 
                 if (ssp) UserState(ssp);
             }
@@ -2152,6 +2201,26 @@ int main(int wantGUI)
 
                     APTR ssp = SuperState();
                     setCCR_DEPTH(ccrd);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_BLIT_WAIT]) {
+                    if (!silent)
+                        Printf("- Enabling automatic blitter wait\n");
+
+                    APTR ssp = SuperState();
+                    setBLIT_WAIT(1);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_NO_BLIT_WAIT] && !result[OPT_BLIT_WAIT]) {
+                    if (!silent)
+                        Printf("- Disabling automatic blitter wait\n");
+
+                    APTR ssp = SuperState();
+                    setBLIT_WAIT(0);
                     if (ssp)
                         UserState(ssp);
                 }
