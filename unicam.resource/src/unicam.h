@@ -10,7 +10,7 @@
 
 #define UNICAM_VERSION  0
 #define UNICAM_REVISION 1
-#define UNICAM_PRIORITY 100
+#define UNICAM_PRIORITY 118
 
 struct Size {
     UWORD width;

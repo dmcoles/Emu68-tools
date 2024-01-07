@@ -52,8 +52,8 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
         if (base_pointer != NULL)
         {
             BYTE start_on_boot = 0;
-            BYTE kernel_b = 25 * 256 / 100;    // 0.25
-            BYTE kernel_c = 75 * 256 / 100;    // 0.75
+            UBYTE kernel_b = 25 * 256 / 100;    // 0.25
+            UBYTE kernel_c = 75 * 256 / 100;    // 0.75
             APTR key;
             ULONG relFuncTable[UNICAM_FUNC_COUNT + 1];
 
@@ -98,16 +98,14 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             if (FindToken(cmdline, "unicam.boot"))
             {
                 start_on_boot = 1;
+
+                bug("[unicam] Starting HDMI passthrough on boot\n");
             }
 
             if (FindToken(cmdline, "unicam.integer"))
             {
                 UnicamBase->u_Integer = 1;
-            }
-
-            if (FindToken(cmdline, "unicam.smooth"))
-            {
-                UnicamBase->u_Smooth = 1;
+                bug("[unicam] Use integer scaling\n");
             }
 
             if ((cmd = FindToken(cmdline, "unicam.b=")))
@@ -146,6 +144,12 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 kernel_c = (val * 256) / 100;
             }
 
+            if (FindToken(cmdline, "unicam.smooth"))
+            {
+                UnicamBase->u_Smooth = 1;
+                bug("[unicam] Enable smoothing kernel. B=%ld, C=%ld\n", kernel_b, kernel_c);
+            }
+
             if ((cmd = FindToken(cmdline, "unicam.scaler=")))
             {
                 UnicamBase->u_Scaler = (cmd[14] - '0') & 3;
@@ -169,6 +173,8 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 UnicamBase->u_Phase = val;
             }
 
+            bug("[unicam] Scaler=%ld, Phase=%ld\n", UnicamBase->u_Scaler, UnicamBase->u_Phase);
+
             if ((cmd = FindToken(cmdline, "unicam.size=")))
             {
                 ULONG x = 0, y = 0;
@@ -183,7 +189,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     x = x * 10 + *c++ - '0';
                 }
 
-                if (x != 0 && *c == ',')
+                if (x != 0 && *c++ == ',')
                 {
                     for (int i=0; i < 4; i++)
                     {
@@ -202,6 +208,8 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 }
             }
 
+            bug("[unicam] Displayed size: %ld x %ld\n", UnicamBase->u_Size.width, UnicamBase->u_Size.height);
+
             if ((cmd = FindToken(cmdline, "unicam.offset=")))
             {
                 ULONG x = 0, y = 0;
@@ -216,7 +224,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     x = x * 10 + *c++ - '0';
                 }
 
-                if (*c == ',')
+                if (*c++ == ',')
                 {
                     for (int i=0; i < 4; i++)
                     {
@@ -239,6 +247,8 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 }
             }
 
+            bug("[unicam] Display offset: %ld, %ld\n", UnicamBase->u_Offset.x, UnicamBase->u_Offset.y);
+
             key = DT_OpenKey("/gpu");
             if (key)
             {
@@ -249,6 +259,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     if (_strcmp("brcm,bcm2711-vc5", comp) == 0)
                     {
                         UnicamBase->u_IsVC6 = 1;
+                        bug("[unicam] VC6 detected\n");
                     }
                 }
             }
@@ -324,6 +335,8 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 DT_CloseKey(key);
             }
 
+            bug("[unicam] Periph base: %08lx, Mailbox: %08lx\n", (ULONG)UnicamBase->u_PeriphBase, (ULONG)UnicamBase->u_MailBox);
+
             UnicamBase->u_ReceiveBuffer = NULL;
             /* Get location of receive buffer. If it does not exist, reserve it now */
             key = DT_OpenKey("/emu68");
@@ -347,13 +360,17 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 UnicamBase->u_ReceiveBufferSize = size;
             }
 
+            bug("[unicam] Receive buffer: %08lx, size: %08lx\n", (ULONG)UnicamBase->u_ReceiveBuffer, UnicamBase->u_ReceiveBufferSize);
+
             AddResource(UnicamBase);
 
             if (start_on_boot)
             {
                 UnicamBase->u_UnicamKernel = 0x400;
                 ULONG *dlistPtr = (ULONG *)((ULONG)UnicamBase->u_PeriphBase + 
-                    UnicamBase->u_IsVC6 ? 0x00404000 : 0x00402000);
+                    (UnicamBase->u_IsVC6 ? 0x00404000 : 0x00402000));
+
+                bug("[unicam] DisplayList at %08lx\n", (ULONG)dlistPtr);
 
                 UnicamStart(UnicamBase->u_ReceiveBuffer, 1, 0x22, 720, 576, 16);
 
