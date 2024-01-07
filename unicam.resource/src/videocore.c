@@ -154,6 +154,11 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             scale = scale_x;
         }
 
+        if (UnicamBase->u_Integer)
+        {
+            scale = 0x10000 / (ULONG)(0x10000 / scale);
+        }
+
         calc_width = (0x10000 * UnicamBase->u_Size.width) / scale;
         calc_height = (0x10000 * UnicamBase->u_Size.height) / scale;
 
@@ -318,6 +323,11 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         }
         else {
             scale = scale_x;
+        }
+
+        if (UnicamBase->u_Integer)
+        {
+            scale = 0x10000 / (ULONG)(0x10000 / scale);
         }
 
         calc_width = (0x10000 * UnicamBase->u_Size.width) / scale;
