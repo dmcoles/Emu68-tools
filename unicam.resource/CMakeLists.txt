@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14.0)
-project(unicam VERSION 0.1.0)
+project(unicam VERSION 0.2.0)
 get_verstring(VERSTRING)
 
 add_link_options(-ffreestanding -nostdlib -nostartfiles -Wl,-e_rom_start -Wl,-T${CMAKE_CURRENT_SOURCE_DIR}/ldscript.lds)
@@ -20,6 +20,10 @@ add_executable(unicam.resource
     src/stop.c
     src/unicam.c
     src/videocore.c
+    src/getframebuffer.c
+    src/getcropsize.c
+    src/getkernel.c
+    src/getconfig.c
 )
 
 add_custom_command(

@@ -28,4 +28,28 @@ typedef ULONG _sfdc_vararg;
       LP0NR(0xc, UnicamStop ,\
       , UNICAM_BASE_NAME)
 
+#define UnicamGetFramebuffer() \
+      LP0(0x12, APTR, UnicamGetFramebuffer ,\
+      , UNICAM_BASE_NAME)
+
+#define UnicamGetFramebufferSize() \
+      LP0(0x18, ULONG, UnicamGetFramebufferSize ,\
+      , UNICAM_BASE_NAME)
+
+#define UnicamGetCropSize() \
+      LP0(0x1e, ULONG, UnicamGetCropSize ,\
+      , UNICAM_BASE_NAME)
+
+#define UnicamGetCropOffset() \
+      LP0(0x24, ULONG, UnicamGetCropOffset ,\
+      , UNICAM_BASE_NAME)
+
+#define UnicamGetKernel() \
+      LP0(0x2a, ULONG, UnicamGetKernel ,\
+      , UNICAM_BASE_NAME)
+
+#define UnicamGetConfig() \
+      LP0(0x30, ULONG, UnicamGetConfig ,\
+      , UNICAM_BASE_NAME)
+
 #endif /* !_INLINE_UNICAM_H */

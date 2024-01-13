@@ -52,14 +52,18 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
         if (base_pointer != NULL)
         {
             BYTE start_on_boot = 0;
-            UBYTE kernel_b = 25 * 256 / 100;    // 0.25
-            UBYTE kernel_c = 75 * 256 / 100;    // 0.75
             APTR key;
             ULONG relFuncTable[UNICAM_FUNC_COUNT + 1];
 
             relFuncTable[0] = (ULONG)&L_UnicamStart;
             relFuncTable[1] = (ULONG)&L_UnicamStop;
-            relFuncTable[2] = (ULONG)-1;
+            relFuncTable[2] = (ULONG)&L_UnicamGetFramebuffer;
+            relFuncTable[3] = (ULONG)&L_UnicamGetFramebufferSize;
+            relFuncTable[4] = (ULONG)&L_UnicamGetCropSize;
+            relFuncTable[5] = (ULONG)&L_UnicamGetCropOffset;
+            relFuncTable[6] = (ULONG)&L_UnicamGetKernel;
+            relFuncTable[7] = (ULONG)&L_UnicamGetConfig;
+            relFuncTable[8] = (ULONG)-1;
 
             UnicamBase = (struct UnicamBase *)((UBYTE *)base_pointer + BASE_NEG_SIZE);
             UnicamBase->u_SysBase = SysBase;
@@ -89,6 +93,8 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             UnicamBase->u_Scaler = 3;
             UnicamBase->u_Smooth = 0;
             UnicamBase->u_Integer = 0;
+            UnicamBase->u_KernelB = 250;
+            UnicamBase->u_KernelC = 750;
 
             SumLibrary((struct Library*)UnicamBase);
 
@@ -98,7 +104,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             if (FindToken(cmdline, "unicam.boot"))
             {
                 start_on_boot = 1;
-
+                UnicamBase->u_StartOnBoot = TRUE;
                 bug("[unicam] Starting HDMI passthrough on boot\n");
             }
 
@@ -112,7 +118,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             {
                 ULONG val = 0;
 
-                for (int i=0; i < 3; i++)
+                for (int i=0; i < 4; i++)
                 {
                     if (cmd[9 + i] < '0' || cmd[9 + i] > '9')
                         break;
@@ -120,17 +126,17 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     val = val * 10 + cmd[9 + i] - '0';
                 }
 
-                if (val > 100)
-                    val = 100;
+                if (val > 1000)
+                    val = 1000;
                 
-                kernel_b = (val * 256) / 100;
+                UnicamBase->u_KernelB = val;   
             }
 
             if ((cmd = FindToken(cmdline, "unicam.c=")))
             {
                 ULONG val = 0;
 
-                for (int i=0; i < 3; i++)
+                for (int i=0; i < 4; i++)
                 {
                     if (cmd[9 + i] < '0' || cmd[9 + i] > '9')
                         break;
@@ -138,16 +144,16 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     val = val * 10 + cmd[9 + i] - '0';
                 }
 
-                if (val > 100)
-                    val = 100;
+                if (val > 1000)
+                    val = 1000;
                 
-                kernel_c = (val * 256) / 100;
+                UnicamBase->u_KernelC = val;
             }
 
             if (FindToken(cmdline, "unicam.smooth"))
             {
                 UnicamBase->u_Smooth = 1;
-                bug("[unicam] Enable smoothing kernel. B=%ld, C=%ld\n", kernel_b, kernel_c);
+                bug("[unicam] Enable smoothing kernel. B=%ld, C=%ld\n", UnicamBase->u_KernelB, UnicamBase->u_KernelC);
             }
 
             if ((cmd = FindToken(cmdline, "unicam.scaler=")))
@@ -356,6 +362,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             if (UnicamBase->u_ReceiveBuffer == NULL)
             {
                 const ULONG size = sizeof(ULONG) * 768 * 576;
+                
                 UnicamBase->u_ReceiveBuffer = AllocMem(size, MEMF_FAST);
                 UnicamBase->u_ReceiveBufferSize = size;
             }
@@ -366,6 +373,9 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 
             if (start_on_boot)
             {
+                LONG kernel_b = (UnicamBase->u_KernelB * 256) / 1000;
+                LONG kernel_c = (UnicamBase->u_KernelC * 256) / 1000;
+
                 UnicamBase->u_UnicamKernel = 0x400;
                 ULONG *dlistPtr = (ULONG *)((ULONG)UnicamBase->u_PeriphBase + 
                     (UnicamBase->u_IsVC6 ? 0x00404000 : 0x00402000));

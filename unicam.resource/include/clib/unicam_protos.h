@@ -13,6 +13,7 @@
 */
 
 #include <exec/types.h>
+#include <resources/unicam.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,12 @@ extern "C" {
 /* "unicam.resource" */
 void UnicamStart(ULONG * address , UBYTE lanes, UBYTE datatype, ULONG width , ULONG height , UBYTE bbp);
 void UnicamStop(void);
+APTR UnicamGetFramebuffer(void);
+ULONG UnicamGetFramebufferSize(void);
+ULONG UnicamGetCropSize(void);
+ULONG UnicamGetCropOffset(void);
+ULONG UnicamGetKernel(void);
+ULONG UnicamGetConfig(void);
 
 #ifdef __cplusplus
 }

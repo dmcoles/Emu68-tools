@@ -39,5 +39,41 @@
 #ifdef __CLIB_PRAGMA_AMICALL
  #pragma amicall(UnicamBase, 0xc, UnicamStop())
 #endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetFramebuffer 12 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x12, UnicamGetFramebuffer())
+#endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetFramebufferSize 18 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x18, UnicamGetFramebufferSize())
+#endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetCropSize 1e 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x1e, UnicamGetCropSize())
+#endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetCropOffset 24 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x24, UnicamGetCropOffset())
+#endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetKernel 2a 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x2a, UnicamGetKernel())
+#endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetConfig 30 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x30, UnicamGetConfig())
+#endif /* __CLIB_PRAGMA_AMICALL */
 
 #endif /* PRAGMAS_UNICAM_PRAGMAS_H */
