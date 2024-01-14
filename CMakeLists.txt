@@ -14,11 +14,11 @@ add_subdirectory(EmuControl)
 add_subdirectory(SmallPT)
 add_subdirectory(Buddhabrot)
 add_subdirectory(VC4Tweak)
-add_subdirectory(wifipi.device)
 add_subdirectory(emmc.device)
 add_subdirectory(i2c.library)
 add_subdirectory(lattice_i2c_prog)
 add_subdirectory(SetClockI2C)
+add_subdirectory(network)
 
 # Contribs
 # add_subdirectory(Emu68Contribs/Emu68Info) <-- Disabled until original gets an update
