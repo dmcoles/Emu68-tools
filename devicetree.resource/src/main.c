@@ -21,6 +21,8 @@
 #include <proto/exec.h>
 #include <stdint.h>
 
+#include <common/compiler.h>
+
 #include "devicetree.h"
 
 
@@ -67,7 +69,8 @@ const APTR patchListROM[] = {
     (APTR)-1
 };
 
-int DiagPoint(APTR boardBase asm("a0"), struct DiagArea *diagCopy asm("a2"), struct ConfigDev *configDev asm("a3"), struct ExecBase *SysBase asm("a6"))
+int DiagPoint(REGARG(APTR boardBase, "a0"), REGARG(struct DiagArea *diagCopy, "a2"), 
+              REGARG(struct ConfigDev *configDev, "a3"), REGARG(struct ExecBase *SysBase, "a6"))
 {
     const APTR *patch = &patchListRAM[0];
     ULONG offset = (ULONG)&diag_offset;

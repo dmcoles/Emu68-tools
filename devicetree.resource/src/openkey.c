@@ -8,9 +8,10 @@
 */
 
 #include <exec/types.h>
+#include <common/compiler.h>
 #include "devicetree.h"
 
-APTR DT_OpenKey(CONST_STRPTR key asm("a0"), struct DeviceTreeBase *DTBase asm("a6"))
+APTR L_OpenKey(REGARG(CONST_STRPTR key, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"))
 {
     char ptrbuf[64];
     int i;

@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.14.0)
-project(VideoCore VERSION 1.0.0)
+project(VideoCore VERSION 1.2.0)
 get_verstring(VERSTRING)
 
 add_link_options(-ffreestanding -nostdlib -nostartfiles -Wl,-e,__start)
-add_compile_options(-Os -m68040 -fomit-frame-pointer)
+add_compile_options(-Os -m68030 -fomit-frame-pointer)
 add_compile_definitions(PRIVATE VERSION_STRING="${VERSTRING}")
 
 add_library(VideoCore INTERFACE)
@@ -17,8 +17,9 @@ add_executable(VideoCore.card
     src/support.c
     src/debug.c
     src/end.c
+    src/unicam.c
 )
-target_link_libraries(VideoCore.card devicetree amiga)
+target_link_libraries(VideoCore.card devicetree amiga common unicam)
 target_compile_definitions(VideoCore.card PUBLIC CARD_NAME="VideoCore.card")
 
 add_executable(Emu68-VC4.card
@@ -29,8 +30,9 @@ add_executable(Emu68-VC4.card
     src/support.c
     src/debug.c
     src/end.c
+    src/unicam.c
 )
-target_link_libraries(Emu68-VC4.card devicetree amiga)
+target_link_libraries(Emu68-VC4.card devicetree amiga common unicam)
 target_compile_definitions(Emu68-VC4.card PUBLIC CARD_NAME="Emu68-VC4.card")
 
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/VideoCore.card DESTINATION ./VideoCore/)

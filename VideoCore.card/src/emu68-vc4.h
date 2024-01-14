@@ -26,6 +26,15 @@ struct Size {
     UWORD height;
 };
 
+enum SwitchMode {
+    None = 0,
+    CTS,
+    RTS,
+    DTR,
+    SEL,
+    CSI,
+};
+
 struct VC4Base {
     struct CardBase         vc4_LibNode;
     BPTR                    vc4_SegList;
@@ -34,12 +43,15 @@ struct VC4Base {
     struct DOSBase *        vc4_DOSBase;
     struct IntuitionBase *  vc4_IntuitionBase;
     APTR                    vc4_DeviceTreeBase;
+    APTR                    vc4_UnicamBase;
     APTR                    vc4_MailBox;
     APTR                    vc4_HVS;
     APTR                    vc4_RequestBase;
     APTR                    vc4_Request;
     APTR                    vc4_MemBase;
     uint32_t                vc4_MemSize;
+    APTR                    vc4_Unicambuffer;
+    ULONG                   vc4_UnicamDL;
     APTR                    vc4_Framebuffer;
     uint32_t                vc4_Pitch;
     uint16_t                vc4_Enabled;
@@ -55,8 +67,8 @@ struct VC4Base {
     ULONG                   vc4_Scaler;
     UBYTE                   vc4_Phase;
     ULONG                   vc4_VertFreq;
-    double                  vc4_Kernel_B;
-    double                  vc4_Kernel_C;
+    ULONG                   vc4_Kernel_B; // FLOAT!
+    ULONG                   vc4_Kernel_C; // FLOAT!
     UBYTE                   vc4_UseKernel;
     UBYTE                   vc4_SpriteAlpha;
     UBYTE                   vc4_SpriteVisible;
@@ -91,6 +103,8 @@ struct VC4Base {
     }                       vc4_LastPanning;
     
     UBYTE *                 vc4_SpriteShape;
+    enum SwitchMode         vc4_SwitchMode;
+    UBYTE                   vc4_SwitchInverted;
 };
 
 void bug(const char * restrict format, ...);

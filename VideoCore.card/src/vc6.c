@@ -3,13 +3,22 @@
 #include <exec/execbase.h>
 
 #include <proto/exec.h>
+#include <proto/unicam.h>
+#include <proto/mathieeesingbas.h>
+
+#include <hardware/cia.h>
+#include <common/compiler.h>
+#include <resources/unicam.h>
+
+// Shut off MathIEEE float injecting stuff
+#define FLOAT ULONG
 
 #include "emu68-vc4.h"
 #include "vc6.h"
 #include "boardinfo.h"
 #include "mbox.h"
 
-UWORD VC6_CalculateBytesPerRow(struct BoardInfo *b asm("a0"), UWORD width asm("d0"), RGBFTYPE format asm("d7"))
+UWORD VC6_CalculateBytesPerRow(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD width, "d0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -45,7 +54,7 @@ UWORD VC6_CalculateBytesPerRow(struct BoardInfo *b asm("a0"), UWORD width asm("d
     }
 }
 
-void VC6_SetDAC(struct BoardInfo *b asm("a0"), RGBFTYPE format asm("d7"))
+void VC6_SetDAC(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -56,8 +65,7 @@ void VC6_SetDAC(struct BoardInfo *b asm("a0"), RGBFTYPE format asm("d7"))
     // This needs no handling, since the PiStorm doesn't really have a RAMDAC or a video card chipset.
 }
 
-
-void VC6_SetGC(struct BoardInfo *b asm("a0"), struct ModeInfo *mode_info asm("a1"), BOOL border asm("d0"))
+void VC6_SetGC(REGARG(struct BoardInfo *b, "a0"), REGARG(struct ModeInfo *mode_info, "a1"), REGARG(BOOL border, "d0"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -84,10 +92,48 @@ void VC6_SetGC(struct BoardInfo *b asm("a0"), struct ModeInfo *mode_info asm("a1
     }
 }
 
-UWORD VC6_SetSwitch(struct BoardInfo *b asm("a0"), UWORD enabled asm("d0"))
+static const ULONG mode_table[] = {
+    [RGBFB_A8R8G8B8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_RGBA),
+    [RGBFB_A8B8G8R8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_BGRA),
+    [RGBFB_B8G8R8A8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_ARGB),
+    [RGBFB_R8G8B8A8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_ABGR),
+
+    [RGBFB_R8G8B8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR),
+    [RGBFB_B8G8R8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
+
+    [RGBFB_R5G6B5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
+    [RGBFB_R5G5B5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB555) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
+
+    [RGBFB_R5G6B5] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
+    [RGBFB_R5G5B5] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB555) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
+
+    [RGBFB_B5G6R5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR),
+    [RGBFB_B5G5R5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB555) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR),
+
+    [RGBFB_CLUT] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_PALETTE) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR)
+};
+
+int VC6_AllocSlot(UWORD size, struct VC4Base *VC4Base)
+{
+    int ret = VC4Base->vc4_FreePlane;
+    int next_free = VC4Base->vc4_FreePlane + size;
+
+    if (next_free >= 0x300 || next_free >= VC4Base->vc4_UnicamDL)
+    {
+        ret = 0;
+        next_free = ret + size;
+    }
+
+    VC4Base->vc4_FreePlane = next_free;
+
+    return ret;
+}
+
+UWORD VC6_SetSwitch(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD enabled, "d0"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
+    volatile ULONG *displist = (ULONG *)0xf2404000;
 
     if (1)
     {
@@ -107,48 +153,59 @@ UWORD VC6_SetSwitch(struct BoardInfo *b asm("a0"), UWORD enabled asm("d0"))
         }
     }
     
+/* If switch mode is selected */
+    if (VC4Base->vc4_SwitchMode != None)
+    {
+        UWORD en = enabled;
+
+        /* Invert the switch mode */
+        if (VC4Base->vc4_SwitchInverted)
+        {
+            en = 1 - en;
+        }
+
+        switch (VC4Base->vc4_SwitchMode)
+        {
+            case CTS:
+                ((volatile struct CIA *)0xbfd000)->ciaddra |= CIAF_COMCTS;
+                if (en) ((volatile struct CIA *)0xbfd000)->ciapra &= ~CIAF_COMCTS;
+                else ((volatile struct CIA *)0xbfd000)->ciapra |= CIAF_COMCTS;
+                break;
+            
+            case RTS:
+                ((volatile struct CIA *)0xbfd000)->ciaddra |= CIAF_COMRTS;
+                if (en) ((volatile struct CIA *)0xbfd000)->ciapra &= ~CIAF_COMRTS;
+                else ((volatile struct CIA *)0xbfd000)->ciapra |= CIAF_COMRTS;
+                break;
+
+            case DTR:
+                ((volatile struct CIA *)0xbfd000)->ciaddra |= CIAF_COMDTR;
+                if (en) ((volatile struct CIA *)0xbfd000)->ciapra &= ~CIAF_COMDTR;
+                else ((volatile struct CIA *)0xbfd000)->ciapra |= CIAF_COMDTR;
+                break;
+            
+            case SEL:
+                ((volatile struct CIA *)0xbfd000)->ciaddra |= CIAF_PRTRSEL;
+                if (en) ((volatile struct CIA *)0xbfd000)->ciapra &= ~CIAF_PRTRSEL;
+                else ((volatile struct CIA *)0xbfd000)->ciapra |= CIAF_PRTRSEL;
+                break;
+           case CSI:
+                if (!en) {
+                    *(volatile uint32_t *)0xf2400024 = LE32(VC4Base->vc4_UnicamDL);
+                }
+                else {
+                    *(volatile uint32_t *)0xf2400024 = LE32(VC4Base->vc4_ActivePlane);
+                }
+                break;
+        }
+    }
+
     return 1 - enabled;
 }
 
-
-static const ULONG mode_table[] = {
-    [RGBFB_A8R8G8B8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_RGBA),
-    [RGBFB_A8B8G8R8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_BGRA),
-    [RGBFB_B8G8R8A8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_ARGB),
-    [RGBFB_R8G8B8A8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGBA8888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_ABGR),
-
-    [RGBFB_R8G8B8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR),
-    [RGBFB_B8G8R8] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
-
-    [RGBFB_R5G6B5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
-    [RGBFB_R5G5B5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB555) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
-    
-    [RGBFB_R5G6B5] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
-    [RGBFB_R5G5B5] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB555) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB),
-    
-    [RGBFB_B5G6R5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR),
-    [RGBFB_B5G5R5PC] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB555) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR),
-
-    [RGBFB_CLUT] = VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_PALETTE) | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XBGR)
-};
-
-int VC6_AllocSlot(UWORD size, struct VC4Base *VC4Base)
-{
-    int ret = VC4Base->vc4_FreePlane;
-    int next_free = VC4Base->vc4_FreePlane + size;
-
-    if (next_free >= 0x300)
-    {
-        ret = 0;
-        next_free = ret + size;
-    }
-
-    VC4Base->vc4_FreePlane = next_free;
-
-    return ret;
-}
-
-void VC6_SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD width asm("d0"), WORD x_offset asm("d1"), WORD y_offset asm("d2"), RGBFTYPE format asm("d7"))
+void VC6_SetPanning(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE *addr, "a1"), 
+                    REGARG(UWORD width, "d0"), REGARG(WORD x_offset, "d1"), 
+                    REGARG(WORD y_offset, "d2"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -255,7 +312,7 @@ void VC6_SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD
                 VC6_SetSpritePosition(b, VC4Base->vc4_MouseX, VC4Base->vc4_MouseY, format);
         }
         else {
-            pos = VC6_AllocSlot(8 + 20 + 4, VC4Base);
+            pos = VC6_AllocSlot(8 + 20 + 4 + 8, VC4Base);
             int cnt = pos + 1;
 
             VC4Base->vc4_PlaneCoord = &displist[cnt];
@@ -324,8 +381,31 @@ void VC6_SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD
                 mode_table[RGBFB_CLUT]
             );
 
-            displist[cnt++] = LE32(0x80000000);
+/*
+//UNICAM
+            int unicam_pos = cnt;
+            cnt = unicam_pos + 1;
 
+            VC4Base->vc4_PlaneCoord = &displist[cnt];
+            displist[cnt++] = LE32(VC6_POS0_X(1920-720) | VC6_POS0_Y(1080-576));
+            displist[cnt++] = LE32((VC6_SCALER_POS2_ALPHA_MODE_FIXED << VC6_SCALER_POS2_ALPHA_MODE_SHIFT) | VC6_SCALER_POS2_ALPHA(0xfff));
+            displist[cnt++] = LE32(VC6_POS2_H(576) | VC6_POS2_W(720));
+            displist[cnt++] = LE32(0xdeadbeef);
+
+            displist[cnt++] = LE32(0xc0000000 | (ULONG)VC4Base->vc4_Unicambuffer);
+            displist[cnt++] = LE32(0xdeadbeef);
+            displist[cnt++] = LE32(720*2);
+
+            displist[unicam_pos] = LE32(
+                VC6_CONTROL_VALID
+                | VC6_CONTROL_WORDS(cnt - unicam_pos)
+                | VC6_CONTROL_UNITY
+                | VC6_CONTROL_ALPHA_EXPAND
+                | VC6_CONTROL_RGB_EXPAND
+                | mode_table[RGBFB_R5G6B5PC]);
+//UNICAM
+*/
+            displist[cnt++] = LE32(0x80000000);
             displist[clut_off] = LE32(0xc0000000 | (cnt << 2));
 
             displist[cnt++] = LE32(0x00000000);
@@ -354,7 +434,7 @@ void VC6_SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD
         }
         else 
         {
-            pos = VC6_AllocSlot(2*20 + 4, VC4Base);
+            pos = VC6_AllocSlot(2*20 + 4 + 8, VC4Base);
             int cnt = pos + 1;
 
             VC4Base->vc4_PlaneCoord = &displist[cnt];
@@ -449,8 +529,31 @@ void VC6_SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD
                 mode_table[RGBFB_CLUT]
             );
 
-            displist[cnt++] = LE32(0x80000000);
+/*
+//UNICAM
+            int unicam_pos = cnt;
+            cnt = unicam_pos + 1;
 
+            VC4Base->vc4_PlaneCoord = &displist[cnt];
+            displist[cnt++] = LE32(VC6_POS0_X(1920-720) | VC6_POS0_Y(1080-576));
+            displist[cnt++] = LE32((VC6_SCALER_POS2_ALPHA_MODE_FIXED << VC6_SCALER_POS2_ALPHA_MODE_SHIFT) | VC6_SCALER_POS2_ALPHA(0xfff));
+            displist[cnt++] = LE32(VC6_POS2_H(576) | VC6_POS2_W(720));
+            displist[cnt++] = LE32(0xdeadbeef);
+
+            displist[cnt++] = LE32(0xc0000000 | (ULONG)VC4Base->vc4_Unicambuffer);
+            displist[cnt++] = LE32(0xdeadbeef);
+            displist[cnt++] = LE32(720*2);
+
+            displist[unicam_pos] = LE32(
+                VC6_CONTROL_VALID
+                | VC6_CONTROL_WORDS(cnt - unicam_pos)
+                | VC6_CONTROL_UNITY
+                | VC6_CONTROL_ALPHA_EXPAND
+                | VC6_CONTROL_RGB_EXPAND
+                | mode_table[RGBFB_R5G6B5PC]);
+//UNICAM
+*/
+            displist[cnt++] = LE32(0x80000000);
             displist[clut_off] = LE32(0xc0000000 | (cnt << 2));
 
             displist[cnt++] = LE32(0x00000000);
@@ -458,6 +561,7 @@ void VC6_SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD
             displist[cnt++] = LE32(VC4Base->vc4_SpriteColors[0]);
             displist[cnt++] = LE32(VC4Base->vc4_SpriteColors[1]);
             displist[cnt++] = LE32(VC4Base->vc4_SpriteColors[2]);
+
 #if 0
             for (int i=pos; i < cnt; i++) {
                 ULONG args[] = {
@@ -482,8 +586,8 @@ void VC6_SetPanning (struct BoardInfo *b asm("a0"), UBYTE *addr asm("a1"), UWORD
     }
 }
 
-
-void VC6_SetColorArray (__REGA0(struct BoardInfo *b), __REGD0(UWORD start), __REGD1(UWORD num)) {
+void VC6_SetColorArray(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD start, "d0"), REGARG(UWORD num, "d1"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     volatile uint32_t *displist = (uint32_t *)0xf2404000;
@@ -506,7 +610,9 @@ void VC6_SetColorArray (__REGA0(struct BoardInfo *b), __REGD0(UWORD start), __RE
 }
 
 
-APTR VC6_CalculateMemory (__REGA0(struct BoardInfo *b), __REGA1(unsigned long addr), __REGD7(RGBFTYPE format)) {
+APTR VC6_CalculateMemory(REGARG(struct BoardInfo *b, "a0"), REGARG(unsigned long addr, "a1"), 
+                         REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
 
@@ -543,7 +649,8 @@ enum fake_rgbftypes {
 };
 #define BIP(a) (1 << a)
 
-ULONG VC6_GetCompatibleFormats (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format)) {
+ULONG VC6_GetCompatibleFormats(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     if (0)
@@ -555,7 +662,7 @@ ULONG VC6_GetCompatibleFormats (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE f
 }
 
 //static int display_enabled = 0;
-UWORD VC6_SetDisplay (__REGA0(struct BoardInfo *b), __REGD0(UWORD enabled))
+UWORD VC6_SetDisplay(REGARG(struct BoardInfo *b, "a0"), REGARG(UWORD enabled, "d0"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
@@ -573,9 +680,9 @@ UWORD VC6_SetDisplay (__REGA0(struct BoardInfo *b), __REGD0(UWORD enabled))
     return 1;
 }
 
-
-LONG VC6_ResolvePixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInfo *mode_info), __REGD0(ULONG pixel_clock), __REGD7(RGBFTYPE format)) {
-
+LONG VC6_ResolvePixelClock(REGARG(struct BoardInfo *b, "a0"), REGARG(struct ModeInfo *mode_info, "a1"),
+                           REGARG(ULONG pixel_clock, "d0"), REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     
@@ -596,7 +703,9 @@ LONG VC6_ResolvePixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInf
     return 0;
 }
 
-ULONG VC6_GetPixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInfo *mode_info), __REGD0(ULONG index), __REGD7(RGBFTYPE format)) {
+ULONG VC6_GetPixelClock(REGARG(struct BoardInfo *b, "a0"), REGARG(struct ModeInfo *mode_info, "a1"),
+                        REGARG(ULONG index, "d0"), REGARG(RGBFTYPE format, "d7"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     
     ULONG clock = mode_info->HorTotal * mode_info->VerTotal * VC4Base->vc4_VertFreq;
@@ -608,21 +717,27 @@ ULONG VC6_GetPixelClock (__REGA0(struct BoardInfo *b), __REGA1(struct ModeInfo *
 }
 
 // None of these five really have to do anything.
-void VC6_SetClock (__REGA0(struct BoardInfo *b)) {
-}
-void VC6_SetMemoryMode (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format)) {
-}
-
-void VC6_SetWriteMask (__REGA0(struct BoardInfo *b), __REGD0(UBYTE mask)) {
+void VC6_SetClock(REGARG(struct BoardInfo *b, "a0"))
+{
 }
 
-void VC6_SetClearMask (__REGA0(struct BoardInfo *b), __REGD0(UBYTE mask)) {
+void VC6_SetMemoryMode(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
+{
 }
 
-void VC6_SetReadPlane (__REGA0(struct BoardInfo *b), __REGD0(UBYTE plane)) {
+void VC6_SetWriteMask(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE mask, "d0"))
+{
 }
 
-void VC6_SetSprite (__REGA0(struct BoardInfo *b), __REGD0(BOOL enable), __REGD7(RGBFTYPE format))
+void VC6_SetClearMask(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE mask, "d0"))
+{
+}
+
+void VC6_SetReadPlane(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE plane, "d0"))
+{
+}
+
+void VC6_SetSprite(REGARG(struct BoardInfo *b, "a0"), REGARG(BOOL enable, "d0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
 
@@ -654,7 +769,8 @@ void VC6_SetSprite (__REGA0(struct BoardInfo *b), __REGD0(BOOL enable), __REGD7(
     }
 }
 
-void VC6_SetSpritePosition (__REGA0(struct BoardInfo *b), __REGD0(WORD x), __REGD1(WORD y), __REGD7(RGBFTYPE format))
+void VC6_SetSpritePosition(REGARG(struct BoardInfo *b, "a0"), REGARG(WORD x, "d0"), 
+                           REGARG(WORD y, "d1"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
 
@@ -690,8 +806,7 @@ void VC6_SetSpritePosition (__REGA0(struct BoardInfo *b), __REGD0(WORD x), __REG
     }
 }
 
-
-void VC6_SetSpriteImage (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format))
+void VC6_SetSpriteImage(REGARG(struct BoardInfo *b, "a0"), REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     struct ExecBase *SysBase = *(struct ExecBase **)4;
@@ -758,7 +873,9 @@ void VC6_SetSpriteImage (__REGA0(struct BoardInfo *b), __REGD7(RGBFTYPE format))
     CacheClearE(VC4Base->vc4_SpriteShape, MAXSPRITEHEIGHT * MAXSPRITEWIDTH, CACRF_ClearD);
 }
 
-void VC6_SetSpriteColor (__REGA0(struct BoardInfo *b), __REGD0(UBYTE idx), __REGD1(UBYTE R), __REGD2(UBYTE G), __REGD3(UBYTE B), __REGD7(RGBFTYPE format))
+void VC6_SetSpriteColor(REGARG(struct BoardInfo *b, "a0"), REGARG(UBYTE idx, "d0"),
+                        REGARG(UBYTE R, "d1"), REGARG(UBYTE G, "d2"), REGARG(UBYTE B, "d3"),
+                        REGARG(RGBFTYPE format, "d7"))
 {
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     if (idx < 3) {
@@ -769,7 +886,7 @@ void VC6_SetSpriteColor (__REGA0(struct BoardInfo *b), __REGD0(UBYTE idx), __REG
     }
 }
 
-ULONG VC6_GetVBeamPos(struct BoardInfo *b asm("a0"))
+ULONG VC6_GetVBeamPos(REGARG(struct BoardInfo *b, "a0"))
 {
     volatile ULONG *stat = (ULONG*)(0xf2400000 + SCALER_DISPSTAT1);
     ULONG vbeampos = LE32(*stat) & 0xfff;
@@ -777,10 +894,194 @@ ULONG VC6_GetVBeamPos(struct BoardInfo *b asm("a0"))
     return vbeampos;
 }
 
-void VC6_WaitVerticalSync (__REGA0(struct BoardInfo *b), __REGD0(BOOL toggle)) {
+void VC6_WaitVerticalSync(REGARG(struct BoardInfo *b, "a0"), REGARG(BOOL toggle, "d0"))
+{
     struct VC4Base *VC4Base = (struct VC4Base *)b->CardBase;
     volatile ULONG *stat = (ULONG*)(0xf2400000 + SCALER_DISPSTAT1);
 
     // Wait until current vbeampos is lower than the one obtained above
     do { asm volatile("nop"); } while((LE32(*stat) & 0xfff) != VC4Base->vc4_DispSize.height);
+}
+
+/* Unicam DisplayList */
+void VC6_ConstructUnicamDL(struct VC4Base *VC4Base)
+{
+    APTR UnicamBase = VC4Base->vc4_UnicamBase;
+    int unity = 0;
+    ULONG scale_x = 0;
+    ULONG scale_y = 0;
+    ULONG scale = 0;
+    ULONG recip_x = 0;
+    ULONG recip_y = 0;
+    ULONG calc_width = 0;
+    ULONG calc_height = 0;
+    ULONG offset_x = 0;
+    ULONG offset_y = 0;
+
+    UBYTE scaler;
+    UBYTE phase;
+
+    ULONG config = UnicamGetConfig();
+
+    ULONG KernelC = UnicamGetKernel();
+    ULONG KernelB = KernelC >> 16;
+    KernelC &= 0xffff;
+
+    ULONG crop_w = UnicamGetCropSize();
+    ULONG crop_h = crop_w & 0xffff;
+    crop_w >>= 16;
+
+    ULONG crop_x = UnicamGetCropOffset();
+    ULONG crop_y = crop_x & 0xffff;
+    crop_x >>= 16;
+
+    scaler = (config & UNICAMF_SCALER) >> UNICAMB_SCALER;
+    phase = (config & UNICAMF_PHASE) >> UNICAMB_PHASE;
+
+    ULONG cnt = 0x300; // Initial pointer to UnicamDL
+
+    volatile ULONG *displist = (ULONG *)0xf2404000;
+
+    if (crop_w == VC4Base->vc4_DispSize.width &&
+        crop_h == VC4Base->vc4_DispSize.height)
+    {
+        unity = 1;
+    }
+    else
+    {
+        scale_x = 0x10000 * crop_w / VC4Base->vc4_DispSize.width;
+        scale_y = 0x10000 * crop_h / VC4Base->vc4_DispSize.height;
+
+        recip_x = 0xffffffff / scale_x;
+        recip_y = 0xffffffff / scale_y;
+
+        // Select larger scaling factor from X and Y, but it need to fit
+        if (((0x10000 * crop_h) / scale_x) > VC4Base->vc4_DispSize.height) {
+            scale = scale_y;
+        }
+        else {
+            scale = scale_x;
+        }
+
+        if (config & UNICAMF_INTEGER)
+        {
+            scale = 0x10000 / (ULONG)(0x10000 / scale);
+        }
+
+        calc_width = (0x10000 * crop_w) / scale;
+        calc_height = (0x10000 * crop_h) / scale;
+
+        offset_x = (VC4Base->vc4_DispSize.width - calc_width) >> 1;
+        offset_y = (VC4Base->vc4_DispSize.height - calc_height) >> 1;
+    }
+
+    ULONG startAddress = (ULONG)VC4Base->vc4_Unicambuffer;
+    startAddress += crop_x * sizeof(UWORD);
+    startAddress += crop_y * 720 * sizeof(UWORD);
+
+    if (unity)
+    {
+        /* Unity scaling is simple, reserve less space for display list */
+        cnt -= 9;
+
+        VC4Base->vc4_UnicamDL = cnt;
+
+        /* Set control reg */
+        displist[cnt++] = LE32(
+            VC6_CONTROL_VALID
+            | VC6_CONTROL_WORDS(8)
+            | VC6_CONTROL_UNITY
+            | VC6_CONTROL_ALPHA_EXPAND
+            | VC6_CONTROL_RGB_EXPAND
+            | mode_table[RGBFB_R5G6B5PC]
+        );
+
+        /* Center it on the screen */
+        displist[cnt++] = LE32(VC6_POS0_X(offset_x) | VC6_POS0_Y(offset_y));
+        displist[cnt++] = LE32((VC6_SCALER_POS2_ALPHA_MODE_FIXED << VC6_SCALER_POS2_ALPHA_MODE_SHIFT) | VC6_SCALER_POS2_ALPHA(0xfff));
+        displist[cnt++] = LE32(VC6_POS2_H(crop_h) | VC6_POS2_W(crop_w));
+        displist[cnt++] = LE32(0xdeadbeef);
+
+        /* Set address */
+        displist[cnt++] = LE32(0xc0000000 | startAddress);
+        displist[cnt++] = LE32(0xdeadbeef);
+        displist[cnt++] = LE32(720*2);
+
+        /* Done */
+        displist[cnt++] = LE32(0x80000000);
+    }
+    else
+    {
+        cnt -= 18;
+       
+        VC4Base->vc4_UnicamDL = cnt;
+
+        /* Set control reg */
+        displist[cnt++] = LE32(
+            VC6_CONTROL_VALID
+            | VC6_CONTROL_WORDS(17)
+            | VC6_CONTROL_ALPHA_EXPAND
+            | VC6_CONTROL_RGB_EXPAND
+            | mode_table[RGBFB_R5G6B5PC]
+        );
+
+        /* Center plane on the screen */
+        displist[cnt++] = LE32(VC6_POS0_X(offset_x) | VC6_POS0_Y(offset_y));
+        displist[cnt++] = LE32((VC6_SCALER_POS2_ALPHA_MODE_FIXED << VC6_SCALER_POS2_ALPHA_MODE_SHIFT) | VC6_SCALER_POS2_ALPHA(0xfff));
+        displist[cnt++] = LE32(VC6_POS1_H(calc_height) | VC6_POS1_W(calc_width));
+        displist[cnt++] = LE32(VC6_POS2_H(crop_h) | VC6_POS2_W(crop_w));
+        displist[cnt++] = LE32(0xdeadbeef); // Scratch written by HVS
+
+        /* Set address and pitch */
+        displist[cnt++] = LE32(0xc0000000 | startAddress);
+        displist[cnt++] = LE32(0xdeadbeef);
+        displist[cnt++] = LE32(720*2);
+
+        /* LMB address */
+        displist[cnt++] = LE32(0);
+
+        /* Set PPF Scaler */
+        displist[cnt++] = LE32((scale << 8) | (scaler << 30) | phase);
+        displist[cnt++] = LE32((scale << 8) | (scaler << 30) | phase);
+        displist[cnt++] = LE32(0); // Scratch written by HVS
+
+        if (config & UNICAMF_SMOOTHING)
+        {
+            displist[cnt++] = LE32(0xfc0);
+            displist[cnt++] = LE32(0xfc0);
+            displist[cnt++] = LE32(0xfc0);
+            displist[cnt++] = LE32(0xfc0);
+        }
+        else
+        {
+            displist[cnt++] = LE32(unity_kernel);
+            displist[cnt++] = LE32(unity_kernel);
+            displist[cnt++] = LE32(unity_kernel);
+            displist[cnt++] = LE32(unity_kernel);
+        }
+
+        /* Done */
+        displist[cnt++] = LE32(0x80000000);
+
+        /* Put scaling kernel here... */
+        if (config & UNICAMF_SMOOTHING)
+        {
+            struct ExecBase *SysBase = VC4Base->vc4_SysBase;
+            struct Library *MathIeeeSingBasBase = OpenLibrary("mathieeesingbas.library", 0);
+
+            ULONG float_kernel_b = IEEESPDiv(
+                IEEESPFlt(KernelB),
+                0x447a0000  // 1000.0
+            );
+
+            ULONG float_kernel_c = IEEESPDiv(
+                IEEESPFlt(KernelC),
+                0x447a0000  // 1000.0
+            );
+
+            CloseLibrary(MathIeeeSingBasBase);
+
+            compute_scaling_kernel(displist, 0xfc0, float_kernel_b, float_kernel_c);
+        }
+    }
 }

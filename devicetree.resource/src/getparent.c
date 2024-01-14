@@ -8,9 +8,10 @@
 */
 
 #include <exec/types.h>
+#include <common/compiler.h>
 #include "devicetree.h"
 
-APTR DT_GetParent(of_node_t *key asm("a0"), struct DeviceTreeBase *DTBase asm("a6"))
+APTR L_GetParent(REGARG(of_node_t *key, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"))
 {
     if (key == NULL)
         key = DTBase->dt_Root;

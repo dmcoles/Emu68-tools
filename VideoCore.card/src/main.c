@@ -8,14 +8,20 @@
 #include <clib/debug_protos.h>
 #include <devices/inputevent.h>
 
+#include <proto/mathieeesingbas.h>
 #include <proto/exec.h>
 #include <proto/expansion.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
 #include <proto/input.h>
 #include <proto/devicetree.h>
+#include <proto/unicam.h>
 
 #include <stdint.h>
+#include <common/compiler.h>
+
+// Shut off MathIEEE float injecting stuff
+#define FLOAT ULONG
 
 #include "boardinfo.h"
 #include "emu68-vc4.h"
@@ -24,6 +30,7 @@
 #include "support.h"
 #include "vc4.h"
 #include "vc6.h"
+#include "unicam.h"
 
 int __attribute__((no_reorder)) _start()
 {
@@ -83,7 +90,7 @@ int _strcmp(const char *s1, const char *s2)
     return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
 }
 
-static int FindCard(struct BoardInfo* bi asm("a0"), struct VC4Base *VC4Base asm("a6"))
+static int FindCard(REGARG(struct BoardInfo* bi, "a0"), REGARG(struct VC4Base *VC4Base, "a6"))
 {
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     APTR DeviceTreeBase = NULL;
@@ -285,6 +292,16 @@ static int FindCard(struct BoardInfo* bi asm("a0"), struct VC4Base *VC4Base asm(
     RawDoFmt("[vc4] VPU CopyBlock pointer at %08lx\n", &VC4Base->vc4_VPU_CopyBlock, (APTR)putch, NULL);
 #endif
 
+//UNICAM
+
+    APTR UnicamBase = OpenResource("unicam.resource");
+    if (UnicamBase != NULL)
+    {
+        VC4Base->vc4_UnicamBase = UnicamBase;
+        VC4Base->vc4_Unicambuffer = UnicamGetFramebuffer();
+        UnicamStart(VC4Base->vc4_Unicambuffer, 1, 0x22, 720, 576, 16);
+    }
+
     return 1;
 }
 
@@ -320,15 +337,15 @@ static void vc4_Task()
                             kernel_start ^= 0x10;
                             if (vmsg->SetKernel.kernel) {
                                 if (VC4Base->vc4_VideoCore6)
-                                    compute_scaling_kernel((uint32_t *)0xf2404000, vmsg->SetKernel.b, vmsg->SetKernel.c);
+                                    compute_scaling_kernel((uint32_t *)0xf2404000, kernel_start, vmsg->SetKernel.b, vmsg->SetKernel.c);
                                 else
-                                    compute_scaling_kernel((uint32_t *)0xf2402000, vmsg->SetKernel.b, vmsg->SetKernel.c);
+                                    compute_scaling_kernel((uint32_t *)0xf2402000, kernel_start, vmsg->SetKernel.b, vmsg->SetKernel.c);
                             }
                             else {
                                 if (VC4Base->vc4_VideoCore6)
-                                    compute_nearest_neighbour_kernel((uint32_t *)0xf2404000);
+                                    compute_nearest_neighbour_kernel((uint32_t *)0xf2404000, kernel_start);
                                 else
-                                    compute_nearest_neighbour_kernel((uint32_t *)0xf2402000);
+                                    compute_nearest_neighbour_kernel((uint32_t *)0xf2402000, kernel_start);
                             }
                             if (VC4Base->vc4_Kernel)
                             {
@@ -338,7 +355,7 @@ static void vc4_Task()
                                 VC4Base->vc4_Kernel[0] = LE32(kernel_start);
                                 VC4Base->vc4_Kernel[1] = LE32(kernel_start);
                                 VC4Base->vc4_Kernel[2] = LE32(kernel_start);
-                                VC4Base->vc4_Kernel[3] = LE32(kernel_start);                               
+                                VC4Base->vc4_Kernel[3] = LE32(kernel_start);
 
                                 VC4Base->vc4_MouseCoord[12] = LE32(kernel_start);
                                 VC4Base->vc4_MouseCoord[13] = LE32(kernel_start);
@@ -433,9 +450,13 @@ static void vc4_Task()
     DeleteMsgPort(port);
 }
 
-static int InitCard(struct BoardInfo* bi asm("a0"), const char **ToolTypes asm("a1"), struct VC4Base *VC4Base asm("a6"))
+static int InitCard(REGARG(struct BoardInfo* bi, "a0"), REGARG(const char **ToolTypes, "a1"), REGARG(struct VC4Base *VC4Base, "a6"))
 {
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
+    struct Library *MathIeeeSingBasBase = OpenLibrary("mathieeesingbas.library", 0);
+
+    if (MathIeeeSingBasBase == NULL)
+        return 0;
 
     bi->CardBase = (struct CardBase *)VC4Base;
     bi->ExecBase = VC4Base->vc4_SysBase;
@@ -620,19 +641,34 @@ static int InitCard(struct BoardInfo* bi asm("a0"), const char **ToolTypes asm("
 
     Enable();
 
-    double delta = (double)(tick2 - tick1);
-    double hz = 1000000.0 / delta;
+    const ULONG float_1000000 = 0x49742400;
+    const ULONG float_1000 = 0x447a0000;
+    const ULONG float_0p5 = 0x3f000000;
 
-    ULONG mHz = 1000.0 * hz;
+    ULONG delta = IEEESPFlt(tick2 - tick1);
+    ULONG hz = IEEESPDiv(float_1000000, delta);
+    ULONG mHz = IEEESPMul(float_1000, hz);
+    mHz = IEEESPAdd(mHz, float_0p5);   // + 0.5
+    mHz = IEEESPFix(mHz);
+    hz = IEEESPAdd(hz, float_0p5);
+    hz = IEEESPFix(hz);
 
     bug("[VC] Detected refresh rate of %ld.%03ld Hz\n", mHz / 1000, mHz % 1000);
-
-    VC4Base->vc4_VertFreq = (ULONG)(hz+0.5);
+    VC4Base->vc4_VertFreq = hz;
 
     VC4Base->vc4_Phase = 128;
     VC4Base->vc4_Scaler = 0xc0000000;
     VC4Base->vc4_UseKernel = 1;
     VC4Base->vc4_SpriteAlpha = 255;
+    VC4Base->vc4_SwitchMode = None;
+    VC4Base->vc4_SwitchInverted = 0;
+    VC4Base->vc4_Kernel_B = 0x3e800000; // 0.25
+    VC4Base->vc4_Kernel_C = 0x3f400000; // 0.75
+
+    APTR UnicamBase = VC4Base->vc4_UnicamBase;
+
+    /* If Unicam was activated on boot, pre-select CSI switch mode */
+    if ((UnicamGetConfig() & UNICAMF_BOOT) != 0) VC4Base->vc4_SwitchMode = CSI;
 
     for (;ToolTypes[0] != NULL; ToolTypes++)
     {
@@ -718,7 +754,10 @@ static int InitCard(struct BoardInfo* bi asm("a0"), const char **ToolTypes asm("
                 num = num * 10 + (*c++ - '0');
             }
 
-            VC4Base->vc4_Kernel_B = (double)num / 1000.0;
+            VC4Base->vc4_Kernel_B = IEEESPDiv(
+                IEEESPFlt(num),
+                0x447a0000  // 1000.0
+            );
 
             bug("[VC] Mitchel-Netravali B %ld\n", num);
         }
@@ -751,27 +790,90 @@ static int InitCard(struct BoardInfo* bi asm("a0"), const char **ToolTypes asm("
                 num = num * 10 + (*c++ - '0');
             }
 
-            VC4Base->vc4_Kernel_C = (double)num / 1000.0;
+            VC4Base->vc4_Kernel_C = IEEESPDiv(
+                IEEESPFlt(num),
+                0x447a0000  // 1000.0
+            );
 
             bug("[VC] Mitchel-Netravali C %ld\n", num);
+        }
+        else if (_strcmp(tt, "VC4_SWITCH_METHOD") == '=')
+        {
+            /*
+                Find out method for switching between HDMI and RGB signals. Currently following
+                methods are available:
+                CTS - the CTS dignal gathered from CIA port will be used for switching
+                      When CTS is set to logic 1, RGB source is selected
+                      When CTS is set to logic 0, HDMI source is selected
+
+                When no VC4_SWITCH_METHOD is selected, the driver will let user decide what to
+                do and will not attempt to perform any switching
+            */
+            const char *m = &tt[18];
+            if (m[0] == 'C' && m[1] == 'T' && m[2] == 'S' && m[3] == 0)
+            {
+                VC4Base->vc4_SwitchMode = CTS;
+            }
+            else if (m[0] == 'D' && m[1] == 'T' && m[2] == 'R' && m[3] == 0)
+            {
+                VC4Base->vc4_SwitchMode = DTR;
+            }
+            else if (m[0] == 'R' && m[1] == 'T' && m[2] == 'S' && m[3] == 0)
+            {
+                VC4Base->vc4_SwitchMode = RTS;
+            }
+            else if (m[0] == 'S' && m[1] == 'E' && m[2] == 'L' && m[3] == 0)
+            {
+                VC4Base->vc4_SwitchMode = SEL;
+            }
+            else if (m[0] == 'C' && m[1] == 'S' && m[2] == 'I' && m[3] == 0)
+            {
+                VC4Base->vc4_SwitchMode = CSI;
+            }
+            else if (m[0] == 'N' && m[1] == 'O' && m[3] == 'N' && m[4] == 'E' && m[5] == 0)
+            {
+                VC4Base->vc4_SwitchMode = None;
+            }
+        }
+        else if (_strcmp(tt, "VC4_SWITCH_INVERT") == '=')
+        {
+            /* Invert the default behavior for selected RGB/HDMI switch mode */
+            const char *s = &tt[18];
+            if (s[0] == 'Y' && s[1] == 'E' && s[2] == 'S' && s[3] == 0)
+            {
+                VC4Base->vc4_SwitchInverted = 1;
+            }
+            else if (s[0] == '1' && s[1] == 0)
+            {
+                VC4Base->vc4_SwitchInverted = 1;
+            }
         }
     }
 
     if (VC4Base->vc4_UseKernel)
         if (VC4Base->vc4_VideoCore6)
-            compute_scaling_kernel((uint32_t *)0xf2404000, VC4Base->vc4_Kernel_B, VC4Base->vc4_Kernel_C);
+            compute_scaling_kernel((uint32_t *)0xf2404000, kernel_start, VC4Base->vc4_Kernel_B, VC4Base->vc4_Kernel_C);
         else
-            compute_scaling_kernel((uint32_t *)0xf2402000, VC4Base->vc4_Kernel_B, VC4Base->vc4_Kernel_C);
+            compute_scaling_kernel((uint32_t *)0xf2402000, kernel_start, VC4Base->vc4_Kernel_B, VC4Base->vc4_Kernel_C);
     else
         if (VC4Base->vc4_VideoCore6)
-            compute_nearest_neighbour_kernel((uint32_t *)0xf2404000);
+            compute_nearest_neighbour_kernel((uint32_t *)0xf2404000, kernel_start);
         else
-            compute_nearest_neighbour_kernel((uint32_t *)0xf2402000);
+            compute_nearest_neighbour_kernel((uint32_t *)0xf2402000, kernel_start);
 
     if (VC4Base->vc4_VideoCore6)
-        compute_nearest_neighbour_kernel(((uint32_t *)0xf2404000) - kernel_start + unity_kernel);
+        compute_nearest_neighbour_kernel(((uint32_t *)0xf2404000), unity_kernel);
     else
-        compute_nearest_neighbour_kernel(((uint32_t *)0xf2402000) - kernel_start + unity_kernel);
+        compute_nearest_neighbour_kernel(((uint32_t *)0xf2402000), unity_kernel);
+
+    if (VC4Base->vc4_VideoCore6)
+    {
+        VC6_ConstructUnicamDL(VC4Base);
+    }
+    else
+    {
+        VC4_ConstructUnicamDL(VC4Base);
+    }
 
     VC4Base->vc4_Task = NewCreateTask(
         TASKTAG_PC,         (Tag)vc4_Task,
@@ -785,10 +887,12 @@ static int InitCard(struct BoardInfo* bi asm("a0"), const char **ToolTypes asm("
 
     bug("[VC] InitCard ready\n");
 
+    CloseLibrary(MathIeeeSingBasBase);
+
     return 1;
 }
 
-static struct VC4Base * OpenLib(ULONG version asm("d0"), struct VC4Base *VC4Base asm("a6"))
+static struct VC4Base * OpenLib(REGARG(ULONG version, "d0"), REGARG(struct VC4Base *VC4Base, "a6"))
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4;
     VC4Base->vc4_LibNode.LibBase.lib_OpenCnt++;
@@ -799,7 +903,7 @@ static struct VC4Base * OpenLib(ULONG version asm("d0"), struct VC4Base *VC4Base
     return VC4Base;
 }
 
-static ULONG ExpungeLib(struct VC4Base *VC4Base asm("a6"))
+static ULONG ExpungeLib(REGARG(struct VC4Base *VC4Base, "a6"))
 {
     struct ExecBase *SysBase = VC4Base->vc4_SysBase;
     BPTR segList = 0;
@@ -837,7 +941,7 @@ static ULONG ExpungeLib(struct VC4Base *VC4Base asm("a6"))
     return segList;
 }
 
-static ULONG CloseLib(struct VC4Base *VC4Base asm("a6"))
+static ULONG CloseLib(REGARG(struct VC4Base *VC4Base, "a6"))
 {
     if (VC4Base->vc4_LibNode.LibBase.lib_OpenCnt != 0)
         VC4Base->vc4_LibNode.LibBase.lib_OpenCnt--;
@@ -857,7 +961,7 @@ static uint32_t ExtFunc()
     return 0;
 }
 
-struct VC4Base * vc4_Init(struct VC4Base *base asm("d0"), BPTR seglist asm("a0"), struct ExecBase *SysBase asm("a6"))
+struct VC4Base * vc4_Init(REGARG(struct VC4Base *base, "d0"), REGARG(BPTR seglist, "a0"), REGARG(struct ExecBase *SysBase, "a6"))
 {
     struct VC4Base *VC4Base = base;
     VC4Base->vc4_SegList = seglist;

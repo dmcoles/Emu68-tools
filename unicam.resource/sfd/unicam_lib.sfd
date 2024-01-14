@@ -1,0 +1,18 @@
+==id $Id: unicam_lib.sfd 0.1.0 $
+* "unicam.resource"
+==base _UnicamBase
+==basetype APTR
+==libname unicam
+==include <exec/types.h>
+==include <resources/unicam.h>
+==bias 6
+==public
+void UnicamStart(ULONG *address , UBYTE lanes, UBYTE datatype, ULONG width , ULONG height , UBYTE bbp) (A0,D0,D1,D2,D3,D4)
+void UnicamStop() ()
+APTR UnicamGetFramebuffer() ()
+ULONG UnicamGetFramebufferSize() ()
+ULONG UnicamGetCropSize() ()
+ULONG UnicamGetCropOffset() ()
+ULONG UnicamGetKernel() ()
+ULONG UnicamGetConfig() ()
+==end

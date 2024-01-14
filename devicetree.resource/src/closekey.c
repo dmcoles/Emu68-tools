@@ -8,9 +8,11 @@
 */
 
 #include <exec/types.h>
+#include <common/compiler.h>
+
 #include "devicetree.h"
 
-void DT_CloseKey(of_node_t *node asm("a0"), struct DeviceTreeBase *DTBase asm("a6"))
+void L_CloseKey(REGARG(of_node_t *node, "a0"), REGARG(struct DeviceTreeBase *DTBase, "a6"))
 {
     (void)node;
     (void)DTBase;

@@ -1,4 +1,4 @@
-/* Automatically generated header (sfdc 1.11b)! Do not edit! */
+/* Automatically generated header (sfdc 1.11f)! Do not edit! */
 #ifndef PRAGMAS_DEVICETREE_PRAGMAS_H
 #define PRAGMAS_DEVICETREE_PRAGMAS_H
 
@@ -81,8 +81,17 @@
 #ifdef __CLIB_PRAGMA_AMICALL
  #pragma amicall(DeviceTreeBase, 0x36, DT_GetParent(a0))
 #endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall DeviceTreeBase DT_GetKeyName 3c 801
+#endif /* __CLIB_PRAGMA_LIBCALL */
 #ifdef __CLIB_PRAGMA_AMICALL
  #pragma amicall(DeviceTreeBase, 0x3c, DT_GetKeyName(a0))
+#endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall DeviceTreeBase DT_FindPropertyRecursive 42 9802
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(DeviceTreeBase, 0x42, DT_FindPropertyRecursive(a0,a1))
 #endif /* __CLIB_PRAGMA_AMICALL */
 
 #endif /* PRAGMAS_DEVICETREE_PRAGMAS_H */
