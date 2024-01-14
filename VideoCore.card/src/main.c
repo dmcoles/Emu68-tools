@@ -668,7 +668,7 @@ static int InitCard(REGARG(struct BoardInfo* bi, "a0"), REGARG(const char **Tool
     APTR UnicamBase = VC4Base->vc4_UnicamBase;
 
     /* If Unicam was activated on boot, pre-select CSI switch mode */
-    if (UnicamGetConfig() && UNICAMF_BOOT) VC4Base->vc4_SwitchMode = CSI;
+    if ((UnicamGetConfig() & UNICAMF_BOOT) != 0) VC4Base->vc4_SwitchMode = CSI;
 
     for (;ToolTypes[0] != NULL; ToolTypes++)
     {
@@ -829,6 +829,10 @@ static int InitCard(REGARG(struct BoardInfo* bi, "a0"), REGARG(const char **Tool
             else if (m[0] == 'C' && m[1] == 'S' && m[2] == 'I' && m[3] == 0)
             {
                 VC4Base->vc4_SwitchMode = CSI;
+            }
+            else if (m[0] == 'N' && m[1] == 'O' && m[3] == 'N' && m[4] == 'E' && m[5] == 0)
+            {
+                VC4Base->vc4_SwitchMode = None;
             }
         }
         else if (_strcmp(tt, "VC4_SWITCH_INVERT") == '=')
