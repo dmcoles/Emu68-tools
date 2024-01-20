@@ -35,4 +35,5 @@ add_custom_command(
 )
 set_target_properties(wifipi_rom PROPERTIES LINK_DEPENDS ${CMAKE_SOURCE_DIR}/extrom.lds)
 
-install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/wifipi.device DESTINATION ./Emu68-WiFi/)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/wifipi.device DESTINATION ./Emu68-WiFi/Devs/Networks)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/firmware/ DESTINATION ./Emu68-WiFi/Devs/Firmware)
