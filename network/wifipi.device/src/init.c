@@ -11,6 +11,62 @@
 
 #define D(x) x
 
+struct FirmwareDesc {
+    ULONG chipID;
+    CONST_STRPTR binFile;
+    CONST_STRPTR clmFile;
+    CONST_STRPTR txtFile;
+};
+
+struct ModelDesc {
+    CONST_STRPTR modelID;
+    const struct FirmwareDesc *firmwareTable;
+};
+
+const struct FirmwareDesc zero2Desc[] = {
+    /* 43430   */ { 0x00000000, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
+    /* 43430b0 */ { 0x00000000, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
+    /* 43436   */ { 0x00000000, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
+    /* 43436s  */ { 0x00000000, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
+    NULL
+};
+
+const struct FirmwareDesc model3bDesc[] = {
+    /* 43430   */ { 0x00000000, "cyfmac43430-sdio.bin", "cyfmac43430-sdio.clb_blob", "brcmfmac43430-sdio.txt" },
+    NULL
+};
+
+const struct FirmwareDesc model3aplusDesc[] = {
+    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
+    NULL
+};
+
+const struct FirmwareDesc model3bplusDesc[] = {
+    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
+    NULL
+};
+
+const struct FirmwareDesc model4bDesc[] = {
+    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
+    NULL
+};
+
+const struct FirmwareDesc modelCM4Desc[] = {
+    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
+    /* 43456   */ { 0x00000000, "brcmfmac43456-sdio.bin", "brcmfmac43456-sdio.clb_blob", "brcmfmac43456-sdio.txt" },
+    NULL
+};
+
+const struct ModelDesc FirmwareMatrix[] = 
+{
+    { "raspberrypi,3-model-zero-2-w", zero2Desc },
+    { "raspberrypi,3-model-b", model3bDesc },
+    { "raspberrypi,3-model-a-plus", model3aplusDesc },
+    { "raspberrypi,3-model-b-plus", model3bplusDesc },
+    { "raspberrypi,4-model-b", model4bDesc },
+    { "raspberrypi,4-compute-module", modelCM4Desc },
+};
+
 /*
     Some properties, like e.g. #size-cells, are not always available in a key, but in that case the properties
     should be searched for in the parent. The process repeats recursively until either root key is found
