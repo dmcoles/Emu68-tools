@@ -521,7 +521,8 @@ int emmc_microsd_init(struct EMMCBase *EMMCBase)
     set_clock_rate(1, 250000000, EMMCBase);
 
     // Get the base clock rate
-    uint32_t base_clock = get_clock_rate(12, EMMCBase);
+    uint32_t base_clock = 0;
+    while (base_clock == 0) base_clock = get_clock_rate(12, EMMCBase);
 
     bug("[brcm-emmc] Base clock: %ld Hz\n", base_clock);
 
@@ -962,7 +963,8 @@ int emmc_card_init(struct EMMCBase *EMMCBase)
     set_clock_rate(1, 250000000, EMMCBase);
 
     // Get the base clock rate
-    uint32_t base_clock = get_clock_rate(12, EMMCBase);
+    uint32_t base_clock = 0;
+    while (base_clock == 0) base_clock = get_clock_rate(12, EMMCBase);
 
     bug("[brcm-emmc] Base clock: %ld Hz\n", base_clock);
 
