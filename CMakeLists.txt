@@ -23,3 +23,4 @@ add_subdirectory(SetClockI2C)
 # Contribs
 # add_subdirectory(Emu68Contribs/Emu68Info) <-- Disabled until original gets an update
 add_subdirectory(Emu68Contribs/ListDeviceTree)
+add_subdirectory(BinaryContribs)
