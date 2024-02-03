@@ -28,33 +28,33 @@ const struct FirmwareDesc zero2Desc[] = {
     /* 43430b0 */ { 0x00000000, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
     /* 43436   */ { 0x00000000, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
     /* 43436s  */ { 0x00000000, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
-    NULL
+                  { 0x00000000, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3bDesc[] = {
     /* 43430   */ { 0x00000000, "cyfmac43430-sdio.bin", "cyfmac43430-sdio.clb_blob", "brcmfmac43430-sdio.txt" },
-    NULL
+                  { 0x00000000, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3aplusDesc[] = {
     /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
-    NULL
+                  { 0x00000000, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3bplusDesc[] = {
     /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
-    NULL
+                  { 0x00000000, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model4bDesc[] = {
     /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
-    NULL
+                  { 0x00000000, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc modelCM4Desc[] = {
     /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
     /* 43456   */ { 0x00000000, "brcmfmac43456-sdio.bin", "brcmfmac43456-sdio.clb_blob", "brcmfmac43456-sdio.txt" },
-    NULL
+                  { 0x00000000, NULL, NULL, NULL }
 };
 
 const struct ModelDesc FirmwareMatrix[] = 
@@ -65,7 +65,320 @@ const struct ModelDesc FirmwareMatrix[] =
     { "raspberrypi,3-model-b-plus", model3bplusDesc },
     { "raspberrypi,4-model-b", model4bDesc },
     { "raspberrypi,4-compute-module", modelCM4Desc },
+    { NULL, NULL }
 };
+
+void _bzero(APTR ptr, ULONG sz)
+{
+    char *p = ptr;
+    if (p)
+        while(sz--)
+            *p++ = 0;
+}
+
+APTR _memcpy(APTR dst, CONST_APTR src, ULONG sz)
+{
+    UBYTE *d = dst;
+    const UBYTE *s = src;
+
+    while(sz--) *d++ = *s++;
+
+    return dst;
+}
+
+static inline ULONG _strlen(CONST_STRPTR c)
+{
+    ULONG result = 0;
+    while (*c++)
+        result++;
+
+    return result;
+}
+
+STRPTR _strncpy(STRPTR dst, CONST_STRPTR src, ULONG len)
+{
+    ULONG slen = _strlen(src);
+    if (slen > len)
+        slen = len;
+    _bzero(dst, len);
+    _memcpy(dst, src, slen);
+    return dst;
+}
+
+STRPTR _strcpy(STRPTR dst, CONST_STRPTR src)
+{
+    _memcpy(dst, src, _strlen(src) + 1);
+    return dst;
+}
+
+int _strcmp(CONST_STRPTR s1, CONST_STRPTR s2)
+{
+	while (*s1 == *s2++)
+		if (*s1++ == '\0')
+			return (0);
+	return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
+}
+
+int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n)
+{
+    if (n == 0) {
+        return 0;
+    }
+	while (*s1 == *s2++) {
+        if (--n == 0)
+            return 0;
+		if (*s1++ == '\0')
+			return 0;
+    }
+	return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
+}
+
+BOOL LoadFirmware(struct WiFiBase *WiFiBase, ULONG chipID)
+{
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    APTR DeviceTreeBase = WiFiBase->w_DeviceTreeBase;
+    struct Library *DOSBase = WiFiBase->w_DosBase;
+    APTR buffer = NULL;
+
+    /* Firmware name shall never exceed total size of 256 bytes */
+    STRPTR path = AllocVec(256, MEMF_CLEAR);
+    
+    D(bug("[WiFi] Trying to match firmware files for chip ID %08lx\n", chipID));
+
+    /* Proceed if memory allocated */
+    if (path != NULL)
+    {
+        const struct ModelDesc *matrix = FirmwareMatrix;
+        CONST_STRPTR model = DT_GetPropValue(DT_FindProperty(DT_OpenKey("/"), "compatible"));
+
+        /* Go through table of Pi models and find the matching one */
+        while (matrix->modelID != NULL)
+        {
+            /* Check if "compatible" property of root node matches the model */
+            if (_strcmp(matrix->modelID, model) == 0)
+            {
+                /* Yes, break the loop */
+                D(bug("[WiFi] Raspberry model match: %s\n", (ULONG)matrix->modelID));
+                break;
+            }
+            else
+            {
+                /* No, go for next model */
+                matrix++;
+            }
+        }
+
+        if (matrix->firmwareTable != NULL)
+        {
+            const struct FirmwareDesc *fw = matrix->firmwareTable;
+
+            while(fw->binFile != NULL)
+            {
+                if (fw->chipID == chipID)
+                {
+                    /* We have match. Begin with .bin file as this is the largest one */
+                    BPTR file; 
+                    LONG size;
+                    UBYTE *buffer;
+                    ULONG allocSize;
+                    ULONG dst_pos, src_pos;
+
+                    D(bug("[WiFi] ChipID match\n"));
+
+                    /* Reset path */
+                    AddPart(path, "DEVS:Firmware", 255);
+                    /* Add bin file to the path */
+                    AddPart(path, fw->binFile, 255);
+
+                    file = Open(path, MODE_OLDFILE);
+                    if (file == 0)
+                    {
+                        D(bug("[WiFi] Error opening firmware BIN file\n"));
+                        return FALSE;
+                    }
+                    Seek(file, 0, OFFSET_END);
+                    size = Seek(file, 0, OFFSET_BEGINING);
+
+                    D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->binFile, size));
+                    allocSize = size;
+                    buffer = AllocMem(allocSize, MEMF_ANY);
+                    if (buffer == NULL)
+                    {
+                        Close(file);
+                        D(bug("[WiFi] Error allocating memory\n"));
+                        return FALSE;
+                    }
+                    if (Read(file, buffer, size) != size)
+                    {
+                        D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
+                        Close(file);
+                        FreeMem(buffer, size);
+                        return FALSE;
+                    }
+                    Close(file);
+
+                    /* Upload firmware to the WiFi module */
+
+                    // ToDo...
+
+                    /* If clm_blob file exists, load it */
+                    if (fw->clmFile != NULL)
+                    {
+                        /* Reset path */
+                        AddPart(path, "DEVS:Firmware", 255);
+                        /* Add bin file to the path */
+                        AddPart(path, fw->clmFile, 255);
+
+                        file = Open(path, MODE_OLDFILE);
+                        if (file == 0)
+                        {
+                            D(bug("[WiFi] Error opening firmware CLM file\n"));
+                            return FALSE;
+                        }
+                        Seek(file, 0, OFFSET_END);
+                        size = Seek(file, 0, OFFSET_BEGINING);
+
+                        D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->clmFile, size));
+                        if ((ULONG)size > allocSize)
+                        {
+                            FreeMem(buffer, allocSize);
+                            allocSize = size;
+                            buffer = AllocMem(size, MEMF_ANY);
+                        }
+                        
+                        if (buffer == NULL)
+                        {
+                            Close(file);
+                            D(bug("[WiFi] Error allocating memory\n"));
+                            return FALSE;
+                        }
+                        if (Read(file, buffer, size) != size)
+                        {
+                            D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
+                            Close(file);
+                            FreeMem(buffer, size);
+                            return FALSE;
+                        }
+                        Close(file);
+
+                        /* Upload firmware to the WiFi module */
+
+                        // ToDo...
+
+                    }
+
+                    /* Load NVRAM file */
+                    /* Reset path */
+                    AddPart(path, "DEVS:Firmware", 255);
+                    /* Add bin file to the path */
+                    AddPart(path, fw->txtFile, 255);
+
+                    file = Open(path, MODE_OLDFILE);
+                    if (file == 0)
+                    {
+                        D(bug("[WiFi] Error opening firmware TXT file\n"));
+                        return FALSE;
+                    }
+                    Seek(file, 0, OFFSET_END);
+                    size = Seek(file, 0, OFFSET_BEGINING);
+
+                    D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->txtFile, size));
+                    if ((ULONG)size > allocSize)
+                    {
+                        FreeMem(buffer, allocSize);
+                        allocSize = size;
+                        buffer = AllocMem(size, MEMF_ANY);
+                    }
+                    
+                    if (buffer == NULL)
+                    {
+                        Close(file);
+                        D(bug("[WiFi] Error allocating memory\n"));
+                        return FALSE;
+                    }
+                    if (Read(file, buffer, size) != size)
+                    {
+                        D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
+                        Close(file);
+                        FreeMem(buffer, size);
+                        return FALSE;
+                    }
+                    Close(file);
+
+                    /* 
+                        Parse and reformat NVRAM file. It can be done in place since the resulting NVRAM
+                        will be shorter (by comments) or same size (if no commends or whitespace were used)
+                    */
+                    src_pos = dst_pos = 0;
+
+                    do
+                    {
+                        // Remove whitespace and newlines at beginning of the line
+                        while(src_pos < (ULONG)size && (buffer[src_pos] == ' ' || buffer[src_pos] == '\t' || buffer[src_pos] == '\n'))
+                        {
+                            src_pos++;
+                            continue;
+                        }
+                        
+                        // If line begins with '#' then it is a comment, remove until end of line
+                        if (buffer[src_pos] == '#')
+                        {
+                            while(buffer[src_pos] != 10 && src_pos < (ULONG)size) {
+                                src_pos++;
+                            }
+
+                            // Skip new line
+                            src_pos++;
+                            continue;
+                        }
+                        
+                        // Now there is a token, copy it until newline character
+                        while(src_pos < (ULONG)size && buffer[src_pos] != '\n')
+                            buffer[dst_pos++] = buffer[src_pos++];
+                        
+                        // Skip new line
+                        src_pos++;
+                        
+                        // Go back to remove trailing whitespace
+                        while(buffer[--dst_pos] == ' ');
+
+                        dst_pos++;
+
+                        // Apply 0 at the end of the entry
+                        buffer[dst_pos++] = 0;
+
+                    } while(src_pos < (ULONG)size);
+
+                    // and the end apply the end of config marker
+                    buffer[dst_pos++] = 0x00;
+                    buffer[dst_pos++] = 0x00;
+                    buffer[dst_pos++] = 0x00;
+                    buffer[dst_pos++] = 0x00;
+                    buffer[dst_pos++] = 0xaa;
+                    buffer[dst_pos++] = 0x00;
+                    buffer[dst_pos++] = 0x55;
+                    buffer[dst_pos++] = 0xff;
+
+                    /* Upload NVRAM to WiFi module */
+                    
+                    // ToDo
+
+                    /* Get rid of temporary buffer */
+                    FreeMem(buffer, size);
+                    FreeVec(path);
+                    
+                    return TRUE;
+                }
+                else
+                {
+                    fw++;
+                }
+            }
+        }
+    }
+
+    return FALSE;
+}
 
 /*
     Some properties, like e.g. #size-cells, are not always available in a key, but in that case the properties
