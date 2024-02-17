@@ -754,11 +754,18 @@ int sdio_init(struct WiFiBase *WiFiBase)
     } while(0 == (sdio_read_byte(SD_FUNC_CIA, BUS_IORDY_REG, WiFiBase) & (1 << SD_FUNC_BAK)));
     D(bug("[WiFi] Backplane is up\n"));
 
-    UBYTE id[4];
+    union
+    {
+        UBYTE id[4];
+        ULONG id32;
+    } u;
+    
     sdio_backplane_window(BAK_BASE_ADDR, WiFiBase);
-    sdio_read_bytes(SD_FUNC_BAK, SB_32BIT_WIN, id, 4, WiFiBase);
+    sdio_read_bytes(SD_FUNC_BAK, SB_32BIT_WIN, u.id, 4, WiFiBase);
 
-    D(bug("[WiFi] Chip ID: %02lx-%02lx-%02lx-%02lx\n", id[0], id[1], id[2], id[3]));
+    D(bug("[WiFi] Chip ID: %02lx-%02lx-%02lx-%02lx\n", u.id[0], u.id[1], u.id[2], u.id[3]));
+
+    LoadFirmware(WiFiBase, LE32(u.id32) & 0xffff, (LE32(u.id32) >> 16) & 15);
 
     /* Magic setup after ZeroWi project */
     D(bug("[WiFi] ZeroWi magic...\n"));
@@ -773,11 +780,11 @@ int sdio_init(struct WiFiBase *WiFiBase)
     // [18.004850] Disable pullups
     sdio_write_byte(SD_FUNC_BAK, BAK_PULLUP_REG, 0, WiFiBase);
     // Get chip ID again, and config base addr [18.005201]
-    sdio_read_bytes(SD_FUNC_BAK, SB_32BIT_WIN, id, 4, WiFiBase);
+    sdio_read_bytes(SD_FUNC_BAK, SB_32BIT_WIN, u.id, 4, WiFiBase);
     ULONG config_base_addr;
     sdio_read_bytes(SD_FUNC_BAK, SB_32BIT_WIN+0xfc, &config_base_addr, 4, WiFiBase);
 
-    D(bug("[WiFi] Chip ID (again): %02lx-%02lx-%02lx-%02lx\n", id[0], id[1], id[2], id[3]));
+    D(bug("[WiFi] Chip ID (again): %02lx-%02lx-%02lx-%02lx\n", u.id[0], u.id[1], u.id[2], u.id[3]));
     D(bug("[WiFi] Config base address: %08lx\n", LE32(config_base_addr)));
 
     // Reset cores [18.030305]
