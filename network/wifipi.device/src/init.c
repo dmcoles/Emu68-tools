@@ -13,7 +13,7 @@
 
 struct FirmwareDesc {
     UWORD chipID;
-    UWORD chipREV;
+    UWORD chipREVMask;
     CONST_STRPTR binFile;
     CONST_STRPTR clmFile;
     CONST_STRPTR txtFile;
@@ -33,28 +33,28 @@ const struct FirmwareDesc zero2Desc[] = {
 };
 
 const struct FirmwareDesc model3bDesc[] = {
-    /* 43430   */ { 0x0000, 0, "cyfmac43430-sdio.bin", "cyfmac43430-sdio.clm_blob", "brcmfmac43430-sdio.txt" },
+    /* 43430   */ {  43430, 0x0002, "cyfmac43430-sdio.bin", "cyfmac43430-sdio.clm_blob", "brcmfmac43430-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3aplusDesc[] = {
-    /* 43455   */ { 0x0000, 0, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3bplusDesc[] = {
-    /* 43455   */ { 0x0000, 0, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model4bDesc[] = {
-    /* 43455   */ { 0x0000, 0, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc modelCM4Desc[] = {
-    /* 43455   */ { 0x4345, 6, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
-    /* 43456   */ { 0x4345, 9, "brcmfmac43456-sdio.bin", "brcmfmac43456-sdio.clm_blob", "brcmfmac43456-sdio.txt" },
+    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43456   */ { 0x4345, 0xffb0, "brcmfmac43456-sdio.bin", "brcmfmac43456-sdio.clm_blob", "brcmfmac43456-sdio.txt" },
                   { 0x00000000, NULL, NULL, NULL }
 };
 
@@ -175,7 +175,7 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
 
             while(fw->binFile != NULL)
             {
-                if (fw->chipID == chipID && fw->chipREV == chipREV)
+                if (fw->chipID == chipID && (fw->chipREVMask & (1 << chipREV)) != 0)
                 {
                     /* We have match. Begin with .bin file as this is the largest one */
                     BPTR file; 
