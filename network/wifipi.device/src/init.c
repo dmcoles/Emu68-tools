@@ -12,7 +12,8 @@
 #define D(x) x
 
 struct FirmwareDesc {
-    ULONG chipID;
+    UWORD chipID;
+    UWORD chipREV;
     CONST_STRPTR binFile;
     CONST_STRPTR clmFile;
     CONST_STRPTR txtFile;
@@ -24,36 +25,36 @@ struct ModelDesc {
 };
 
 const struct FirmwareDesc zero2Desc[] = {
-    /* 43430   */ { 0x00000000, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
-    /* 43430b0 */ { 0x00000000, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
-    /* 43436   */ { 0x00000000, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
-    /* 43436s  */ { 0x00000000, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
-                  { 0x00000000, NULL, NULL, NULL }
+    /* 43430   */ { 0x0000, 0, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
+    /* 43430b0 */ { 0x0000, 0, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
+    /* 43436   */ { 0x0000, 0, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
+    /* 43436s  */ { 0x0000, 0, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
+                  { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3bDesc[] = {
-    /* 43430   */ { 0x00000000, "cyfmac43430-sdio.bin", "cyfmac43430-sdio.clb_blob", "brcmfmac43430-sdio.txt" },
-                  { 0x00000000, NULL, NULL, NULL }
+    /* 43430   */ { 0x0000, 0, "cyfmac43430-sdio.bin", "cyfmac43430-sdio.clm_blob", "brcmfmac43430-sdio.txt" },
+                  { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3aplusDesc[] = {
-    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
-                  { 0x00000000, NULL, NULL, NULL }
+    /* 43455   */ { 0x0000, 0, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+                  { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3bplusDesc[] = {
-    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
-                  { 0x00000000, NULL, NULL, NULL }
+    /* 43455   */ { 0x0000, 0, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+                  { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model4bDesc[] = {
-    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
-                  { 0x00000000, NULL, NULL, NULL }
+    /* 43455   */ { 0x0000, 0, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+                  { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc modelCM4Desc[] = {
-    /* 43455   */ { 0x00000000, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clb_blob", "brcmfmac43455-sdio.txt" },
-    /* 43456   */ { 0x00000000, "brcmfmac43456-sdio.bin", "brcmfmac43456-sdio.clb_blob", "brcmfmac43456-sdio.txt" },
+    /* 43455   */ { 0x4345, 6, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43456   */ { 0x4345, 9, "brcmfmac43456-sdio.bin", "brcmfmac43456-sdio.clm_blob", "brcmfmac43456-sdio.txt" },
                   { 0x00000000, NULL, NULL, NULL }
 };
 
@@ -133,7 +134,7 @@ int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n)
 	return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
 }
 
-BOOL LoadFirmware(struct WiFiBase *WiFiBase, ULONG chipID)
+BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
 {
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     APTR DeviceTreeBase = WiFiBase->w_DeviceTreeBase;
@@ -143,7 +144,7 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, ULONG chipID)
     /* Firmware name shall never exceed total size of 256 bytes */
     STRPTR path = AllocVec(256, MEMF_CLEAR);
     
-    D(bug("[WiFi] Trying to match firmware files for chip ID %08lx\n", chipID));
+    D(bug("[WiFi] Trying to match firmware files for chip ID %04lx rev %lx\n", chipID, chipREV));
 
     /* Proceed if memory allocated */
     if (path != NULL)
@@ -174,7 +175,7 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, ULONG chipID)
 
             while(fw->binFile != NULL)
             {
-                if (fw->chipID == chipID)
+                if (fw->chipID == chipID && fw->chipREV == chipREV)
                 {
                     /* We have match. Begin with .bin file as this is the largest one */
                     BPTR file; 
@@ -219,7 +220,9 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, ULONG chipID)
 
                     /* Upload firmware to the WiFi module */
 
-                    // ToDo...
+                    WiFiBase->w_FirmwareBase = AllocMem(size, MEMF_PUBLIC);
+                    CopyMem(buffer, WiFiBase->w_FirmwareBase, size);
+                    WiFiBase->w_FirmwareSize = size;
 
                     /* If clm_blob file exists, load it */
                     if (fw->clmFile != NULL)
@@ -263,7 +266,9 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, ULONG chipID)
 
                         /* Upload firmware to the WiFi module */
 
-                        // ToDo...
+                        WiFiBase->w_CLMBase = AllocMem(size, MEMF_PUBLIC);
+                        CopyMem(buffer, WiFiBase->w_CLMBase, size);
+                        WiFiBase->w_CLMSize = size;
 
                     }
 
@@ -361,7 +366,9 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, ULONG chipID)
 
                     /* Upload NVRAM to WiFi module */
                     
-                    // ToDo
+                    WiFiBase->w_ConfigBase = AllocMem(dst_pos, MEMF_PUBLIC);
+                    CopyMem(buffer, WiFiBase->w_ConfigBase, dst_pos);
+                    WiFiBase->w_ConfigSize = dst_pos;
 
                     /* Get rid of temporary buffer */
                     FreeMem(buffer, size);
@@ -633,6 +640,8 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
             struct Library *DOSBase = (struct Library *)WiFiBase->w_DosBase;
 
             D(bug("[WiFi] I'm a process, DosBase=%08lx\n", (ULONG)WiFiBase->w_DosBase));
+            
+            #if 0
             file = Open("S:brcmfmac43455-sdio.bin", MODE_OLDFILE);
             Seek(file, 0, OFFSET_END);
             size = Seek(file, 0, OFFSET_BEGINING);
@@ -725,6 +734,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 
             FreeMem(src_conf, size);
             FreeMem(dst_conf, size);
+            #endif
         }
         else
             D(bug("[WiFi] I'm a task\n"));
