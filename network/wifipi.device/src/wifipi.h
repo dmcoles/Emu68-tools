@@ -54,6 +54,9 @@ struct WiFiBase
     UBYTE               w_LastCMDSuccess;
     ULONG               w_LastBackplaneWindow;
 
+    UWORD               w_ChipID;
+    UWORD               w_ChipREV;
+
     APTR                w_FirmwareBase;
     ULONG               w_FirmwareSize;
 

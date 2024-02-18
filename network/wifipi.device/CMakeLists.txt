@@ -14,6 +14,7 @@ add_executable(wifipi.device
     src/sdio.c
     src/end.c
 )
+target_include_directories(wifipi.device PRIVATE include)
 target_link_libraries(wifipi.device devicetree amiga sana2)
 
 add_executable(wifipi_rom
@@ -24,6 +25,8 @@ add_executable(wifipi_rom
     src/sdio.c
     src/end.c
 )
+
+target_include_directories(wifipi_rom PRIVATE include)
 target_link_libraries(wifipi_rom devicetree sana2)
 target_link_options(wifipi_rom PRIVATE -Wl,-e_rom_start -Wl,-T${CMAKE_SOURCE_DIR}/extrom.lds)
 add_custom_command(
@@ -31,6 +34,7 @@ add_custom_command(
     COMMAND ${CMAKE_OBJCOPY} -v -O binary "${CMAKE_CURRENT_BINARY_DIR}/wifipi_rom" "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom"
     COMMAND dd if="${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom" of="${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom~" bs=512k skip=30
     COMMAND mv "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom~" "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom"
+    COMMAND cp "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom" /home/michal/tftpboot/
     COMMAND rm "${CMAKE_CURRENT_BINARY_DIR}/wifipi_rom"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )

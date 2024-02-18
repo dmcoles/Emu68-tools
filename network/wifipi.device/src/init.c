@@ -8,6 +8,7 @@
 #include "wifipi.h"
 #include "sdio.h"
 #include "mbox.h"
+#include "brcm.h"
 
 #define D(x) x
 
@@ -584,7 +585,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         tmp &= 0xffff000f;  // Clear PU/PD setting for GPIO 34..39
         tmp |= 0x00005540;  // 01 in 35..59 == pull-up
         wr32(WiFiBase->w_GPIO, 0xec, tmp);
-
+#if 0
         D(bug("[WiFi] Enable GPCLK2, 32kHz on GPIO43 and output on GPIO41\n"));
 
         tmp = rd32(WiFiBase->w_GPIO, 0x10);
@@ -619,7 +620,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 
         D(bug("[WiFi] GP2CTL = %08lx\n", rd32((void*)0xf2101000, 0x80)));
         D(bug("[WiFi] GP2DIV = %08lx\n", rd32((void*)0xf2101000, 0x84)));
-
+#endif
         D(bug("[WiFi] Enabling EMMC clock\n"));
         ULONG clk = get_clock_state(1, WiFiBase);
         D(bug("[WiFi] Old clock state: %lx\n", clk));
@@ -739,8 +740,8 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         else
             D(bug("[WiFi] I'm a task\n"));
 
-        D(bug("[WiFi] Setting GPIO41 to 1\n"));
-        wr32(WiFiBase->w_GPIO, 0x20, 1 << (41 - 32));
+        //D(bug("[WiFi] Setting GPIO41 to 1\n"));
+        //wr32(WiFiBase->w_GPIO, 0x20, 1 << (41 - 32));
 
         sdio_init(WiFiBase);
     }
