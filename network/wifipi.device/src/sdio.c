@@ -1,4 +1,6 @@
 #include <exec/types.h>
+#include <exec/nodes.h>
+#include <exec/lists.h>
 #include <exec/execbase.h>
 #include <proto/exec.h>
 
@@ -11,8 +13,8 @@
 #define D(x) x
 
 #define TIMEOUT_WAIT(check_func, tout) \
-    do { ULONG cnt = (tout) / 2; if (cnt == 0) cnt = 1; while(cnt != 0) { if (check_func) break; \
-    cnt = cnt - 1; delay_us(2, WiFiBase); }  } while(0)
+    do { ULONG cnt = (tout) / 10; if (cnt == 0) cnt = 1; while(cnt != 0) { if (check_func) break; \
+    cnt = cnt - 1; delay_us(10, WiFiBase); }  } while(0)
 
 void delay_us(ULONG us, struct WiFiBase *WiFiBase)
 {
@@ -463,7 +465,7 @@ void sdio_read_bytes(UBYTE function, ULONG address, void *data, ULONG length, st
     WiFiBase->w_Buffer = data;
     WiFiBase->w_BlockSize = length;
     WiFiBase->w_BlocksToTransfer = 1;
-    cmd(IO_RW_EXTENDED | SD_DATA_READ, ((address & 0x1ffff) << 9) | ((function & 7) << 28) | (length & 0x1ff) | (1 << 26), 500000, WiFiBase);
+    cmd(IO_RW_EXTENDED | SD_DATA_READ, ((address & 0x1ffff) << 9) | ((function & 7) << 28) | (length & 0x1ff) | (1 << 26), 5000000, WiFiBase);
 }
 
 UBYTE sdio_write_and_read_byte(UBYTE function, ULONG address, UBYTE value, struct WiFiBase *WiFiBase)
@@ -517,6 +519,7 @@ int sdio_buscoreprep(struct WiFiBase *WiFiBase)
 
     /* Try forcing SDIO core to do ALPAvail request only */
     clkset = SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ;
+    sdio_backplane_addr(SI_ENUM_BASE_DEFAULT, WiFiBase);
     sdio_write_byte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, clkset, WiFiBase);
 
     /* If register supported, wait for ALPAvail and then force ALP */
@@ -552,6 +555,233 @@ int sdio_buscoreprep(struct WiFiBase *WiFiBase)
 	sdio_write_byte(SD_FUNC_BAK, SBSDIO_FUNC1_SDIOPULLUP, 0, WiFiBase);
 
 	return 1;
+}
+
+static ULONG brcm_chip_dmp_get_desc(struct WiFiBase * WiFiBase, ULONG *eromaddr, UBYTE *type)
+{
+    struct ExecBase * SysBase = WiFiBase->w_SysBase;
+	ULONG val;
+
+	/* read next descriptor */
+    sdio_bak_read32(*eromaddr, &val, WiFiBase);
+	*eromaddr += 4;
+
+	if (!type)
+		return val;
+
+	/* determine descriptor type */
+	*type = (val & DMP_DESC_TYPE_MSK);
+	if ((*type & ~DMP_DESC_ADDRSIZE_GT32) == DMP_DESC_ADDRESS)
+		*type = DMP_DESC_ADDRESS;
+
+	return val;
+}
+
+static int brcm_chip_dmp_get_regaddr(struct WiFiBase *WiFiBase, ULONG *eromaddr, LONG *regbase, LONG *wrapbase)
+{
+    struct ExecBase * SysBase = WiFiBase->w_SysBase;
+	UBYTE desc;
+	ULONG val, szdesc;
+	UBYTE stype, sztype, wraptype;
+
+	*regbase = 0;
+	*wrapbase = 0;
+
+	val = brcm_chip_dmp_get_desc(WiFiBase, eromaddr, &desc);
+	if (desc == DMP_DESC_MASTER_PORT) {
+		wraptype = DMP_SLAVE_TYPE_MWRAP;
+	} else if (desc == DMP_DESC_ADDRESS) {
+		/* revert erom address */
+		*eromaddr -= 4;
+		wraptype = DMP_SLAVE_TYPE_SWRAP;
+	} else {
+		*eromaddr -= 4;
+		return 0;
+	}
+
+	do {
+		/* locate address descriptor */
+		do {
+			val = brcm_chip_dmp_get_desc(WiFiBase, eromaddr, &desc);
+			/* unexpected table end */
+			if (desc == DMP_DESC_EOT) {
+				*eromaddr -= 4;
+				return 0;
+			}
+		} while (desc != DMP_DESC_ADDRESS &&
+			 desc != DMP_DESC_COMPONENT);
+
+		/* stop if we crossed current component border */
+		if (desc == DMP_DESC_COMPONENT) {
+			*eromaddr -= 4;
+			return 0;
+		}
+
+		/* skip upper 32-bit address descriptor */
+		if (val & DMP_DESC_ADDRSIZE_GT32)
+			brcm_chip_dmp_get_desc(WiFiBase, eromaddr, NULL);
+
+		sztype = (val & DMP_SLAVE_SIZE_TYPE) >> DMP_SLAVE_SIZE_TYPE_S;
+
+		/* next size descriptor can be skipped */
+		if (sztype == DMP_SLAVE_SIZE_DESC) {
+			szdesc = brcm_chip_dmp_get_desc(WiFiBase, eromaddr, NULL);
+			/* skip upper size descriptor if present */
+			if (szdesc & DMP_DESC_ADDRSIZE_GT32)
+				brcm_chip_dmp_get_desc(WiFiBase, eromaddr, NULL);
+		}
+
+		/* look for 4K or 8K register regions */
+		if (sztype != DMP_SLAVE_SIZE_4K &&
+		    sztype != DMP_SLAVE_SIZE_8K)
+			continue;
+
+		stype = (val & DMP_SLAVE_TYPE) >> DMP_SLAVE_TYPE_S;
+
+		/* only regular slave and wrapper */
+		if (*regbase == 0 && stype == DMP_SLAVE_TYPE_SLAVE)
+			*regbase = val & DMP_SLAVE_ADDR_BASE;
+		if (*wrapbase == 0 && stype == wraptype)
+			*wrapbase = val & DMP_SLAVE_ADDR_BASE;
+	} while (*regbase == 0 || *wrapbase == 0);
+
+	return 1;
+}
+
+int brcm_chip_dmp_erom_scan(struct WiFiBase * WiFiBase)
+{
+/*
+	struct brcmf_core *core;
+	u16 id;
+	
+	
+	int err;
+*/
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    ULONG val;
+    UBYTE desc_type = 0;
+    ULONG eromaddr;
+    UWORD id;
+    UBYTE nmw, nsw, rev;
+    ULONG base, wrap;
+    int err;
+
+    D(bug("[WiFi] EROM scan\n"));
+
+	sdio_bak_read32(CORE_CC_REG(SI_ENUM_BASE_DEFAULT, eromptr), &eromaddr, WiFiBase);
+
+    D(bug("[WiFi] EROM base addr: %08lx\n", eromaddr));
+
+	while (desc_type != DMP_DESC_EOT)
+    {
+        val = brcm_chip_dmp_get_desc(WiFiBase, &eromaddr, &desc_type);
+
+		if (!(val & DMP_DESC_VALID))
+			continue;
+
+		if (desc_type == DMP_DESC_EMPTY)
+			continue;
+
+		/* need a component descriptor */
+		if (desc_type != DMP_DESC_COMPONENT)
+			continue;
+
+		id = (val & DMP_COMP_PARTNUM) >> DMP_COMP_PARTNUM_S;
+
+		/* next descriptor must be component as well */
+		val = brcm_chip_dmp_get_desc(WiFiBase, &eromaddr, &desc_type);
+		if ((val & DMP_DESC_TYPE_MSK) != DMP_DESC_COMPONENT)
+			return 0;
+
+		/* only look at cores with master port(s) */
+		nmw = (val & DMP_COMP_NUM_MWRAP) >> DMP_COMP_NUM_MWRAP_S;
+		nsw = (val & DMP_COMP_NUM_SWRAP) >> DMP_COMP_NUM_SWRAP_S;
+		rev = (val & DMP_COMP_REVISION) >> DMP_COMP_REVISION_S;
+
+		/* need core with ports */
+		if (nmw + nsw == 0 &&
+		    id != BCMA_CORE_PMU &&
+		    id != BCMA_CORE_GCI)
+			continue;
+
+		/* try to obtain register address info */
+		err = brcm_chip_dmp_get_regaddr(WiFiBase, &eromaddr, &base, &wrap);
+		if (!err)
+			continue;
+
+        D(bug("[WiFi] Found core with id=0x%04lx, base=0x%08lx, wrap=0x%08lx\n", id, base, wrap));
+
+        struct Core *core = AllocMem(sizeof(struct Core), MEMF_ANY);
+        if (core)
+        {
+            core->c_BaseAddress = base;
+            core->c_WrapBase = wrap;
+            core->c_CoreID = id;
+            core->c_CoreREV = rev;
+
+            AddTail((struct List *)&WiFiBase->w_Cores, (struct Node *)core);
+        }
+	}
+
+	return 0;
+}
+
+
+/* safety check for chipinfo */
+static int brcm_chip_cores_check(struct WiFiBase * WiFiBase)
+{
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+	struct Core *core;
+	UBYTE need_socram = FALSE;
+	UBYTE has_socram = FALSE;
+	UBYTE cpu_found = FALSE;
+	int idx = 1;
+
+    D(bug("[WiFi] Cores check\n"));
+
+    ForeachNode(&WiFiBase->w_Cores, core)
+    {
+        D(bug("[WiFi] Core #%ld 0x%04lx:%03ld base 0x%08lx wrap 0x%08lx",
+            idx++, core->c_CoreID, core->c_CoreREV, core->c_BaseAddress, core->c_WrapBase));
+
+        switch (core->c_CoreID)
+        {
+            case BCMA_CORE_ARM_CM3:
+                cpu_found = TRUE;
+                need_socram = TRUE;
+                D(bug(" is ARM CM3, needs SOC RAM"));
+                break;
+            case BCMA_CORE_INTERNAL_MEM:
+                has_socram = TRUE;
+                D(bug(" is SOC RAM"));
+                break;
+            case BCMA_CORE_ARM_CR4:
+                D(bug(" is ARM_CR4"));
+                cpu_found = TRUE;
+                break;
+            case BCMA_CORE_ARM_CA7:
+                D(bug(" is ARM_CA7"));
+                cpu_found = TRUE;
+                break;
+            default:
+                break;
+        }
+        D(bug("\n"));
+    }
+
+	if (!cpu_found)
+    {
+        D(bug("[WiFi] CPU core not detected\n"));
+		return FALSE;
+	}
+
+	/* check RAM core presence for ARM CM3 core */
+	if (need_socram && !has_socram)
+    {
+        D(bug("[WiFi] RAM core not provided with ARM CM3 core\n"));
+		return FALSE;
+	}
+	return TRUE;
 }
 
 int sdio_init(struct WiFiBase *WiFiBase)
@@ -808,6 +1038,8 @@ int sdio_init(struct WiFiBase *WiFiBase)
         ULONG id32;
     } u;
 
+    sdio_backplane_addr(SI_ENUM_BASE_DEFAULT, WiFiBase);
+
     /* Force PLL off until brcmf_chip_attach() */
     sdio_write_byte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ, WiFiBase);
     UBYTE tmp = sdio_read_byte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, WiFiBase);
@@ -816,8 +1048,7 @@ int sdio_init(struct WiFiBase *WiFiBase)
     }
 
     sdio_buscoreprep(WiFiBase);
-    sdio_read_bytes(SD_FUNC_BAK, CORE_CC_REG(SI_ENUM_BASE_DEFAULT, chipid), u.id, 4, WiFiBase);
-    u.id32 = LE32(u.id32);
+    sdio_bak_read32(CORE_CC_REG(SI_ENUM_BASE_DEFAULT, chipid), &u.id32, WiFiBase);
 
     WiFiBase->w_ChipID = u.id32 & CID_ID_MASK;
     WiFiBase->w_ChipREV = (u.id32 & CID_REV_MASK) >> CID_REV_SHIFT;
@@ -830,10 +1061,56 @@ int sdio_init(struct WiFiBase *WiFiBase)
 
     D(bug("[WiFi] SOCI type: %s\n", (ULONG)(soci_type == SOCI_SB ? "SB" : "AI")));
 
+    // SOCI_AI - EROM contains information about available cores and their base addresses
     if (soci_type == SOCI_AI)
     {
-        
+        brcm_chip_dmp_erom_scan(WiFiBase);
     }
+    // SOCI_SB - force cores at fixed addresses. Actually it is most likely not really the
+    // case on RaspberryPi
+    else
+    {
+        D(bug("[WiFi] SB type SOCI not supported!\n"));
+        return 0;
+    }
+
+    // Check if all necessary cores were found
+    if (!brcm_chip_cores_check(WiFiBase))
+    {
+        return 0;
+    }
+
+
+
+#if 0
+	if (socitype == SOCI_SB) {
+		if (ci->pub.chip != BRCM_CC_4329_CHIP_ID) {
+			brcmf_err("SB chip is not supported\n");
+			return -ENODEV;
+		}
+		ci->iscoreup = brcmf_chip_sb_iscoreup;
+		ci->coredisable = brcmf_chip_sb_coredisable;
+		ci->resetcore = brcmf_chip_sb_resetcore;
+
+		core = brcmf_chip_add_core(ci, BCMA_CORE_CHIPCOMMON,
+					   SI_ENUM_BASE_DEFAULT, 0);
+		brcmf_chip_sb_corerev(ci, core);
+		core = brcmf_chip_add_core(ci, BCMA_CORE_SDIO_DEV,
+					   BCM4329_CORE_BUS_BASE, 0);
+		brcmf_chip_sb_corerev(ci, core);
+		core = brcmf_chip_add_core(ci, BCMA_CORE_INTERNAL_MEM,
+					   BCM4329_CORE_SOCRAM_BASE, 0);
+		brcmf_chip_sb_corerev(ci, core);
+		core = brcmf_chip_add_core(ci, BCMA_CORE_ARM_CM3,
+					   BCM4329_CORE_ARM_BASE, 0);
+		brcmf_chip_sb_corerev(ci, core);
+
+		core = brcmf_chip_add_core(ci, BCMA_CORE_80211, 0x18001000, 0);
+		brcmf_chip_sb_corerev(ci, core);
+	} 
+#endif
+
+return 0;
 
     /* Magic setup after ZeroWi project */
     D(bug("[WiFi] ZeroWi magic...\n"));
