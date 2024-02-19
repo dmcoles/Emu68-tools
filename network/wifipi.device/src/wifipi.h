@@ -65,7 +65,25 @@ struct WiFiBase
 
     APTR                w_ConfigBase;
     ULONG               w_ConfigSize;
+
+    struct MinList      w_Cores;
 };
+
+struct Core {
+    struct MinNode      c_Node;
+    ULONG               c_BaseAddress;
+    ULONG               c_WrapBase;
+    UWORD               c_CoreID;
+    UBYTE               c_CoreREV;
+};
+
+#define ForeachNode(list, node)                        \
+for                                                    \
+(                                                      \
+    node = (void *)(((struct MinList *)(list))->mlh_Head); \
+    ((struct MinNode *)(node))->mln_Succ;                  \
+    node = (void *)(((struct MinNode *)(node))->mln_Succ)  \
+)
 
 struct WiFiUnit
 {

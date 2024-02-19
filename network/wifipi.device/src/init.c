@@ -429,6 +429,8 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 
     WiFiBase->w_DeviceTreeBase = DeviceTreeBase = OpenResource("devicetree.resource");
 
+    NewMinList(&WiFiBase->w_Cores);
+
     if (DeviceTreeBase)
     {
         APTR key;
@@ -641,101 +643,6 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
             struct Library *DOSBase = (struct Library *)WiFiBase->w_DosBase;
 
             D(bug("[WiFi] I'm a process, DosBase=%08lx\n", (ULONG)WiFiBase->w_DosBase));
-            
-            #if 0
-            file = Open("S:brcmfmac43455-sdio.bin", MODE_OLDFILE);
-            Seek(file, 0, OFFSET_END);
-            size = Seek(file, 0, OFFSET_BEGINING);
-
-            D(bug("[WiFi] Firmware file size: %ld bytes\n", size));
-
-            WiFiBase->w_FirmwareBase = AllocMem(size, MEMF_ANY);
-            if (Read(file, WiFiBase->w_FirmwareBase, size) != size)
-            {
-                D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
-            }
-            Close(file);
-
-            WiFiBase->w_FirmwareSize = (ULONG)size;
-
-
-
-            file = Open("S:brcmfmac43455-sdio.txt", MODE_OLDFILE);
-            Seek(file, 0, OFFSET_END);
-            size = Seek(file, 0, OFFSET_BEGINING);
-
-            D(bug("[WiFi] Config file size: %ld bytes\n", size));
-
-            ULONG src_pos = 0;
-            ULONG dst_pos = 0;
-            src_conf = AllocMem(size, MEMF_ANY);
-            dst_conf = AllocMem(size, MEMF_ANY);
-            if (Read(file, src_conf, size) != size)
-            {
-                D(bug("[WiFi] Something went wrong when reading WiFi config7\n"));
-            }
-            Close(file);
-
-            ULONG parsed_size = 0;
-            D(bug("[WiFi] Removing comments and whitespace from config file\n"));
-
-            do
-            {
-                // Remove whitespace and newlines at beginning of the line
-                while(src_pos < (ULONG)size && (src_conf[src_pos] == ' ' || src_conf[src_pos] == '\t' || src_conf[src_pos] == '\n'))
-                {
-                    src_pos++;
-                    continue;
-                }
-                
-                // If line begins with '#' then it is a comment, remove until end of line
-                if (src_conf[src_pos] == '#')
-                {
-                    while(src_conf[src_pos] != 10 && src_pos < (ULONG)size) {
-                        src_pos++;
-                    }
-
-                    // Skip new line
-                    src_pos++;
-                    continue;
-                }
-                
-                // Now there is a token, copy it until newline character
-                while(src_pos < (ULONG)size && src_conf[src_pos] != '\n')
-                    dst_conf[dst_pos++] = src_conf[src_pos++];
-                
-                // Skip new line
-                src_pos++;
-                
-                // Go back to remove trailing whitespace
-                while(dst_conf[--dst_pos] == ' ');
-
-                dst_pos++;
-
-                // Apply 0 at the end of the entry
-                dst_conf[dst_pos++] = 0;
-
-            } while(src_pos < (ULONG)size);
-
-            // and the end apply the end of config marker
-            dst_conf[dst_pos++] = 0x00;
-            dst_conf[dst_pos++] = 0x00;
-            dst_conf[dst_pos++] = 0x00;
-            dst_conf[dst_pos++] = 0x00;
-            dst_conf[dst_pos++] = 0xaa;
-            dst_conf[dst_pos++] = 0x00;
-            dst_conf[dst_pos++] = 0x55;
-            dst_conf[dst_pos++] = 0xff;
-
-            D(bug("[WiFi] Stripped config length: %ld bytes\n", dst_pos));
-
-            WiFiBase->w_ConfigBase = AllocMem(dst_pos, MEMF_ANY);
-            WiFiBase->w_ConfigSize = dst_pos;
-            CopyMem(dst_conf, WiFiBase->w_ConfigBase, dst_pos);
-
-            FreeMem(src_conf, size);
-            FreeMem(dst_conf, size);
-            #endif
         }
         else
             D(bug("[WiFi] I'm a task\n"));
