@@ -784,6 +784,57 @@ static int brcm_chip_cores_check(struct WiFiBase * WiFiBase)
 	return TRUE;
 }
 
+
+
+struct Core *brcm_chip_get_core(UWORD coreID, struct WiFiBase *WiFiBase)
+{
+    struct Core *core;
+
+    ForeachNode(&WiFiBase->w_Cores, core)
+    {
+        if (core->c_CoreID == coreID)
+            return core;
+    }
+    
+    return NULL;
+}
+
+int brcm_set_passive(struct WiFiBase * WiFiBase)
+{
+    // Put CPU into passive mode
+    if (brcm_chip_get_core(BCMA_CORE_ARM_CR4, WiFiBase))
+    {
+        // 
+    }
+    else if (brcm_chip_get_core(BCMA_CORE_ARM_CA7, WiFiBase))
+    {
+
+    }
+    else if (brcm_chip_get_core(BCMA_CORE_ARM_CM3, WiFiBase))
+    {
+
+    }
+    else return FALSE;
+}
+
+int brcm_set_active(ULONG StartVector, struct WiFiBase * WiFiBase)
+{
+    // Put CPU into passive mode
+    if (brcm_chip_get_core(BCMA_CORE_ARM_CR4, WiFiBase))
+    {
+        // 
+    }
+    else if (brcm_chip_get_core(BCMA_CORE_ARM_CA7, WiFiBase))
+    {
+
+    }
+    else if (brcm_chip_get_core(BCMA_CORE_ARM_CM3, WiFiBase))
+    {
+        
+    }
+    else return FALSE;
+}
+
 int sdio_init(struct WiFiBase *WiFiBase)
 {
     ULONG tout;
@@ -1080,6 +1131,7 @@ int sdio_init(struct WiFiBase *WiFiBase)
         return 0;
     }
 
+    brcm_set_passive(WiFiBase);
 
 
 #if 0

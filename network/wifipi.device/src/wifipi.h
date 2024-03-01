@@ -77,6 +77,28 @@ struct Core {
     UBYTE               c_CoreREV;
 };
 
+struct Chip {
+    struct WiFiBase     *c_WiFiBase;
+
+    UWORD               c_ChipID;
+    UWORD               c_ChipREV;
+
+    APTR                c_FirmwareBase;
+    ULONG               c_FirmwareSize;
+
+    APTR                c_CLMBase;
+    ULONG               c_CLMSize;
+
+    APTR                c_ConfigBase;
+    ULONG               c_ConfigSize;
+
+    struct MinList      c_Cores;
+
+    struct Core *       (*GetCore)(UWORD coreID, struct Chip *chip);
+    void                (*SetPassive)(struct Chip *);
+    void                (*SetActive)(struct Chip *);
+};
+
 #define ForeachNode(list, node)                        \
 for                                                    \
 (                                                      \
