@@ -1,0 +1,12 @@
+==id $Id: mailbox_lib.sfd 1.0.0 $
+* "mailbox.resource"
+==base _MailboxBase
+==basetype APTR
+==libname mailbox
+==include <exec/types.h>
+==bias 6
+==public
+void MB_Send(ULONG MBox, ULONG data) (D0,D1)
+ULONG MB_Recv(ULONG MBox) (D0)
+void MB_Request(ULONG MBox, APTR Request, ULONG ReqSize) (D0,A0,D1)
+==end
