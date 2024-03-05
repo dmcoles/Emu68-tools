@@ -172,4 +172,99 @@
 /* Current protocol version */
 #define SDPCM_PROT_VERSION	4
 
+#ifndef	PAD
+#define	_PADLINE(line)	pad ## line
+#define	_XSTR(line)	_PADLINE(line)
+#define	PAD		_XSTR(__LINE__)
+#endif
+
+/* sdio core registers */
+struct sdpcmd_regs {
+	ULONG corecontrol;		/* 0x00, rev8 */
+	ULONG corestatus;			/* rev8 */
+	ULONG PAD[1];
+	ULONG biststatus;			/* rev8 */
+
+	/* PCMCIA access */
+	UWORD pcmciamesportaladdr;	/* 0x010, rev8 */
+	UWORD PAD[1];
+	UWORD pcmciamesportalmask;	/* rev8 */
+	UWORD PAD[1];
+	UWORD pcmciawrframebc;		/* rev8 */
+	UWORD PAD[1];
+	UWORD pcmciaunderflowtimer;	/* rev8 */
+	UWORD PAD[1];
+
+	/* interrupt */
+	ULONG intstatus;			/* 0x020, rev8 */
+	ULONG hostintmask;		/* rev8 */
+	ULONG intmask;			/* rev8 */
+	ULONG sbintstatus;		/* rev8 */
+	ULONG sbintmask;			/* rev8 */
+	ULONG funcintmask;		/* rev4 */
+	ULONG PAD[2];
+	ULONG tosbmailbox;		/* 0x040, rev8 */
+	ULONG tohostmailbox;		/* rev8 */
+	ULONG tosbmailboxdata;		/* rev8 */
+	ULONG tohostmailboxdata;		/* rev8 */
+
+	/* synchronized access to registers in SDIO clock domain */
+	ULONG sdioaccess;			/* 0x050, rev8 */
+	ULONG PAD[3];
+
+	/* PCMCIA frame control */
+	UBYTE pcmciaframectrl;		/* 0x060, rev8 */
+	UBYTE PAD[3];
+	UBYTE pcmciawatermark;		/* rev8 */
+	UBYTE PAD[155];
+
+	/* interrupt batching control */
+	ULONG intrcvlazy;			/* 0x100, rev8 */
+	ULONG PAD[3];
+
+	/* counters */
+	ULONG cmd52rd;			/* 0x110, rev8 */
+	ULONG cmd52wr;			/* rev8 */
+	ULONG cmd53rd;			/* rev8 */
+	ULONG cmd53wr;			/* rev8 */
+	ULONG abort;			/* rev8 */
+	ULONG datacrcerror;		/* rev8 */
+	ULONG rdoutofsync;		/* rev8 */
+	ULONG wroutofsync;		/* rev8 */
+	ULONG writebusy;			/* rev8 */
+	ULONG readwait;			/* rev8 */
+	ULONG readterm;			/* rev8 */
+	ULONG writeterm;			/* rev8 */
+	ULONG PAD[40];
+	ULONG clockctlstatus;		/* rev8 */
+	ULONG PAD[7];
+
+	ULONG PAD[128];			/* DMA engines */
+
+	/* SDIO/PCMCIA CIS region */
+	char cis[512];			/* 0x400-0x5ff, rev6 */
+
+	/* PCMCIA function control registers */
+	char pcmciafcr[256];		/* 0x600-6ff, rev6 */
+	UWORD PAD[55];
+
+	/* PCMCIA backplane access */
+	UWORD backplanecsr;		/* 0x76E, rev6 */
+	UWORD backplaneaddr0;		/* rev6 */
+	UWORD backplaneaddr1;		/* rev6 */
+	UWORD backplaneaddr2;		/* rev6 */
+	UWORD backplaneaddr3;		/* rev6 */
+	UWORD backplanedata0;		/* rev6 */
+	UWORD backplanedata1;		/* rev6 */
+	UWORD backplanedata2;		/* rev6 */
+	UWORD backplanedata3;		/* rev6 */
+	UWORD PAD[31];
+
+	/* sprom "size" & "blank" info */
+	UWORD spromstatus;		/* 0x7BE, rev2 */
+	ULONG PAD[464];
+
+	UWORD PAD[0x80];
+};
+
 #endif

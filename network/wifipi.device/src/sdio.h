@@ -1,6 +1,10 @@
 #ifndef _SDIO_H
 #define _SDIO_H
 
+#include <exec/execbase.h>
+#include <exec/types.h>
+#include <stdint.h>
+
 #define	EMMC_ARG2		0
 #define EMMC_BLKSIZECNT		4
 #define EMMC_ARG1		8
@@ -92,20 +96,20 @@
 #define SD_CARD_REMOVAL         (1 << 7)
 #define SD_CARD_INTERRUPT       (1 << 8)
 
-#define SUCCESS(a)          (a->w_LastCMDSuccess)
-#define FAIL(a)             (a->w_LastCMDSuccess == 0)
-#define TIMEOUT(a)          (FAIL(a) && (a->w_LastError == 0))
-#define CMD_TIMEOUT(a)      (FAIL(a) && (a->w_LastError & (1 << 16)))
-#define CMD_CRC(a)          (FAIL(a) && (a->w_LastError & (1 << 17)))
-#define CMD_END_BIT(a)      (FAIL(a) && (a->w_LastError & (1 << 18)))
-#define CMD_INDEX(a)        (FAIL(a) && (a->w_LastError & (1 << 19)))
-#define DATA_TIMEOUT(a)     (FAIL(a) && (a->w_LastError & (1 << 20)))
-#define DATA_CRC(a)         (FAIL(a) && (a->w_LastError & (1 << 21)))
-#define DATA_END_BIT(a)     (FAIL(a) && (a->w_LastError & (1 << 22)))
-#define CURRENT_LIMIT(a)    (FAIL(a) && (a->w_LastError & (1 << 23)))
-#define ACMD12_ERROR(a)     (FAIL(a) && (a->w_LastError & (1 << 24)))
-#define ADMA_ERROR(a)       (FAIL(a) && (a->w_LastError & (1 << 25)))
-#define TUNING_ERROR(a)     (FAIL(a) && (a->w_LastError & (1 << 26)))
+#define SUCCESS(a)          (a->s_LastCMDSuccess)
+#define FAIL(a)             (a->s_LastCMDSuccess == 0)
+#define TIMEOUT(a)          (FAIL(a) && (a->s_LastError == 0))
+#define CMD_TIMEOUT(a)      (FAIL(a) && (a->s_LastError & (1 << 16)))
+#define CMD_CRC(a)          (FAIL(a) && (a->s_LastError & (1 << 17)))
+#define CMD_END_BIT(a)      (FAIL(a) && (a->s_LastError & (1 << 18)))
+#define CMD_INDEX(a)        (FAIL(a) && (a->s_LastError & (1 << 19)))
+#define DATA_TIMEOUT(a)     (FAIL(a) && (a->s_LastError & (1 << 20)))
+#define DATA_CRC(a)         (FAIL(a) && (a->s_LastError & (1 << 21)))
+#define DATA_END_BIT(a)     (FAIL(a) && (a->s_LastError & (1 << 22)))
+#define CURRENT_LIMIT(a)    (FAIL(a) && (a->s_LastError & (1 << 23)))
+#define ACMD12_ERROR(a)     (FAIL(a) && (a->s_LastError & (1 << 24)))
+#define ADMA_ERROR(a)       (FAIL(a) && (a->s_LastError & (1 << 25)))
+#define TUNING_ERROR(a)     (FAIL(a) && (a->s_LastError & (1 << 26)))
 
 #define SD_RESP_NONE        SD_CMD_RSPNS_TYPE_NONE
 #define SD_RESP_R1          (SD_CMD_RSPNS_TYPE_48 | SD_CMD_CRCCHK_EN)
@@ -246,6 +250,37 @@
 
 #define SDIO_FBR_ADDR(func, reg)    (((func) << 8) | (reg))
 
-int sdio_init(struct WiFiBase *WiFiBase);
+struct WiFiBase;
+
+
+struct SDIO {
+    struct WiFiBase *   s_WiFiBase;
+    struct ExecBase *   s_SysBase;
+    APTR                s_SDIO;
+    ULONG               s_CardRCA;
+    ULONG               s_LastCMD;
+    UBYTE               s_LastCMDSuccess;
+    ULONG               s_LastBackplaneWindow;
+    ULONG               s_BlockSize;
+    ULONG               s_BlocksToTransfer;
+    ULONG               s_LastError;
+    ULONG               s_LastInterrupt;
+    ULONG               s_Res0;
+    ULONG               s_Res1;
+    ULONG               s_Res2;
+    ULONG               s_Res3;
+    APTR                s_Buffer;
+
+    int     (*IsError)(struct SDIO *);
+    ULONG   (*BackplaneAddr)(ULONG addr, struct SDIO *);
+    void    (*WriteByte)(UBYTE function, ULONG address, UBYTE value, struct SDIO *);
+    UBYTE   (*ReadByte)(UBYTE function, ULONG address, struct SDIO *);
+    void    (*Write)(UBYTE function, ULONG address, void *data, ULONG length, struct SDIO *sdio);
+    void    (*Read)(UBYTE function, ULONG address, void *data, ULONG length, struct SDIO *sdio);
+    void    (*Write32)(ULONG address, ULONG data, struct SDIO *sdio);
+    ULONG   (*Read32)(ULONG address, struct SDIO *sdio);
+};
+
+struct SDIO * sdio_init(struct WiFiBase *WiFiBase);
 
 #endif /* _SDIO_H */

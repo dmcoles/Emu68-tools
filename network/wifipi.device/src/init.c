@@ -429,7 +429,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 
     WiFiBase->w_DeviceTreeBase = DeviceTreeBase = OpenResource("devicetree.resource");
 
-    NewMinList(&WiFiBase->w_Cores);
+    //NewMinList(&WiFiBase->w_Cores);
 
     if (DeviceTreeBase)
     {
@@ -650,7 +650,11 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         //D(bug("[WiFi] Setting GPIO41 to 1\n"));
         //wr32(WiFiBase->w_GPIO, 0x20, 1 << (41 - 32));
 
-        sdio_init(WiFiBase);
+        struct SDIO * sdio = sdio_init(WiFiBase);
+        if (sdio)
+        {
+            chip_init(sdio);
+        }
     }
 
     D(bug("[WiFi] WiFi_Init done\n"));

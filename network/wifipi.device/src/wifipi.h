@@ -12,6 +12,8 @@
 
 #include <stdint.h>
 
+#include "sdio.h"
+
 #if defined(__INTELLISENSE__)
 #define asm(x) /* x */
 #endif
@@ -40,22 +42,6 @@ struct WiFiBase
     APTR                w_RequestOrig;
     ULONG *             w_Request;
     ULONG               w_SDIOClock;
-    ULONG               w_BlockSize;
-    ULONG               w_BlocksToTransfer;
-    ULONG               w_LastError;
-    ULONG               w_LastInterrupt;
-    ULONG               w_Res0;
-    ULONG               w_Res1;
-    ULONG               w_Res2;
-    ULONG               w_Res3;
-    APTR                w_Buffer;
-    ULONG               w_CardRCA;
-    ULONG               w_LastCMD;
-    UBYTE               w_LastCMDSuccess;
-    ULONG               w_LastBackplaneWindow;
-
-    UWORD               w_ChipID;
-    UWORD               w_ChipREV;
 
     APTR                w_FirmwareBase;
     ULONG               w_FirmwareSize;
@@ -65,12 +51,13 @@ struct WiFiBase
 
     APTR                w_ConfigBase;
     ULONG               w_ConfigSize;
-
-    struct MinList      w_Cores;
 };
+
+struct Chip;
 
 struct Core {
     struct MinNode      c_Node;
+    struct Chip *       c_Chip;
     ULONG               c_BaseAddress;
     ULONG               c_WrapBase;
     UWORD               c_CoreID;
@@ -79,9 +66,15 @@ struct Core {
 
 struct Chip {
     struct WiFiBase     *c_WiFiBase;
+    struct SDIO         *c_SDIO;
 
     UWORD               c_ChipID;
     UWORD               c_ChipREV;
+
+    ULONG               c_Caps;
+    ULONG               c_CapsExt;
+    ULONG               c_PMUCaps;
+    ULONG               c_PMURev;
 
     APTR                c_FirmwareBase;
     ULONG               c_FirmwareSize;
@@ -94,9 +87,12 @@ struct Chip {
 
     struct MinList      c_Cores;
 
-    struct Core *       (*GetCore)(UWORD coreID, struct Chip *chip);
+    struct Core *       (*GetCore)(struct Chip *chip, UWORD coreID);
     void                (*SetPassive)(struct Chip *);
-    void                (*SetActive)(struct Chip *);
+    BOOL                (*SetActive)(struct Chip *, ULONG resetVector);
+    BOOL                (*IsCoreUp)(struct Chip *, struct Core *);
+    void                (*DisableCore)(struct Chip *, struct Core *, ULONG preReset, ULONG reset);
+    void                (*ResetCore)(struct Chip *, struct Core *, ULONG preReset, ULONG reset, ULONG postReset);
 };
 
 #define ForeachNode(list, node)                        \
@@ -197,5 +193,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 
 
 BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV);
+
+int chip_init(struct SDIO *sdio);
 
 #endif

@@ -368,4 +368,11 @@ struct chipcregs {
 #define  DMP_SLAVE_SIZE_16K	2
 #define  DMP_SLAVE_SIZE_DESC	3
 
+/* ARM CR4 core specific control flag bits */
+#define ARMCR4_BCMA_IOCTL_CPUHALT	0x0020
+
+/* D11 core specific control flag bits */
+#define D11_BCMA_IOCTL_PHYCLOCKEN	0x0004
+#define D11_BCMA_IOCTL_PHYRESET		0x0008
+
 #endif				/* _SBCHIPC_H */
