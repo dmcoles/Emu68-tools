@@ -524,6 +524,163 @@ static int is_error(struct SDIO *sdio)
     return FAIL(sdio);
 }
 
+/* Turn backplane clock on or off */
+static int brcmf_sdio_htclk(struct SDIO *sdio, UBYTE on, UBYTE pendingOK)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    int err;
+    UBYTE clkctl, clkreq, devctl;
+    unsigned long timeout;
+
+    clkctl = 0;
+
+/*
+    if (sdio->sr_enabled) {
+        bus->clkstate = (on ? CLK_AVAIL : CLK_SDONLY);
+        return 0;
+    }
+*/
+
+    if (on)
+    {
+        /* Request HT Avail */
+        clkreq = sdio->s_ALPOnly ? SBSDIO_ALP_AVAIL_REQ : SBSDIO_HT_AVAIL_REQ;
+
+        sdio->WriteByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, clkreq, sdio);
+        if (sdio->IsError(sdio)) {
+            bug("[WiFi] HT Avail request error\n");
+            return 0;
+        }
+
+        /* Check current status */
+        clkctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, sdio);
+        if (err) {
+            bug("[WiFi] HT Avail read error\n");
+            return 0;
+        }
+
+        /* Go to pending and await interrupt if appropriate */
+        if (!SBSDIO_CLKAV(clkctl, sdio->s_ALPOnly) && pendingOK)
+        {
+            /* Allow only clock-available interrupt */
+            devctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, sdio);
+            if (sdio->IsError(sdio)) {
+                bug("[WiFi] Devctl error setting CA\n");
+                return 0;
+            }
+
+            devctl |= SBSDIO_DEVCTL_CA_INT_ONLY;
+            sdio->WriteByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, devctl, sdio);
+            D(bug("[WiFi] CLKCTL: set PENDING\n"));
+            sdio->s_ClkState = CLK_PENDING;
+
+            return 0;
+        }
+        else if (sdio->s_ClkState == CLK_PENDING)
+        {
+            /* Cancel CA-only interrupt filter */
+            devctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, sdio);
+            devctl &= ~SBSDIO_DEVCTL_CA_INT_ONLY;
+            sdio->WriteByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, devctl, sdio);
+        }
+
+        /* Otherwise, wait here (polling) for HT Avail */
+        timeout = LE32(*(volatile ULONG*)0xf2003004) + PMU_MAX_TRANSITION_DLY;
+        while (!SBSDIO_CLKAV(clkctl, sdio->s_ALPOnly)) {
+            clkctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, sdio);
+            if (timeout >= LE32(*(volatile ULONG*)0xf2003004))
+                break;
+            delay_us(1000, sdio->s_WiFiBase);
+        }
+
+        if (sdio->IsError(sdio)) {
+            bug("[WiFi] HT Avail request error\n");
+            return 0;
+        }
+        if (!SBSDIO_CLKAV(clkctl, sdio->s_ALPOnly))
+        {
+            bug("[WiFi] HT Avail timeout (%ld): clkctl 0x%02lx\n",
+                    PMU_MAX_TRANSITION_DLY, clkctl);
+            return 0;
+        }
+
+        /* Mark clock available */
+        sdio->s_ClkState = CLK_AVAIL;
+        D(bug("[WiFi] CLKCTL: turned ON\n"));
+    }
+    else
+    {
+        clkreq = 0;
+
+        if (sdio->s_ClkState == CLK_PENDING)
+        {
+            /* Cancel CA-only interrupt filter */
+            devctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, sdio);
+            devctl &= ~SBSDIO_DEVCTL_CA_INT_ONLY;
+            sdio->WriteByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, devctl, sdio);
+        }
+
+        sdio->s_ClkState = CLK_SDONLY;
+        sdio->WriteByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, clkreq, sdio);
+        D(bug("[WiFi] CLKCTL: turned OFF\n"));
+        if (sdio->IsError(sdio))
+        {
+            bug("[WiFi] Failed access turning clock off\n");
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int brcmf_sdio_sdclk(struct SDIO *sdio, UBYTE on)
+{
+    if (on)
+       sdio->s_ClkState = CLK_SDONLY;
+    else
+       sdio->s_ClkState = CLK_NONE;
+
+    return 1;
+}
+
+static int sdio_clkctrl(UBYTE target, UBYTE pendingOK, struct SDIO *sdio)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;
+
+    D(bug("[WiFi] SDIO ClkCTRL(%ld, %ld)\n", target, pendingOK));
+
+    if (sdio->s_ClkState == target)
+    {
+        return 1;
+    }
+
+    switch (target)
+    {
+        case CLK_AVAIL:
+            /* Make sure SD clock is available */
+            if (sdio->s_ClkState == CLK_NONE)
+                brcmf_sdio_sdclk(sdio, TRUE);
+            /* Now request HT Avail on the backplane */
+            brcmf_sdio_htclk(sdio, TRUE, pendingOK);
+            break;
+        
+        case CLK_SDONLY:
+            /* Remove HT request, or bring up SD clock */
+            if (sdio->s_ClkState == CLK_NONE)
+                brcmf_sdio_sdclk(sdio, TRUE);
+            else if (sdio->s_ClkState == CLK_AVAIL)
+                brcmf_sdio_htclk(sdio, FALSE, FALSE);
+            break;
+
+        case CLK_NONE:
+            /* Make sure to remove HT request */
+            if (sdio->s_ClkState == CLK_AVAIL)
+                brcmf_sdio_htclk(sdio, FALSE, FALSE);
+            /* Now remove the SD clock */
+            brcmf_sdio_sdclk(sdio, FALSE);
+            break;
+    }
+}
+
 struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
 {
     ULONG tout;
@@ -546,6 +703,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     sdio->Read = sdio_read_bytes;
     sdio->Write32 = sdio_bak_write32;
     sdio->Read32 = sdio_bak_read32;
+    sdio->ClkCTRL = sdio_clkctrl;
 
     sdio->s_SDIO = WiFiBase->w_SDIO;
     sdio->s_WiFiBase = WiFiBase;

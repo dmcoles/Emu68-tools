@@ -267,6 +267,13 @@ struct chipcregs {
 /* GSIO (spi/i2c) present, rev >= 37 */
 #define	CC_CAP2_GSIO		0x00000002
 
+#define CC_CAP_EXT			0x00AC		/* Capabilities */
+#define CC_CAP_EXT_SECI_PRESENT	0x00000001
+#define CC_CAP_EXT_GSIO_PRESENT	0x00000002
+#define CC_CAP_EXT_GCI_PRESENT	0x00000004
+#define CC_CAP_EXT_SECI_PUART_PRESENT		0x00000008    /* UART present */
+#define CC_CAP_EXT_AOB_PRESENT	0x00000040
+
 /* sr_control0, rev >= 48 */
 #define CC_SR_CTL0_ENABLE_MASK			BIT(0)
 #define CC_SR_CTL0_ENABLE_SHIFT		0
@@ -374,5 +381,121 @@ struct chipcregs {
 /* D11 core specific control flag bits */
 #define D11_BCMA_IOCTL_PHYCLOCKEN	0x0004
 #define D11_BCMA_IOCTL_PHYRESET		0x0008
+
+/* PMU registers (rev >= 20) */
+#define BCMA_CC_PMU_CTL			0x0600 /* PMU control */
+#define  BCMA_CC_PMU_CTL_ILP_DIV	0xFFFF0000 /* ILP div mask */
+#define  BCMA_CC_PMU_CTL_ILP_DIV_SHIFT	16
+#define  BCMA_CC_PMU_CTL_RES		0x00006000 /* reset control mask */
+#define  BCMA_CC_PMU_CTL_RES_SHIFT	13
+#define  BCMA_CC_PMU_CTL_RES_RELOAD	0x2	/* reload POR values */
+#define  BCMA_CC_PMU_CTL_PLL_UPD	0x00000400
+#define  BCMA_CC_PMU_CTL_NOILPONW	0x00000200 /* No ILP on wait */
+#define  BCMA_CC_PMU_CTL_HTREQEN	0x00000100 /* HT req enable */
+#define  BCMA_CC_PMU_CTL_ALPREQEN	0x00000080 /* ALP req enable */
+#define  BCMA_CC_PMU_CTL_XTALFREQ	0x0000007C /* Crystal freq */
+#define  BCMA_CC_PMU_CTL_XTALFREQ_SHIFT	2
+#define  BCMA_CC_PMU_CTL_ILPDIVEN	0x00000002 /* ILP div enable */
+#define  BCMA_CC_PMU_CTL_LPOSEL		0x00000001 /* LPO sel */
+#define BCMA_CC_PMU_CAP			0x0604 /* PMU capabilities */
+#define  BCMA_CC_PMU_CAP_REVISION	0x000000FF /* Revision mask */
+#define BCMA_CC_PMU_STAT		0x0608 /* PMU status */
+#define  BCMA_CC_PMU_STAT_EXT_LPO_AVAIL	0x00000100
+#define  BCMA_CC_PMU_STAT_WDRESET	0x00000080
+#define  BCMA_CC_PMU_STAT_INTPEND	0x00000040 /* Interrupt pending */
+#define  BCMA_CC_PMU_STAT_SBCLKST	0x00000030 /* Backplane clock status? */
+#define  BCMA_CC_PMU_STAT_HAVEALP	0x00000008 /* ALP available */
+#define  BCMA_CC_PMU_STAT_HAVEHT	0x00000004 /* HT available */
+#define  BCMA_CC_PMU_STAT_RESINIT	0x00000003 /* Res init */
+#define BCMA_CC_PMU_RES_STAT		0x060C /* PMU res status */
+#define BCMA_CC_PMU_RES_PEND		0x0610 /* PMU res pending */
+#define BCMA_CC_PMU_TIMER		0x0614 /* PMU timer */
+#define BCMA_CC_PMU_MINRES_MSK		0x0618 /* PMU min res mask */
+#define BCMA_CC_PMU_MAXRES_MSK		0x061C /* PMU max res mask */
+#define BCMA_CC_PMU_RES_TABSEL		0x0620 /* PMU res table sel */
+#define BCMA_CC_PMU_RES_DEPMSK		0x0624 /* PMU res dep mask */
+#define BCMA_CC_PMU_RES_UPDNTM		0x0628 /* PMU res updown timer */
+#define BCMA_CC_PMU_RES_TIMER		0x062C /* PMU res timer */
+#define BCMA_CC_PMU_CLKSTRETCH		0x0630 /* PMU clockstretch */
+#define BCMA_CC_PMU_WATCHDOG		0x0634 /* PMU watchdog */
+#define BCMA_CC_PMU_RES_REQTS		0x0640 /* PMU res req timer sel */
+#define BCMA_CC_PMU_RES_REQT		0x0644 /* PMU res req timer */
+#define BCMA_CC_PMU_RES_REQM		0x0648 /* PMU res req mask */
+#define BCMA_CC_PMU_CHIPCTL_ADDR	0x0650
+#define BCMA_CC_PMU_CHIPCTL_DATA	0x0654
+#define BCMA_CC_PMU_REGCTL_ADDR		0x0658
+#define BCMA_CC_PMU_REGCTL_DATA		0x065C
+#define BCMA_CC_PMU_PLLCTL_ADDR		0x0660
+#define BCMA_CC_PMU_PLLCTL_DATA		0x0664
+#define BCMA_CC_PMU_STRAPOPT		0x0668 /* (corerev >= 28) */
+#define BCMA_CC_PMU_XTAL_FREQ		0x066C /* (pmurev >= 10) */
+#define  BCMA_CC_PMU_XTAL_FREQ_ILPCTL_MASK	0x00001FFF
+#define  BCMA_CC_PMU_XTAL_FREQ_MEASURE_MASK	0x80000000
+#define  BCMA_CC_PMU_XTAL_FREQ_MEASURE_SHIFT	31
+
+
+struct sbsocramregs {
+    ULONG coreinfo;
+    ULONG bwalloc;
+    ULONG extracoreinfo;
+    ULONG biststat;
+    ULONG bankidx;
+    ULONG standbyctrl;
+
+    ULONG errlogstatus;	/* rev 6 */
+    ULONG errlogaddr;	/* rev 6 */
+    /* used for patching rev 3 & 5 */
+    ULONG cambankidx;
+    ULONG cambankstandbyctrl;
+    ULONG cambankpatchctrl;
+    ULONG cambankpatchtblbaseaddr;
+    ULONG cambankcmdreg;
+    ULONG cambankdatareg;
+    ULONG cambankmaskreg;
+    ULONG PAD[1];
+    ULONG bankinfo;	/* corev 8 */
+    ULONG bankpda;
+    ULONG PAD[14];
+    ULONG extmemconfig;
+    ULONG extmemparitycsr;
+    ULONG extmemparityerrdata;
+    ULONG extmemparityerrcnt;
+    ULONG extmemwrctrlandsize;
+    ULONG PAD[84];
+    ULONG workaround;
+    ULONG pwrctl;		/* corerev >= 2 */
+    ULONG PAD[133];
+    ULONG sr_control;     /* corerev >= 15 */
+    ULONG sr_status;      /* corerev >= 15 */
+    ULONG sr_address;     /* corerev >= 15 */
+    ULONG sr_data;        /* corerev >= 15 */
+};
+
+#define SOCRAMREGOFFS(_f)	__builtin_offsetof(struct sbsocramregs, _f)
+#define SYSMEMREGOFFS(_f)	__builtin_offsetof(struct sbsocramregs, _f)
+
+#define HOSTINTMASK		(I_HMB_SW_MASK | I_CHIPACTIVE)
+
+
+/* watermark expressed in number of words */
+#define DEFAULT_F2_WATERMARK    0x8
+#define CY_4373_F2_WATERMARK    0x40
+#define CY_4373_F1_MESBUSYCTRL  (CY_4373_F2_WATERMARK | SBSDIO_MESBUSYCTRL_ENAB)
+#define CY_43012_F2_WATERMARK    0x60
+#define CY_43012_MES_WATERMARK  0x50
+#define CY_43012_MESBUSYCTRL    (CY_43012_MES_WATERMARK | \
+				 SBSDIO_MESBUSYCTRL_ENAB)
+#define CY_4339_F2_WATERMARK    48
+#define CY_4339_MES_WATERMARK	80
+#define CY_4339_MESBUSYCTRL	(CY_4339_MES_WATERMARK | \
+				 SBSDIO_MESBUSYCTRL_ENAB)
+#define CY_43455_F2_WATERMARK	0x60
+#define CY_43455_MES_WATERMARK	0x50
+#define CY_43455_MESBUSYCTRL	(CY_43455_MES_WATERMARK | \
+				 SBSDIO_MESBUSYCTRL_ENAB)
+#define CY_435X_F2_WATERMARK	0x40
+#define CY_435X_F1_MESBUSYCTRL	(CY_435X_F2_WATERMARK | \
+				 SBSDIO_MESBUSYCTRL_ENAB)
+
 
 #endif				/* _SBCHIPC_H */

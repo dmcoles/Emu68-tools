@@ -252,6 +252,11 @@
 
 struct WiFiBase;
 
+/* clkstate */
+#define CLK_NONE	0
+#define CLK_SDONLY	1
+#define CLK_PENDING	2
+#define CLK_AVAIL	3
 
 struct SDIO {
     struct WiFiBase *   s_WiFiBase;
@@ -260,6 +265,8 @@ struct SDIO {
     ULONG               s_CardRCA;
     ULONG               s_LastCMD;
     UBYTE               s_LastCMDSuccess;
+    UBYTE               s_ClkState;
+    UBYTE               s_ALPOnly;
     ULONG               s_LastBackplaneWindow;
     ULONG               s_BlockSize;
     ULONG               s_BlocksToTransfer;
@@ -269,6 +276,7 @@ struct SDIO {
     ULONG               s_Res1;
     ULONG               s_Res2;
     ULONG               s_Res3;
+    ULONG               s_HostINTMask;
     APTR                s_Buffer;
 
     int     (*IsError)(struct SDIO *);
@@ -279,6 +287,7 @@ struct SDIO {
     void    (*Read)(UBYTE function, ULONG address, void *data, ULONG length, struct SDIO *sdio);
     void    (*Write32)(ULONG address, ULONG data, struct SDIO *sdio);
     ULONG   (*Read32)(ULONG address, struct SDIO *sdio);
+    int     (*ClkCTRL)(UBYTE target, UBYTE pendingOK, struct SDIO *sdio);
 };
 
 struct SDIO * sdio_init(struct WiFiBase *WiFiBase);

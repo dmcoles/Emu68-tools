@@ -42,15 +42,6 @@ struct WiFiBase
     APTR                w_RequestOrig;
     ULONG *             w_Request;
     ULONG               w_SDIOClock;
-
-    APTR                w_FirmwareBase;
-    ULONG               w_FirmwareSize;
-
-    APTR                w_CLMBase;
-    ULONG               w_CLMSize;
-
-    APTR                w_ConfigBase;
-    ULONG               w_ConfigSize;
 };
 
 struct Chip;
@@ -84,6 +75,10 @@ struct Chip {
 
     APTR                c_ConfigBase;
     ULONG               c_ConfigSize;
+
+    ULONG               c_RAMBase;
+    ULONG               c_RAMSize;
+    ULONG               c_SRSize;
 
     struct MinList      c_Cores;
 
@@ -192,7 +187,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
     do { ULONG args[] = {0, __VA_ARGS__}; RawDoFmt(string, &args[1], (APTR)putch, NULL); } while(0)
 
 
-BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV);
+BOOL LoadFirmware(struct Chip *chip);
 
 int chip_init(struct SDIO *sdio);
 

@@ -135,8 +135,9 @@ int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n)
 	return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
 }
 
-BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
+BOOL LoadFirmware(struct Chip *chip)
 {
+    struct WiFiBase *WiFiBase = chip->c_WiFiBase;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     APTR DeviceTreeBase = WiFiBase->w_DeviceTreeBase;
     struct Library *DOSBase = WiFiBase->w_DosBase;
@@ -145,7 +146,7 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
     /* Firmware name shall never exceed total size of 256 bytes */
     STRPTR path = AllocVec(256, MEMF_CLEAR);
     
-    D(bug("[WiFi] Trying to match firmware files for chip ID %04lx rev %lx\n", chipID, chipREV));
+    D(bug("[WiFi] Trying to match firmware files for chip ID %04lx rev %lx\n", chip->c_ChipID, chip->c_ChipREV));
 
     /* Proceed if memory allocated */
     if (path != NULL)
@@ -176,7 +177,7 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
 
             while(fw->binFile != NULL)
             {
-                if (fw->chipID == chipID && (fw->chipREVMask & (1 << chipREV)) != 0)
+                if (fw->chipID == chip->c_ChipID && (fw->chipREVMask & (1 << chip->c_ChipREV)) != 0)
                 {
                     /* We have match. Begin with .bin file as this is the largest one */
                     BPTR file; 
@@ -221,9 +222,9 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
 
                     /* Upload firmware to the WiFi module */
 
-                    WiFiBase->w_FirmwareBase = AllocMem(size, MEMF_PUBLIC);
-                    CopyMem(buffer, WiFiBase->w_FirmwareBase, size);
-                    WiFiBase->w_FirmwareSize = size;
+                    chip->c_FirmwareBase = AllocMem(size, MEMF_PUBLIC);
+                    CopyMem(buffer, chip->c_FirmwareBase, size);
+                    chip->c_FirmwareSize = size;
 
                     /* If clm_blob file exists, load it */
                     if (fw->clmFile != NULL)
@@ -267,10 +268,9 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
 
                         /* Upload firmware to the WiFi module */
 
-                        WiFiBase->w_CLMBase = AllocMem(size, MEMF_PUBLIC);
-                        CopyMem(buffer, WiFiBase->w_CLMBase, size);
-                        WiFiBase->w_CLMSize = size;
-
+                        chip->c_CLMBase = AllocMem(size, MEMF_PUBLIC);
+                        CopyMem(buffer, chip->c_CLMBase, size);
+                        chip->c_CLMSize = size;
                     }
 
                     /* Load NVRAM file */
@@ -367,9 +367,9 @@ BOOL LoadFirmware(struct WiFiBase *WiFiBase, UWORD chipID, UWORD chipREV)
 
                     /* Upload NVRAM to WiFi module */
                     
-                    WiFiBase->w_ConfigBase = AllocMem(dst_pos, MEMF_PUBLIC);
-                    CopyMem(buffer, WiFiBase->w_ConfigBase, dst_pos);
-                    WiFiBase->w_ConfigSize = dst_pos;
+                    chip->c_ConfigBase = AllocMem(dst_pos, MEMF_PUBLIC);
+                    CopyMem(buffer, chip->c_ConfigBase, dst_pos);
+                    chip->c_ConfigSize = dst_pos;
 
                     /* Get rid of temporary buffer */
                     FreeMem(buffer, size);
