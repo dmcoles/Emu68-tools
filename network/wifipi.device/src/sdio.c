@@ -681,6 +681,59 @@ static int sdio_clkctrl(UBYTE target, UBYTE pendingOK, struct SDIO *sdio)
     }
 }
 
+void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
+{
+    ULONG addr = sdio->s_CC->c_BaseAddress;
+
+    // Round up length to next 4 byte boundary
+    length = (length + 3) & ~3;
+
+    // Set backplane address
+    addr = sdio->BackplaneAddr(addr, sdio);
+
+    // 32-bit window
+    addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
+
+    // Send out the data
+    sdio->Write(SD_FUNC_RAD, addr, pkt, length, sdio);
+}
+
+void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
+{
+    ULONG addr = sdio->s_CC->c_BaseAddress;
+
+    // Round up length to next 4 byte boundary
+    length = (length + 3) & ~3;
+
+    // Set backplane address
+    addr = sdio->BackplaneAddr(addr, sdio);
+
+    // 32-bit window
+    addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
+
+    // Send out the data
+    sdio->Read(SD_FUNC_RAD, addr, pkt, length, sdio);
+}
+
+
+ULONG sdio_getintstatus(struct SDIO * sdio)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    ULONG reg_addr;
+    ULONG ints;
+
+    /* clear all interrupts */
+    reg_addr = sdio->s_CC->c_BaseAddress + SD_REG(intstatus);
+
+    D(bug("[WiFi] sdio_getintstatus, reg_addr = %08lx, ints = ", reg_addr));
+
+    ints = sdio->Read32(reg_addr, sdio);
+    D(bug("%08lx\n", ints));
+    sdio->Write32(reg_addr, ints, sdio);
+
+    return ints;
+}
+
 struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
 {
     ULONG tout;
@@ -705,9 +758,16 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     sdio->Read32 = sdio_bak_read32;
     sdio->ClkCTRL = sdio_clkctrl;
 
+    sdio->SendPKT = sdio_sendpkt;
+    sdio->RecvPKT = sdio_recvpkt;
+    sdio->GetIntStatus = sdio_getintstatus;
+
     sdio->s_SDIO = WiFiBase->w_SDIO;
     sdio->s_WiFiBase = WiFiBase;
     sdio->s_SysBase = SysBase;
+
+    sdio->s_TXBuffer = AllocMem(4096, MEMF_PUBLIC);
+    sdio->s_RXBuffer = AllocMem(4096, MEMF_PUBLIC);
 
     ULONG ver = rd32(WiFiBase->w_SDIO, EMMC_SLOTISR_VER);
     ULONG vendor = ver >> 24;

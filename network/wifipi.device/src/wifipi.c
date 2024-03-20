@@ -647,6 +647,10 @@ int chip_setup(struct Chip *chip)
     cc = (struct Core *)chip->c_Cores.mlh_Head;
     base = cc->c_BaseAddress;
 
+    // Remember Chipcomm and SDIO cores in SDIO
+    chip->c_SDIO->s_CC = cc;
+    chip->c_SDIO->s_SDIOC = chip->GetCore(chip, BCMA_CORE_SDIO_DEV);
+
     /* get chipcommon capabilites */
     chip->c_Caps = chip->c_SDIO->Read32(CORE_CC_REG(base, capabilities), chip->c_SDIO);
     chip->c_CapsExt = chip->c_SDIO->Read32(CORE_CC_REG(base, capabilities_ext), chip->c_SDIO);
@@ -1197,4 +1201,26 @@ int chip_init(struct SDIO *sdio)
 
     /* Allow full data communication using DPC from now on. */
 	//brcmf_sdiod_change_state(bus->sdiodev, BRCMF_SDIOD_DATA);
+
+    UBYTE buf[64];
+    for (int i=0; i < 64; i++) buf[i] = 0;
+#if 0
+    sdio->RecvPKT(buf, 64, sdio);
+    D(bug("[WiFi] RecvPkt: \n"));
+
+
+    for (int i=0; i < 64; i++)
+    {
+        if (i % 16 == 0) bug("[WiFi]");
+        bug(" %02lx", buf[i]);
+        if (i % 16 == 15) bug("\n");
+    }
+#endif
+sdio->SendPKT(buf, 64, sdio);
+    for (int i=0; i < 20; i++)
+    {
+        sdio->GetIntStatus(sdio);
+        delay_us(100000, WiFiBase);
+    }
+    
 }

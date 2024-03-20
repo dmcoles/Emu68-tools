@@ -279,6 +279,12 @@ struct SDIO {
     ULONG               s_HostINTMask;
     APTR                s_Buffer;
 
+    APTR                s_TXBuffer;
+    APTR                s_RXBuffer;
+
+    struct Core *       s_CC;       // Chipcomm core
+    struct Core *       s_SDIOC;    // SDIO core
+
     int     (*IsError)(struct SDIO *);
     ULONG   (*BackplaneAddr)(ULONG addr, struct SDIO *);
     void    (*WriteByte)(UBYTE function, ULONG address, UBYTE value, struct SDIO *);
@@ -288,6 +294,9 @@ struct SDIO {
     void    (*Write32)(ULONG address, ULONG data, struct SDIO *sdio);
     ULONG   (*Read32)(ULONG address, struct SDIO *sdio);
     int     (*ClkCTRL)(UBYTE target, UBYTE pendingOK, struct SDIO *sdio);
+    void    (*SendPKT)(UBYTE *pkt, ULONG length, struct SDIO *);
+    void    (*RecvPKT)(UBYTE *pkt, ULONG length, struct SDIO *);
+    ULONG   (*GetIntStatus)(struct SDIO *);
 };
 
 struct SDIO * sdio_init(struct WiFiBase *WiFiBase);

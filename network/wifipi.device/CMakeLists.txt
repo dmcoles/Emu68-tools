@@ -14,6 +14,7 @@ add_executable(wifipi.device
     src/sdio.c
     src/end.c
     src/wifipi.c
+    src/packet.c
 )
 target_include_directories(wifipi.device PRIVATE include)
 target_link_libraries(wifipi.device devicetree amiga sana2)
@@ -26,6 +27,7 @@ add_executable(wifipi_rom
     src/sdio.c
     src/end.c
     src/wifipi.c
+    src/packet.c
 )
 
 target_include_directories(wifipi_rom PRIVATE include)
