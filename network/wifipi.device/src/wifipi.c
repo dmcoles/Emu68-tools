@@ -307,14 +307,10 @@ static void brcm_chip_ai_resetcore(struct Chip *chip, struct Core *core, ULONG p
 
     /* special handle two D11 cores reset */
     if (core->c_CoreID == BCMA_CORE_80211) {
-        #if 0
-        d11core2 = brcmf_chip_get_d11core(&ci->pub, 1);
+        d11core2 = brcmf_chip_get_d11core(chip, 1);
         if (d11core2) {
-            brcmf_dbg(INFO, "found two d11 cores, reset both\n");
-            d11priv2 = container_of(d11core2,
-                        struct brcmf_core_priv, pub);
+            D(bug("[WiFi] found two d11 cores, reset both\n"));
         }
-        #endif
     }
 
     /* must disable first to work for arbitrary current core state */
@@ -913,6 +909,121 @@ int get_memory(struct Chip *chip)
     D(bug("[WiFi] RAM Base: %08lx, Size: %08lx, SR: %08lx\n", chip->c_RAMBase, chip->c_RAMSize, chip->c_SRSize));
 }
 
+
+#define SDIOD_DRVSTR_KEY(chip, pmu)     (((unsigned int)(chip) << 16) | (pmu))
+
+/* SDIO Pad drive strength to select value mappings */
+struct sdiod_drive_str {
+	UBYTE strength;	/* Pad Drive Strength in mA */
+	UBYTE sel;		/* Chip-specific select value */
+};
+
+/* SDIO Drive Strength to sel value table for PMU Rev 11 (1.8V) */
+static const struct sdiod_drive_str sdiod_drvstr_tab1_1v8[] = {
+	{32, 0x6},
+	{26, 0x7},
+	{22, 0x4},
+	{16, 0x5},
+	{12, 0x2},
+	{8, 0x3},
+	{4, 0x0},
+	{0, 0x1}
+};
+
+/* SDIO Drive Strength to sel value table for PMU Rev 13 (1.8v) */
+static const struct sdiod_drive_str sdiod_drive_strength_tab5_1v8[] = {
+	{6, 0x7},
+	{5, 0x6},
+	{4, 0x5},
+	{3, 0x4},
+	{2, 0x2},
+	{1, 0x1},
+	{0, 0x0}
+};
+
+/* SDIO Drive Strength to sel value table for PMU Rev 17 (1.8v) */
+static const struct sdiod_drive_str sdiod_drvstr_tab6_1v8[] = {
+	{3, 0x3},
+	{2, 0x2},
+	{1, 0x1},
+	{0, 0x0} };
+
+/* SDIO Drive Strength to sel value table for 43143 PMU Rev 17 (3.3V) */
+static const struct sdiod_drive_str sdiod_drvstr_tab2_3v3[] = {
+	{16, 0x7},
+	{12, 0x5},
+	{8,  0x3},
+	{4,  0x1}
+};
+
+static void brcmf_sdio_drivestrengthinit(struct SDIO *sdio, struct Chip *ci, ULONG drivestrength)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    const struct sdiod_drive_str *str_tab = NULL;
+    ULONG str_mask;
+    ULONG str_shift;
+    ULONG i;
+    ULONG drivestrength_sel = 0;
+    ULONG cc_data_temp;
+    ULONG addr;
+
+    if (!(ci->c_Caps & CC_CAP_PMU))
+        return;
+
+    switch (SDIOD_DRVSTR_KEY(ci->c_ChipID, ci->c_PMURev)) {
+        case SDIOD_DRVSTR_KEY(BRCM_CC_4330_CHIP_ID, 12):
+            str_tab = sdiod_drvstr_tab1_1v8;
+            str_mask = 0x00003800;
+            str_shift = 11;
+            break;
+        case SDIOD_DRVSTR_KEY(BRCM_CC_4334_CHIP_ID, 17):
+            str_tab = sdiod_drvstr_tab6_1v8;
+            str_mask = 0x00001800;
+            str_shift = 11;
+            break;
+        case SDIOD_DRVSTR_KEY(BRCM_CC_43143_CHIP_ID, 17):
+            /* note: 43143 does not support tristate */
+            i = sizeof(sdiod_drvstr_tab2_3v3) / sizeof(sdiod_drvstr_tab2_3v3[0]) - 1;
+            if (drivestrength >= sdiod_drvstr_tab2_3v3[i].strength) {
+                str_tab = sdiod_drvstr_tab2_3v3;
+                str_mask = 0x00000007;
+                str_shift = 0;
+            } else
+                bug("[WiFi] Invalid SDIO Drive strength %ld\n", drivestrength);
+            break;
+        case SDIOD_DRVSTR_KEY(BRCM_CC_43362_CHIP_ID, 13):
+            str_tab = sdiod_drive_strength_tab5_1v8;
+            str_mask = 0x00003800;
+            str_shift = 11;
+            break;
+        default:
+            bug("[WiFi] No SDIO driver strength init needed for chip id %lx rev %ld pmurev %ld\n",
+                    ci->c_ChipID, ci->c_ChipREV, ci->c_PMURev);
+            break;
+    }
+
+    if (str_tab != NULL) {
+        struct Core *pmu = brcmf_chip_get_pmu(ci);
+
+        for (i = 0; str_tab[i].strength != 0; i++) {
+            if (drivestrength >= str_tab[i].strength) {
+                drivestrength_sel = str_tab[i].sel;
+                break;
+            }
+        }
+        addr = CORE_CC_REG(pmu->c_BaseAddress, chipcontrol_addr);
+        sdio->Write32(addr, 1, sdio);
+        cc_data_temp = sdio->Read32(addr, sdio);
+        cc_data_temp &= ~str_mask;
+        drivestrength_sel <<= str_shift;
+        cc_data_temp |= drivestrength_sel;
+        sdio->Write32(addr, cc_data_temp, sdio);
+
+        D(bug("[WiFi] SDIO: %ld mA (req=%ld mA) drive strength selected, set to 0x%08lx\n",
+                str_tab[i].strength, drivestrength, cc_data_temp));
+    }
+}
+
 int chip_init(struct SDIO *sdio)
 {
     struct ExecBase * SysBase = sdio->s_SysBase;
@@ -955,6 +1066,7 @@ int chip_init(struct SDIO *sdio)
 
     /* Force PLL off until the chip is attached */
     sdio->WriteByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ, sdio);
+
     UBYTE tmp = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, sdio);
     if (((tmp & ~SBSDIO_AVBITS) != (SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ))) {
         D(bug("[WiFi] Chip CLK CSR access error, wrote 0x%02lx, read 0x%02lx\n", SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ, tmp));
@@ -965,6 +1077,9 @@ int chip_init(struct SDIO *sdio)
         FreeMem(chip, sizeof(struct Chip));
         return 0;
     }
+
+    sdio->Write32(CORE_CC_REG(SI_ENUM_BASE_DEFAULT, gpiopullup), 0, sdio);
+    sdio->Write32(CORE_CC_REG(SI_ENUM_BASE_DEFAULT, gpiopulldown), 0, sdio);
 
     ULONG id = sdio->Read32(CORE_CC_REG(SI_ENUM_BASE_DEFAULT, chipid), sdio);
 
@@ -1014,7 +1129,8 @@ int chip_init(struct SDIO *sdio)
 
     chip_setup(chip);
 
-    // brcmf_sdio_drivestrengthinit
+    // Set drive strengh to 6mA
+    brcmf_sdio_drivestrengthinit(sdio, chip, 6);
 
     /* Set card control so an SDIO card reset does a WLAN backplane reset */
     ULONG reg_val = sdio->ReadByte(SD_FUNC_CIA, SDIO_CCCR_BRCM_CARDCTRL, sdio);
@@ -1030,6 +1146,16 @@ int chip_init(struct SDIO *sdio)
     D(bug("%08lx\n", reg_val));
     sdio->Write32(reg_addr, reg_val, sdio);
 
+	/* Disable F2 to clear any intermediate frame state on the dongle */
+    UBYTE reg = sdio->ReadByte(SD_FUNC_CIA, BUS_IOEN_REG, sdio);
+    D(bug("[WiFi] Disabling function 2... BUS_IOEN_REG = %02lx\n", reg));
+    reg &= ~(1 << SD_FUNC_RAD);
+    sdio->WriteByte(SD_FUNC_CIA, BUS_IOEN_REG, reg, sdio);
+
+    /* Done with backplane-dependent accesses, can drop clock... */
+	sdio->WriteByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, 0, sdio);
+    sdio->s_ClkState = CLK_SDONLY;
+
     sdio->s_ALPOnly = TRUE;
 
     // Load firmware files from disk
@@ -1044,14 +1170,17 @@ int chip_init(struct SDIO *sdio)
     if (chip->c_FirmwareBase && chip->c_FirmwareSize)
     {
         ULONG ram_base = chip->c_RAMBase;
-        D(bug("[WiFi] Uploading firmware...\n"));
+        D(bug("[WiFi] Uploading firmware to %08lx...\n", ram_base));
         ULONG remaining = (ULONG)chip->c_FirmwareSize;
         UBYTE *sdio_bin = chip->c_FirmwareBase;
+        ULONG pos;
     
-        for (ULONG pos = 0; pos < (ULONG)chip->c_FirmwareSize; )
+        for (pos = 0; pos < (ULONG)chip->c_FirmwareSize; )
         {
             ULONG sz = remaining > 64 ? 64 : remaining;
             ULONG addr = sdio->BackplaneAddr(ram_base + pos, sdio);
+
+            sz = (sz + 3) & ~3;
 
             sdio->Write(SD_FUNC_BAK, SB_32BIT_WIN + addr, &sdio_bin[pos], sz, sdio);
             if (sdio->IsError(sdio))
@@ -1061,19 +1190,24 @@ int chip_init(struct SDIO *sdio)
             pos += sz;
             remaining -= sz;
         }
+
+        D(bug("[WiFi] wrote %ld bytes\n", pos));
     }
 
     if (chip->c_ConfigBase && chip->c_ConfigSize)
     {
         ULONG ram_base = chip->c_RAMBase + chip->c_RAMSize - chip->c_ConfigSize;
-        D(bug("[WiFi] Uploading NVRAM...\n"));
+        D(bug("[WiFi] Uploading NVRAM to %08lx...\n", ram_base));
         ULONG remaining = (ULONG)chip->c_ConfigSize;
         UBYTE *nvram_bin = chip->c_ConfigBase;
-    
-        for (ULONG pos = 0; pos < (ULONG)chip->c_ConfigSize; )
+        ULONG pos;
+
+        for (pos = 0; pos < (ULONG)chip->c_ConfigSize; )
         {
             ULONG sz = remaining > 64 ? 64 : remaining;
             ULONG addr = sdio->BackplaneAddr(ram_base + pos, sdio);
+
+            sz = (sz + 3) & ~3;
 
             sdio->Write(SD_FUNC_BAK, SB_32BIT_WIN + addr, &nvram_bin[pos], sz, sdio);
             if (sdio->IsError(sdio))
@@ -1083,6 +1217,7 @@ int chip_init(struct SDIO *sdio)
             pos += sz;
             remaining -= sz;
         }
+        D(bug("[WiFi] wrote %ld bytes\n", pos));
     }
 
     ULONG resetVector = LE32(*(ULONG*)chip->c_FirmwareBase);
@@ -1090,6 +1225,8 @@ int chip_init(struct SDIO *sdio)
     /* Take ARM out of reset */
     D(bug("[WiFi] Taking WiFi's ARM out of reset. Vector: %08lx\n", resetVector));
     chip->SetActive(chip, resetVector);
+
+    sdio->ClkCTRL(CLK_SDONLY, FALSE, sdio);
 
     sdio->s_ALPOnly = FALSE;
 
@@ -1114,16 +1251,14 @@ int chip_init(struct SDIO *sdio)
 
     /* Enable RAD function */
     D(bug("[WiFi] Enabling function 2 (radio)\n"));
-    UBYTE reg = sdio->ReadByte(SD_FUNC_CIA, BUS_IOEN_REG, sdio);
-    D(bug("[WiFi] BUS_IOEN_REG = %02lx\n", reg));
+    reg = sdio->ReadByte(SD_FUNC_CIA, BUS_IOEN_REG, sdio);
     reg |= 1 << SD_FUNC_RAD;
     sdio->WriteByte(SD_FUNC_CIA, BUS_IOEN_REG, reg, sdio);
     ULONG timeout = 50;
     do {
-        reg = sdio->ReadByte(SD_FUNC_CIA, BUS_IOEN_REG, sdio);
-        D(bug("[WiFi] Waiting... IOEN_REG = %02lx\n", reg));
-        delay_us(100000, WiFiBase);
-    } while(0 == reg & (1 << SD_FUNC_RAD) && --timeout);
+        D(bug("[WiFi] Waiting...\n"));
+        delay_us(10000, WiFiBase);
+    } while(0 == (sdio->ReadByte(SD_FUNC_CIA, BUS_IORDY_REG, sdio) & (1 << SD_FUNC_RAD)) && --timeout);
     
     if (timeout == 0)
     {
@@ -1168,21 +1303,16 @@ int chip_init(struct SDIO *sdio)
             sdio->WriteByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, devctl, sdio);
             sdio->WriteByte(SD_FUNC_BAK, SBSDIO_FUNC1_MESBUSYCTRL, CY_4339_MESBUSYCTRL, sdio);
             break;
-/*
-        case SDIO_DEVICE_ID_BROADCOM_43455:
-            brcmf_dbg(INFO, "set F2 watermark to 0x%x*4 bytes\n",
-                    CY_43455_F2_WATERMARK);
-            brcmf_sdiod_writeb(sdiod, SBSDIO_WATERMARK,
-                        CY_43455_F2_WATERMARK, &err);
-            devctl = brcmf_sdiod_readb(sdiod, SBSDIO_DEVICE_CTL,
-                            &err);
+
+        case BRCM_CC_4345_CHIP_ID:
+            D(bug("[WiFi] set F2 watermark to 0x%lx*4 bytes\n", CY_43455_F2_WATERMARK));
+            sdio->WriteByte(SD_FUNC_BAK, SBSDIO_WATERMARK, CY_43455_F2_WATERMARK, sdio);
+            devctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, sdio);
             devctl |= SBSDIO_DEVCTL_F2WM_ENAB;
-            brcmf_sdiod_writeb(sdiod, SBSDIO_DEVICE_CTL, devctl,
-                        &err);
-            brcmf_sdiod_writeb(sdiod, SBSDIO_FUNC1_MESBUSYCTRL,
-                        CY_43455_MESBUSYCTRL, &err);
+            sdio->WriteByte(SD_FUNC_BAK, SBSDIO_DEVICE_CTL, devctl, sdio);
+            sdio->WriteByte(SD_FUNC_BAK, SBSDIO_FUNC1_MESBUSYCTRL, CY_43455_MESBUSYCTRL, sdio);
             break;
-*/
+
         case BRCM_CC_4359_CHIP_ID:
         case BRCM_CC_4354_CHIP_ID:
         case BRCM_CC_4356_CHIP_ID:
@@ -1199,12 +1329,15 @@ int chip_init(struct SDIO *sdio)
         }
     }
 
+    /* Restore previous clock setting */#
+    sdio->WriteByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, saveclk, sdio);
+
     /* Allow full data communication using DPC from now on. */
 	//brcmf_sdiod_change_state(bus->sdiodev, BRCMF_SDIOD_DATA);
 
     UBYTE buf[64];
     for (int i=0; i < 64; i++) buf[i] = 0;
-#if 0
+#if 1
     sdio->RecvPKT(buf, 64, sdio);
     D(bug("[WiFi] RecvPkt: \n"));
 
@@ -1215,12 +1348,32 @@ int chip_init(struct SDIO *sdio)
         bug(" %02lx", buf[i]);
         if (i % 16 == 15) bug("\n");
     }
+
+    sdio->RecvPKT(buf, 64, sdio);
+    D(bug("[WiFi] RecvPkt: \n"));
+
+
+    for (int i=0; i < 64; i++)
+    {
+        if (i % 16 == 0) bug("[WiFi]");
+        bug(" %02lx", buf[i]);
+        if (i % 16 == 15) bug("\n");
+    }
+
 #endif
-sdio->SendPKT(buf, 64, sdio);
+
+    sdio->SendPKT(buf, 64, sdio);
     for (int i=0; i < 20; i++)
     {
         sdio->GetIntStatus(sdio);
         delay_us(100000, WiFiBase);
     }
+
+    sdio->BackplaneAddr(core->c_BaseAddress, sdio);
+
+
+
+    bug("[WiFi] CIA functions: %02lx\n", sdio->ReadByte(SD_FUNC_CIA, BUS_IORDY_REG, sdio));
+    bug("[WiFi] Chipclk: %08lx\n", sdio->ReadByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, sdio));
     
 }
