@@ -10,5 +10,7 @@ uint32_t get_clock_state(uint32_t id, struct WiFiBase * WiFiBase);
 uint32_t set_clock_state(uint32_t id, uint32_t state, struct WiFiBase * WiFiBase);
 uint32_t get_power_state(uint32_t id, struct WiFiBase * WiFiBase);
 uint32_t set_power_state(uint32_t id, uint32_t state, struct WiFiBase * WiFiBase);
+uint32_t get_extgpio_state(uint32_t id, struct WiFiBase * WiFiBase);
+uint32_t set_extgpio_state(uint32_t id, uint32_t state, struct WiFiBase * WiFiBase);
 
 #endif /* _MBOX_H */

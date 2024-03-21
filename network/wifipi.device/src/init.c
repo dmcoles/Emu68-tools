@@ -355,15 +355,21 @@ BOOL LoadFirmware(struct Chip *chip)
 
                     } while(src_pos < (ULONG)size);
 
-                    // and the end apply the end of config marker
+                    // put extra 0 at end of config
                     buffer[dst_pos++] = 0x00;
-                    buffer[dst_pos++] = 0x00;
-                    buffer[dst_pos++] = 0x00;
-                    buffer[dst_pos++] = 0x00;
-                    buffer[dst_pos++] = 0xaa;
-                    buffer[dst_pos++] = 0x00;
-                    buffer[dst_pos++] = 0x55;
-                    buffer[dst_pos++] = 0xff;
+
+                    // Pad to 4 byte boundary
+                    while (dst_pos & 3) buffer[dst_pos++] = 0x00;
+
+                    // Get number of words and convert it to a checksum
+                    ULONG words = dst_pos / 4;
+                    words = (words & 0xFFFF) | (~words << 16);
+
+                    // Add checksum at end of NVRAM
+                    buffer[dst_pos++] = words & 0xff;
+                    buffer[dst_pos++] = (words >> 8) & 0xff;
+                    buffer[dst_pos++] = (words >> 16) & 0xff;
+                    buffer[dst_pos++] = (words >> 24) & 0xff;
 
                     /* Upload NVRAM to WiFi module */
                     
@@ -632,6 +638,16 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         clk = get_clock_rate(1, WiFiBase);
         D(bug("[WiFi] Clock speed: %ld MHz\n", clk / 1000000));
         WiFiBase->w_SDIOClock = clk;
+
+        set_extgpio_state(1, 0, WiFiBase);
+        set_extgpio_state(1, 1, WiFiBase);
+        
+        D(bug("[WiFi] EXT GPIO:"));
+        for (int i=0; i < 8; i++)
+        {
+            D(bug(" %ld", get_extgpio_state(i, WiFiBase)));
+        }
+        D(bug("\n"));
 
         if (FindTask(NULL)->tc_Node.ln_Type == NT_PROCESS)
         {
