@@ -443,12 +443,17 @@ static void cmd(ULONG command, ULONG arg, ULONG timeout, struct SDIO *sdio)
 
 static UBYTE sdio_read_byte(UBYTE function, ULONG address, struct SDIO *sdio)
 {
+    struct ExecBase *SysBase = sdio->s_SysBase;
     cmd(IO_RW_DIRECT, ((address & 0x1ffff) << 9) | ((function & 7) << 28), 500000, sdio);
+    //D(bug("[WiFi] ReadByte(%ld, %08lx) -> %02lx\n", function, address, sdio->s_Res0 & 0xff));
     return sdio->s_Res0;
 }
 
 static void sdio_write_byte(UBYTE function, ULONG address, UBYTE value, struct SDIO *sdio)
 {
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    //D(bug("[WiFi] WriteByte(%ld, %08lx, %02lx)\n", function, address, value));
+
     cmd(IO_RW_DIRECT, value | 0x80000000 | ((address & 0x1ffff) << 9) | ((function & 7) << 28), 500000, sdio);
 }
 
@@ -476,10 +481,12 @@ static UBYTE sdio_write_and_read_byte(UBYTE function, ULONG address, UBYTE value
 
 static void sdio_backplane_window(ULONG addr, struct SDIO *sdio)
 {
+    struct ExecBase *SysBase = sdio->s_SysBase;
     /* Align address properly */
     addr = addr & ~SBSDIO_SB_OFT_ADDR_MASK;
 
     if (addr != sdio->s_LastBackplaneWindow) {
+        //D(bug("[WiFi] BackplaneWindow(%08lx)\n", addr));
         sdio->s_LastBackplaneWindow = addr;
         addr >>= 8;
 
@@ -497,25 +504,24 @@ static ULONG sdio_backplane_addr(ULONG addr, struct SDIO *sdio)
 
 static void sdio_bak_write32(ULONG address, ULONG data, struct SDIO *sdio)
 {
+    struct ExecBase *SysBase = sdio->s_SysBase;
     data = LE32(data);
     address = sdio_backplane_addr(address, sdio);
+
+    //D(bug("[WiFi] Write32(%08lx, %08lx)\n", address, LE32(data)));
 
     sdio_write_bytes(SD_FUNC_BAK, address | SBSDIO_SB_ACCESS_2_4B_FLAG, &data, 4, sdio);
 }
 
-static void sdio_bak_read32_(ULONG address, ULONG *data, struct SDIO *sdio)
-{
-    ULONG temp;
-    address = sdio_backplane_addr(address, sdio);
-    sdio_read_bytes(SD_FUNC_BAK, address | SBSDIO_SB_ACCESS_2_4B_FLAG, &temp, 4, sdio);
-    *data = LE32(temp);
-}
-
 static ULONG sdio_bak_read32(ULONG address, struct SDIO *sdio)
 {
+    struct ExecBase *SysBase = sdio->s_SysBase;
     ULONG temp;
     address = sdio_backplane_addr(address, sdio);
     sdio_read_bytes(SD_FUNC_BAK, address | SBSDIO_SB_ACCESS_2_4B_FLAG, &temp, 4, sdio);
+
+    //D(bug("[WiFi] Read32(%08lx) -> %08lx\n", address, LE32(temp)));
+
     return LE32(temp);
 }
 
@@ -585,12 +591,13 @@ static int brcmf_sdio_htclk(struct SDIO *sdio, UBYTE on, UBYTE pendingOK)
         }
 
         /* Otherwise, wait here (polling) for HT Avail */
-        timeout = LE32(*(volatile ULONG*)0xf2003004) + PMU_MAX_TRANSITION_DLY;
+        timeout = LE32(*(volatile ULONG*)0xf2003004) + PMU_MAX_TRANSITION_DLY * 10;
         while (!SBSDIO_CLKAV(clkctl, sdio->s_ALPOnly)) {
             clkctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, sdio);
-            if (timeout >= LE32(*(volatile ULONG*)0xf2003004))
+            if (timeout <= LE32(*(volatile ULONG*)0xf2003004))
                 break;
-            delay_us(1000, sdio->s_WiFiBase);
+            delay_us(10000, sdio->s_WiFiBase);
+            bug("[WiFi] Waiting...\n");
         }
 
         if (sdio->IsError(sdio)) {
@@ -647,6 +654,8 @@ static int sdio_clkctrl(UBYTE target, UBYTE pendingOK, struct SDIO *sdio)
     struct ExecBase *SysBase = sdio->s_SysBase;
 
     D(bug("[WiFi] SDIO ClkCTRL(%ld, %ld)\n", target, pendingOK));
+
+    D(bug("[WiFi] sdio->s_ClkState = %ld\n", sdio->s_ClkState));
 
     if (sdio->s_ClkState == target)
     {
