@@ -3,6 +3,7 @@
 
 #include <exec/execbase.h>
 #include <exec/types.h>
+#include <exec/semaphores.h>
 #include <stdint.h>
 
 #define	EMMC_ARG2		0
@@ -258,9 +259,15 @@ struct WiFiBase;
 #define CLK_PENDING	2
 #define CLK_AVAIL	3
 
+#define S_LOCK(sdio) do { ObtainSemaphore(&(sdio)->s_Lock); } while(0)
+#define S_UNLOCK(sdio) do { ReleaseSemaphore(&(sdio)->s_Lock); } while(0)
+
 struct SDIO {
     struct WiFiBase *   s_WiFiBase;
     struct ExecBase *   s_SysBase;
+    struct Task *       s_ReceiverTask;
+    
+    struct SignalSemaphore s_Lock;
     APTR                s_SDIO;
     ULONG               s_CardRCA;
     ULONG               s_LastCMD;
@@ -284,6 +291,7 @@ struct SDIO {
 
     struct Core *       s_CC;       // Chipcomm core
     struct Core *       s_SDIOC;    // SDIO core
+    struct Chip *       s_Chip;
 
     int     (*IsError)(struct SDIO *);
     ULONG   (*BackplaneAddr)(ULONG addr, struct SDIO *);

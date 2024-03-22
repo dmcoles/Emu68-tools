@@ -9,6 +9,7 @@
 #include "sdio.h"
 #include "mbox.h"
 #include "brcm.h"
+#include "packet.h"
 
 #define D(x) x
 
@@ -669,7 +670,10 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         struct SDIO * sdio = sdio_init(WiFiBase);
         if (sdio)
         {
-            chip_init(sdio);
+            if (chip_init(sdio))
+            {
+                StartPacketReceiver(sdio);
+            }
         }
     }
 

@@ -1335,10 +1335,15 @@ int chip_init(struct SDIO *sdio)
     /* Allow full data communication using DPC from now on. */
 	//brcmf_sdiod_change_state(bus->sdiodev, BRCMF_SDIOD_DATA);
 
+#if 0
+
     UBYTE buf[64];
     for (int i=0; i < 64; i++) buf[i] = 0;
+
+    sdio->GetIntStatus(sdio);
+
 #if 1
-    sdio->RecvPKT(buf, 64, sdio);
+    sdio->RecvPKT(buf, 8, sdio);
     D(bug("[WiFi] RecvPkt: \n"));
 
 
@@ -1349,7 +1354,7 @@ int chip_init(struct SDIO *sdio)
         if (i % 16 == 15) bug("\n");
     }
 
-    sdio->RecvPKT(buf, 64, sdio);
+    sdio->RecvPKT(buf, 8, sdio);
     D(bug("[WiFi] RecvPkt: \n"));
 
 
@@ -1375,5 +1380,9 @@ int chip_init(struct SDIO *sdio)
 
     bug("[WiFi] CIA functions: %02lx\n", sdio->ReadByte(SD_FUNC_CIA, BUS_IORDY_REG, sdio));
     bug("[WiFi] Chipclk: %08lx\n", sdio->ReadByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, sdio));
+#endif
+
+    sdio->s_Chip = chip;
     
+    return 1;
 }
