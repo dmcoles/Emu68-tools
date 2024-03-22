@@ -266,7 +266,7 @@ struct SDIO {
     struct WiFiBase *   s_WiFiBase;
     struct ExecBase *   s_SysBase;
     struct Task *       s_ReceiverTask;
-    
+
     struct SignalSemaphore s_Lock;
     APTR                s_SDIO;
     ULONG               s_CardRCA;
@@ -288,6 +288,10 @@ struct SDIO {
 
     APTR                s_TXBuffer;
     APTR                s_RXBuffer;
+
+    UBYTE               s_TXSeq;
+    UBYTE               s_RXSeq;
+    UWORD               s_CmdID;
 
     struct Core *       s_CC;       // Chipcomm core
     struct Core *       s_SDIOC;    // SDIO core

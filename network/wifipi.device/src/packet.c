@@ -7,6 +7,7 @@
 #include <proto/exec.h>
 
 #include "sdio.h"
+#include "brcm.h"
 #include "wifipi.h"
 
 /*
@@ -151,7 +152,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 WaitIO(&tr->tr_node);
             }
 
-            D(bug("[WiFi.RECV] Periodic check for packets\n"));
+            //D(bug("[WiFi.RECV] Periodic check for packets\n"));
 
             sdio->RecvPKT(buffer, 64, sdio);
             if (LE16(pkt->p_Length) != 0)
@@ -218,7 +219,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                     waitDelay = (waitDelay * 3) / 2;
                     if (waitDelay > PACKET_WAIT_DELAY_MAX) waitDelay = PACKET_WAIT_DELAY_MAX;
 
-                    D(bug("[WiFi.RECV] Increasing wait delay from %ld to %ld\n", oldwait, waitDelay));
+                    //D(bug("[WiFi.RECV] Increasing wait delay from %ld to %ld\n", oldwait, waitDelay));
                 }
             }
 
@@ -245,6 +246,141 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     CloseDevice(&tr->tr_node);
     DeleteIORequest(&tr->tr_node);
     DeleteMsgPort(port);
+}
+
+static int int_strlen(const char *c)
+{
+    int len = 0;
+    if (!c) return 0;
+
+    while(*c++) len++;
+
+    return len;
+}
+
+void PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    UBYTE pkt[256];
+    
+    for (int i=0; i < 256; i++) pkt[i] = 0;
+    struct Packet *p = (struct Packet *)&pkt[0];
+    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+    int varSize = int_strlen(varName) + 1;
+
+    UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize + setSize;
+    
+    p->p_Length = LE16(totLen);
+    p->c_ChkSum = ~p->p_Length;
+    p->c_DataOffset = sizeof(struct Packet);
+    p->c_FlowControl = 0;
+    p->c_Seq = sdio->s_TXSeq++;
+    c->c_Command = LE32(263);
+    c->c_Length = LE32(varSize + setSize);
+    c->c_Flags = LE16(2);
+    c->c_ID = LE16(++(sdio->s_CmdID));
+    c->c_Status = 0;
+
+    CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
+    CopyMem(setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
+
+    D(bug("[WiFi] Packet to be send: \n"));
+    for (int i=0; i < LE16(p->p_Length); i++)
+    {
+        if (i % 16 == 0)
+            bug("[WiFi]  ");
+        bug(" %02lx", pkt[i]);
+        if (i % 16 == 15)
+            bug("\n");
+    }
+    if (LE16(p->p_Length) % 16 != 0) bug("\n");
+
+    sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
+}
+
+void PacketSetVarInt(struct SDIO *sdio, char *varName, ULONG varValue)
+{
+    ULONG val = LE32(varValue);
+    PacketSetVar(sdio, varName, &val, 4);
+}
+
+void PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    UBYTE pkt[256];
+    
+    for (int i=0; i < 256; i++) pkt[i] = 0;
+    struct Packet *p = (struct Packet *)&pkt[0];
+    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+
+    UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
+    
+    p->p_Length = LE16(totLen);
+    p->c_ChkSum = ~p->p_Length;
+    p->c_DataOffset = sizeof(struct Packet);
+    p->c_FlowControl = 0;
+    p->c_Seq = sdio->s_TXSeq++;
+    c->c_Command = LE32(cmd);
+    c->c_Length = LE32(4);
+    c->c_Flags = LE16(2);
+    c->c_ID = LE16(++(sdio->s_CmdID));
+    c->c_Status = 0;
+
+    *(ULONG*)(&pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)]) = LE32(cmdValue);
+
+    D(bug("[WiFi] Packet to be send: \n"));
+    for (int i=0; i < LE16(p->p_Length); i++)
+    {
+        if (i % 16 == 0)
+            bug("[WiFi]  ");
+        bug(" %02lx", pkt[i]);
+        if (i % 16 == 15)
+            bug("\n");
+    }
+    if (LE16(p->p_Length) % 16 != 0) bug("\n");
+
+    sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
+}
+
+void PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    UBYTE pkt[256];
+    
+    for (int i=0; i < 256; i++) pkt[i] = 0;
+    struct Packet *p = (struct Packet *)&pkt[0];
+    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+    int varSize = int_strlen(varName) + 1;
+    UWORD max = varSize;
+    if (getSize > max) max = getSize;
+
+    UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + max;
+    
+    p->p_Length = LE16(totLen);
+    p->c_ChkSum = ~p->p_Length;
+    p->c_DataOffset = sizeof(struct Packet);
+    p->c_FlowControl = 0;
+    p->c_Seq = sdio->s_TXSeq++;
+    c->c_Command = LE32(262);
+    c->c_Length = LE32(max);
+    c->c_Flags = LE16(0);
+    c->c_ID = LE16(++(sdio->s_CmdID));
+    c->c_Status = 0;
+
+    CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
+
+    D(bug("[WiFi] Packet to be send: \n"));
+    for (int i=0; i < LE16(p->p_Length); i++)
+    {
+        if (i % 16 == 0)
+            bug("[WiFi]  ");
+        bug(" %02lx", pkt[i]);
+        if (i % 16 == 15)
+            bug("\n");
+    }
+    if (LE16(p->p_Length) % 16 != 0) bug("\n");
+
+    sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
 }
 
 void StartPacketReceiver(struct SDIO *sdio)
@@ -305,6 +441,88 @@ void StartPacketReceiver(struct SDIO *sdio)
 //GetVar	= 262,
 //SetVar	= 263,
 
+    PacketGetVar(sdio, "cur_etheraddr", NULL, 6);
+    PacketSetVarInt(sdio, "assoc_listen", 10);
+
+    if (sdio->s_Chip->c_ChipID == BRCM_CC_43430_CHIP_ID || sdio->s_Chip->c_ChipID == BRCM_CC_4345_CHIP_ID)
+    {
+        PacketCmdInt(sdio, 0x56, 0);
+    }
+    else
+    {
+        PacketCmdInt(sdio, 0x56, 2);
+    }
+
+    PacketSetVarInt(sdio, "bus:txglom", 0);
+    PacketSetVarInt(sdio, "bcn_timeout", 10);
+    PacketSetVarInt(sdio, "assoc_retry_max", 3);
+
+    static const ULONG ev_mask[4] = { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff };
+    PacketSetVar(sdio, "event_msgs", ev_mask, 16);
+
+    
+
+    PacketCmdInt(sdio, 0xb9, 0x28);
+    PacketCmdInt(sdio, 0xbb, 0x28);
+    PacketCmdInt(sdio, 0x102, 0x82);
+
+    PacketCmdInt(sdio, 0x2, 0);
+
+    PacketGetVar(sdio, "ver", NULL, 128);
+    PacketSetVarInt(sdio, "roam_off", 1);
+
+    PacketCmdInt(sdio, 0x14, 1);
+    PacketCmdInt(sdio, 10, 0);
+    PacketCmdInt(sdio, 0x2, 1);
+
+void delay_us(ULONG us, struct WiFiBase *WiFiBase)
+{
+    (void)WiFiBase;
+    ULONG timer = LE32(*(volatile ULONG*)0xf2003004);
+    ULONG end = timer + us;
+
+    if (end < timer) {
+        while (end < LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
+    }
+    while (end > LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
+}
+delay_us(1000000, sdio->s_WiFiBase);
+
+    static const UBYTE params[4+2+2+4+32+6+1+1+4*4+2+2+14*2+32+4] = {
+        1,0,0,0,
+        1,0,
+        0x34,0x12,
+        0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0xff,0xff,0xff,0xff,0xff,0xff,
+        2,
+        0,
+        0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,
+        0xff,0xff,0xff,0xff,
+        14,0,
+        1,0,
+        0x01,0x2b,0x02,0x2b,0x03,0x2b,0x04,0x2b,0x05,0x2e,0x06,0x2e,0x07,0x2e,
+        0x08,0x2b,0x09,0x2b,0x0a,0x2b,0x0b,0x2b,0x0c,0x2b,0x0d,0x2b,0x0e,0x2b,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    };
+    PacketCmdInt(sdio, 49, 0);
+    PacketSetVar(sdio, "escan", params, sizeof(params));
+
+
+delay_us(5000000, sdio->s_WiFiBase);
+    PacketCmdInt(sdio, 49, 0);
+    PacketSetVar(sdio, "escan", params, sizeof(params));
+
+
+delay_us(5000000, sdio->s_WiFiBase);
+    PacketCmdInt(sdio, 49, 0);
+    PacketSetVar(sdio, "escan", params, sizeof(params));
+
+
+#if 0
+
     UBYTE pkt[256];
     for (int i=0; i < 256; i++) pkt[i] = 0;
     struct Packet *p = (struct Packet *)&pkt[0];
@@ -337,6 +555,10 @@ void StartPacketReceiver(struct SDIO *sdio)
 
     sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
 
+#endif
+
+#if 0
+
     for (int i=0; i < 256; i++) pkt[i] = 0;
     p->p_Length = LE16(12 + 16 + 4);
     p->c_ChkSum = ~p->p_Length;
@@ -348,7 +570,6 @@ void StartPacketReceiver(struct SDIO *sdio)
     c->c_Flags = LE16(2);
     c->c_ID = LE16(2);
     c->c_Status = 0;
-
 
     pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)] = 0;
     pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)+1] = 0;
@@ -369,26 +590,6 @@ void StartPacketReceiver(struct SDIO *sdio)
     sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
 
     for (int i=0; i < 256; i++) pkt[i] = 0;
-    static const UBYTE params[4+2+2+4+32+6+1+1+4*4+2+2+14*2+32+4] = {
-		1,0,0,0,
-		1,0,
-		0x34,0x12,
-		0,0,0,0,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-		0xff,0xff,0xff,0xff,0xff,0xff,
-		2,
-		0,
-		0xff,0xff,0xff,0xff,
-		0xff,0xff,0xff,0xff,
-		0xff,0xff,0xff,0xff,
-		0xff,0xff,0xff,0xff,
-		14,0,
-		1,0,
-		0x01,0x2b,0x02,0x2b,0x03,0x2b,0x04,0x2b,0x05,0x2e,0x06,0x2e,0x07,0x2e,
-		0x08,0x2b,0x09,0x2b,0x0a,0x2b,0x0b,0x2b,0x0c,0x2b,0x0d,0x2b,0x0e,0x2b,
-		0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-	};
-    char cmd2[] = "escan";
 
     p->p_Length = LE16(12 + 16 + sizeof(cmd2) + sizeof(params));
     p->c_ChkSum = ~p->p_Length;
@@ -416,4 +617,6 @@ void StartPacketReceiver(struct SDIO *sdio)
     if (LE16(p->p_Length) % 16 != 0) bug("\n");
 
     sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
+
+    #endif
 }
