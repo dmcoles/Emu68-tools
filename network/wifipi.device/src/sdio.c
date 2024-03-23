@@ -729,14 +729,25 @@ void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
 
     S_LOCK(sdio);
 
-    // Set backplane address
-    addr = sdio->BackplaneAddr(addr, sdio);
+    do {
+        ULONG size;
 
-    // 32-bit window
-    addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
+        if (length > 512) size = 512;
+        else size = length;
 
-    // Send out the data
-    sdio->Write(SD_FUNC_RAD, addr, pkt, length, sdio);
+        // Set backplane address
+        addr = sdio->BackplaneAddr(addr, sdio);
+
+        // 32-bit window
+        addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
+
+        // Send out the data
+        sdio->Write(SD_FUNC_RAD, addr, pkt, size, sdio);
+
+        length -= size;
+        //addr += size;
+        pkt += size;
+    } while (length > 0);
 
     S_UNLOCK(sdio);
 }
@@ -751,14 +762,36 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
 
     S_LOCK(sdio);
 
+    do {
+        ULONG size;
+
+        if (length > 512) size = 512;
+        else size = length;
+
+        // Set backplane address
+        addr = sdio->BackplaneAddr(addr, sdio);
+
+        // 32-bit window
+        addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
+
+        // Send out the data
+        sdio->Read(SD_FUNC_RAD, addr, pkt, size, sdio);
+
+        length -= size;
+        addr += size;
+        pkt += size;
+    } while (length > 0);
+
+#if 0
     // Set backplane address
     addr = sdio->BackplaneAddr(addr, sdio);
 
     // 32-bit window
     addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
 
-    // Send out the data
+    // Read the data
     sdio->Read(SD_FUNC_RAD, addr, pkt, length, sdio);
+#endif
 
     S_UNLOCK(sdio);
 }
