@@ -266,6 +266,7 @@ struct SDIO {
     struct WiFiBase *   s_WiFiBase;
     struct ExecBase *   s_SysBase;
     struct Task *       s_ReceiverTask;
+    struct MsgPort *    s_ReceiverPort;
 
     struct SignalSemaphore s_Lock;
     APTR                s_SDIO;

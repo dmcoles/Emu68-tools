@@ -11,6 +11,12 @@
 #include "wifipi.h"
 #include "packet.h"
 
+#ifndef	PAD
+#define	_PADLINE(line)	pad ## line
+#define	_XSTR(line)	_PADLINE(line)
+#define	PAD		_XSTR(__LINE__)
+#endif
+
 /*
  * brcmfmac sdio bus specific header
  * This is the lowest layer header wrapped on the packets transmitted between
@@ -84,7 +90,93 @@ struct PacketCmd {
     UWORD c_Flags;
     UWORD c_ID;
     ULONG c_Status;
-} __attribute((packed));
+} __attribute__((packed));
+
+struct EtherHeader {
+    UBYTE eh_Dest[6];
+    UBYTE eh_Src[6];
+    UWORD eh_Type;
+} __attribute__((packed));
+
+#define ETHERHDR_TYPE_LINK_CTL  0x886c
+
+struct BCMEtherHeader {
+    UWORD beh_Subtype;
+    UWORD beh_Length;
+    UBYTE beh_Version;
+    UBYTE beh_OUI[3];
+    UWORD beh_UsrSubtype;
+} __attribute__((packed));
+
+#define BCMETHHDR_OUI   "\0x00\0x10\0x18"
+#define BCMETHHDR_SUBTYPE_EVENT 1
+
+struct EtherAddr {
+    UBYTE ea_Addr[6];
+} __attribute__((packed));
+
+struct PacketEvent {
+    struct EtherHeader      e_EthHeader;
+    struct BCMEtherHeader   e_Header;
+    UWORD                   e_Version;
+    UWORD                   e_Flags;
+    ULONG                   e_EventType;
+    ULONG                   e_Status;
+    ULONG                   e_Reason;
+    ULONG                   e_AuthType;
+    ULONG                   e_DataLen;
+    struct EtherAddr        e_Address;
+    char                    e_IFName[16];
+    UBYTE                   e_IFIdx;
+    UBYTE                   e_BSSCFgIdx;
+} __attribute__((packed));
+
+struct BSSInfo {
+    ULONG   bssi_Version;
+    ULONG   bssi_Length;
+    UBYTE   bssi_ID[6];
+    UWORD   bssi_BeaconPeriod;
+    UWORD   bssi_Capability;
+    UBYTE   bssi_SSIDLength;
+    UBYTE   bssi_SSID[32];
+    UBYTE   PAD;
+    ULONG   bssi_NRates;
+    UBYTE   bssi_Rates[16];
+    UWORD   bssi_ChanSpec;      // 72
+    UWORD   bssi_ATimWindow;
+    UBYTE   bssi_DTimPeriod;
+    UBYTE   PAD;
+    UWORD   bssi_RSSI;
+    UBYTE   bssi_PHYNoise;
+    UBYTE   bssi_NCap;
+    UWORD   PAD;
+    ULONG   bssi_NBSSCap;
+    UBYTE   bssi_CtlCh;
+    UBYTE   PAD[3];
+    ULONG   bssi_Reserved32[1];
+    UBYTE   bssi_Flags;
+    UBYTE   bssi_Reserved[3];
+    UBYTE   bssi_BasicMCS[16];
+    UWORD   bssi_IEOffset;
+    UWORD   PAD;
+    ULONG   bssi_IELength;
+    UWORD   bssi_SNR;
+} __attribute__((packed));
+
+struct EScanResult {
+    ULONG   esr_Length;
+    ULONG   esr_Version;
+    UWORD   esr_SyncID;
+    UWORD   esr_BSSCount;
+    struct BSSInfo esr_BSSInfo[];
+} __attribute__((packed));
+
+struct PacketMessage {
+    struct Message  pm_Message;
+    APTR            pm_RecvBuffer;
+    ULONG           pm_RecvSize;
+    struct Packet   pm_Packet[];
+};
 
 #define D(x) x
 
@@ -92,17 +184,75 @@ struct PacketCmd {
 #define PACKET_RECV_PRIORITY    20
 
 #define PACKET_WAIT_DELAY_MIN   1000
-#define PACKET_WAIT_DELAY_MAX   1000000
+#define PACKET_WAIT_DELAY_MAX   100000
 
 void PacketDump(struct SDIO *sdio, APTR data, char *src);
+
+void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
+{
+    struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+//    D(bug("[WiFi] ProcessEvent. Event data length %ld\n", pe->e_DataLen));
+
+    // pe is in network (BigEndian) order!
+    // BUT! pe data is native (LittleEndian) order!
+    switch (pe->e_EventType)
+    {
+        case BRCMF_E_ESCAN_RESULT:
+        {
+            struct EScanResult *escan = (APTR)((ULONG)pe + sizeof(struct PacketEvent));
+            D(bug("[WiFi] EScan result. Length %ld, BSS count %ld\n", LE32(escan->esr_Length), LE16(escan->esr_BSSCount)));
+            
+            for (int i=0; i < LE16(escan->esr_BSSCount); i++)
+            {
+                struct BSSInfo *info = &escan->esr_BSSInfo[i];
+
+                D(bug("[WiFi]   SSID='%s', Channel=%ld, RSSI=%ld, SNR=%ld\n", (ULONG)info->bssi_SSID, LE16(info->bssi_ChanSpec) & 15, (LONG)(WORD)LE16(info->bssi_RSSI), LE16(info->bssi_SNR)));
+                D(bug("[WiFi]   NRates=%ld:", LE32(info->bssi_NRates)));
+                for (int j=0; j < LE32(info->bssi_NRates); j++)
+                {
+                    D(bug(" %02lx", info->bssi_Rates[j]));
+                }
+                D(bug("\n"));
+            }
+#if 0
+            UBYTE *p = (APTR)escan;
+            for (int i=0; i < 128; i++)
+            {
+                if (i % 16 == 0)
+                bug("[WiFI]  ");
+                bug(" %02lx", p[i]);
+                if (i % 16 == 15)
+                    bug("\n");
+            }
+#endif
+
+            break;
+        }
+
+        default:
+            D(bug("[WiFi] Unhandled event type %ld\n", pe->e_EventType));
+            break;
+    }
+}
 
 void PacketReceiver(struct SDIO *sdio, struct Task *caller)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4UL;
     ULONG waitDelay = PACKET_WAIT_DELAY_MAX;
+    struct MsgPort *ctrl = CreateMsgPort();
+    struct MinList ctrlWaitList;
+    ULONG waitDelayTimeout = 1000000 / waitDelay;
+    
+    NewMinList(&ctrlWaitList);
 
     D(bug("[WiFi.RECV] Packet receiver task\n"));
     D(bug("[WiFi.RECV] SDIO=%08lx, Caller task=%08lx\n", (ULONG)sdio, (ULONG)caller));
+
+    if (ctrl == NULL)
+    {
+        D(bug("[WiFi.RECV] Failed to create command port\n"));
+        return;
+    }
 
     // Create MessagePort and timer.device IORequest
     struct MsgPort *port = CreateMsgPort();
@@ -128,6 +278,9 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     // Set up receiver task pointer in SDIO
     sdio->s_ReceiverTask = FindTask(NULL);
 
+    // Create message port used by receiver
+    sdio->s_ReceiverPort = ctrl;
+
     // Signal caller that we are done with setup
     Signal(caller, SIGBREAKF_CTRL_C);
 
@@ -145,17 +298,42 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     // Loop forever
     while(1)
     {
-        ULONG sigSet = Wait(SIGBREAKF_CTRL_C | (1 << port->mp_SigBit));
+        ULONG sigSet = Wait(SIGBREAKF_CTRL_C | (1 << port->mp_SigBit) | (1 << ctrl->mp_SigBit));
 
-        // Signal from timer.device?
-        if (sigSet & (1 << port->mp_SigBit))
+        // Signal from control message port?
+        if (sigSet & (1 << ctrl->mp_SigBit))
+        {
+            struct PacketMessage *msg;
+
+            // Repeat until we run out of the messages
+            while(msg = (struct PacketMessage *)GetMsg(ctrl))
+            {
+                // Put message in the control wait list
+                AddTail((struct List*)&ctrlWaitList, &msg->pm_Message.mn_Node);
+
+                // Send out the control packet
+                sdio->SendPKT((APTR)&msg->pm_Packet[0], LE16(msg->pm_Packet[0].p_Length), sdio);
+            }
+        }
+
+        // Signal from timer.device or from control message port?
+        // Both are great occasions to test if some data is pending
+        if (sigSet & ((1 << port->mp_SigBit) | 1 << ctrl->mp_SigBit))
         {
             UBYTE gotTransfer = 0;
 
-            // Check if IO really completed. If yes, remove it from the queue
-            if (CheckIO(&tr->tr_node))
+            if (sigSet & (1 << ctrl->mp_SigBit))
             {
+                AbortIO(&tr->tr_node);
                 WaitIO(&tr->tr_node);
+            }
+            else
+            {
+                // Check if IO really completed. If yes, remove it from the queue
+                if (CheckIO(&tr->tr_node))
+                {
+                    WaitIO(&tr->tr_node);
+                }
             }
 
             //D(bug("[WiFi.RECV] Periodic check for packets\n"));
@@ -166,24 +344,103 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 UWORD pktLen = LE16(pkt->p_Length);
                 UWORD pktChk = LE16(pkt->c_ChkSum);
 
-                D(bug("[WiFi.RECV] Potential packet with length %ld bytes:\n", pktLen));
+//                D(bug("[WiFi.RECV] Potential packet with length %ld bytes:\n", pktLen));
 
                 if ((pktChk | pktLen) == 0xffff)
                 {
                     if (pktLen > 64)
                     {
-                        D(bug("[WiFi.RECV]   Fetching more data from the block\n"));
+//                        D(bug("[WiFi.RECV]   Fetching more data from the block\n"));
                         sdio->RecvPKT(&buffer[64], pktLen - 64, sdio);
                     }
 
-                    PacketDump(sdio, pkt, "WiFi.RECV");
+//                    PacketDump(sdio, pkt, "WiFi.RECV");
 
                     switch(pkt->c_ChannelFlag)
                     {
                         case SDPCM_CONTROL_CHANNEL:
+                        { 
+                            // Control channel contains commands only. Get it.
+                            struct PacketCmd *cmd = (APTR)&buffer[pkt->c_DataOffset];
+
+                            // Go through control wait list. If message is found with given ID, reply it
+                            // No need to lock the list, it is accessed only in this task
+                            struct PacketMessage *m;
+                            ForeachNode(&ctrlWaitList, m)
+                            {
+                                struct Packet *pkt = (APTR)&m->pm_Packet[0];
+                                struct PacketCmd *c = (APTR)&((UBYTE*)pkt)[pkt->c_DataOffset];
+
+                                // If the ID of waiting packet and received packet match, copy the received
+                                // Data back into the message and reply it
+                                if (c->c_ID == cmd->c_ID)
+                                {
+                                    // Message match. Remove it from wait list.
+                                    Remove(&m->pm_Message.mn_Node);
+                                    ULONG len = pktLen;
+
+                                    // Warn in case of length mismatch. Should not be the case though!
+                                    if (pktLen != LE16(pkt->p_Length))
+                                    {
+                                        D(bug("[WiFi.RECV] Length mismatch %ld!=%ld\n", pktLen, LE16(pkt->p_Length)));
+                                        if (len > LE16(pkt->p_Length))
+                                            len = LE16(pkt->p_Length);
+                                    }
+
+                                    // Copy header back to buffer
+                                    CopyMem(buffer, &m->pm_Packet[0], pkt->c_DataOffset);
+
+                                    // If get-type of packet and no error flag was set, copy data back
+                                    if (!(c->c_Flags & LE16(BCDC_DCMD_SET)))
+                                    {
+                                        if (!(c->c_Flags & LE16(BCDC_DCMD_ERROR)))
+                                        {
+                                            if (m->pm_RecvBuffer != NULL && m->pm_RecvSize != 0)
+                                            {
+                                                // RecvBuffer and RecvSize are given, there was no error and
+                                                // packet type is "Get"
+                                                // Copy data back now
+                                                CopyMem(&buffer[pkt->c_DataOffset + sizeof(struct PacketCmd)], m->pm_RecvBuffer, m->pm_RecvSize);
+                                            }
+                                        }
+                                    }
+
+                                    // Reply back to sender
+                                    ReplyMsg(&m->pm_Message);
+                                    break;
+                                }
+                            }
                             break;
+                        }
 
                         case SDPCM_EVENT_CHANNEL:
+                        {
+                            struct PacketEvent *pe = (APTR)&buffer[pkt->c_DataOffset + 4];
+
+                            if ((pkt->p_Length - pkt->c_DataOffset) >= sizeof(struct PacketEvent))
+                            {
+#if 0
+                                D(bug("[WiFi.RECV]   Event size match\n"));
+                                D(bug("[WiFi.RECV] eh_Type = %04lx\n", pe->e_EthHeader.eh_Type));
+                                D(bug("[WiFi.RECV] OUI=%02lx %02lx %02lx\n", pe->e_Header.beh_OUI[0], 
+                                    pe->e_Header.beh_OUI[1], pe->e_Header.beh_OUI[2]));
+#endif
+                                if (pe->e_EthHeader.eh_Type == ETHERHDR_TYPE_LINK_CTL && 
+                                    pe->e_Header.beh_OUI[0] == 0x00 && 
+                                    pe->e_Header.beh_OUI[1] == 0x10 && 
+                                    pe->e_Header.beh_OUI[2] == 0x18)
+                                {
+//                                    D(bug("[WiFi.RECV]   Event header match\n"));
+                                    if (pe->e_Header.beh_UsrSubtype == BCMETHHDR_SUBTYPE_EVENT)
+                                    {
+                                        ProcessEvent(sdio, pe);
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        
+                        case SDPCM_DATA_CHANNEL:
                             break;
                     }
 
@@ -192,7 +449,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 }
                 else
                 {
-                    D(bug("[WiFi.RECV] Nope. Data:\n"));
+                    D(bug("[WiFi.RECV] Garbage received. Data:\n"));
                     for (int i=0; i < 256; i++)
                     {
                         if (i % 16 == 0)
@@ -210,13 +467,18 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             }
             else
             {
-                if (waitDelay < PACKET_WAIT_DELAY_MAX)
+                if (waitDelayTimeout)
+                {
+                    waitDelayTimeout--;
+                } 
+                else if (waitDelay < PACKET_WAIT_DELAY_MAX)
                 {
                     ULONG oldwait = waitDelay;
                     waitDelay = (waitDelay * 3) / 2;
                     if (waitDelay > PACKET_WAIT_DELAY_MAX) waitDelay = PACKET_WAIT_DELAY_MAX;
+                    waitDelayTimeout = 1000000 / waitDelay;
 
-                    //D(bug("[WiFi.RECV] Increasing wait delay from %ld to %ld\n", oldwait, waitDelay));
+                    D(bug("[WiFi.RECV] Increasing wait delay from %ld to %ld\n", oldwait, waitDelay));
                 }
             }
 
@@ -236,71 +498,70 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             WaitIO(&tr->tr_node);
             break;
         }
-            
     }
 
     D(bug("[WiFi.RECV] Packet receiver is closing now\n"));
     CloseDevice(&tr->tr_node);
     DeleteIORequest(&tr->tr_node);
     DeleteMsgPort(port);
+    DeleteMsgPort(ctrl);
 }
 
 static const char * const brcmf_fil_errstr[] = {
-	"BCME_OK",
-	"BCME_ERROR",
-	"BCME_BADARG",
-	"BCME_BADOPTION",
-	"BCME_NOTUP",
-	"BCME_NOTDOWN",
-	"BCME_NOTAP",
-	"BCME_NOTSTA",
-	"BCME_BADKEYIDX",
-	"BCME_RADIOOFF",
-	"BCME_NOTBANDLOCKED",
-	"BCME_NOCLK",
-	"BCME_BADRATESET",
-	"BCME_BADBAND",
-	"BCME_BUFTOOSHORT",
-	"BCME_BUFTOOLONG",
-	"BCME_BUSY",
-	"BCME_NOTASSOCIATED",
-	"BCME_BADSSIDLEN",
-	"BCME_OUTOFRANGECHAN",
-	"BCME_BADCHAN",
-	"BCME_BADADDR",
-	"BCME_NORESOURCE",
-	"BCME_UNSUPPORTED",
-	"BCME_BADLEN",
-	"BCME_NOTREADY",
-	"BCME_EPERM",
-	"BCME_NOMEM",
-	"BCME_ASSOCIATED",
-	"BCME_RANGE",
-	"BCME_NOTFOUND",
-	"BCME_WME_NOT_ENABLED",
-	"BCME_TSPEC_NOTFOUND",
-	"BCME_ACM_NOTSUPPORTED",
-	"BCME_NOT_WME_ASSOCIATION",
-	"BCME_SDIO_ERROR",
-	"BCME_DONGLE_DOWN",
-	"BCME_VERSION",
-	"BCME_TXFAIL",
-	"BCME_RXFAIL",
-	"BCME_NODEVICE",
-	"BCME_NMODE_DISABLED",
-	"BCME_NONRESIDENT",
-	"BCME_SCANREJECT",
-	"BCME_USAGE_ERROR",
-	"BCME_IOCTL_ERROR",
-	"BCME_SERIAL_PORT_ERR",
-	"BCME_DISABLED",
-	"BCME_DECERR",
-	"BCME_ENCERR",
-	"BCME_MICERR",
-	"BCME_REPLAY",
-	"BCME_IE_NOTFOUND",
+    "BCME_OK",
+    "BCME_ERROR",
+    "BCME_BADARG",
+    "BCME_BADOPTION",
+    "BCME_NOTUP",
+    "BCME_NOTDOWN",
+    "BCME_NOTAP",
+    "BCME_NOTSTA",
+    "BCME_BADKEYIDX",
+    "BCME_RADIOOFF",
+    "BCME_NOTBANDLOCKED",
+    "BCME_NOCLK",
+    "BCME_BADRATESET",
+    "BCME_BADBAND",
+    "BCME_BUFTOOSHORT",
+    "BCME_BUFTOOLONG",
+    "BCME_BUSY",
+    "BCME_NOTASSOCIATED",
+    "BCME_BADSSIDLEN",
+    "BCME_OUTOFRANGECHAN",
+    "BCME_BADCHAN",
+    "BCME_BADADDR",
+    "BCME_NORESOURCE",
+    "BCME_UNSUPPORTED",
+    "BCME_BADLEN",
+    "BCME_NOTREADY",
+    "BCME_EPERM",
+    "BCME_NOMEM",
+    "BCME_ASSOCIATED",
+    "BCME_RANGE",
+    "BCME_NOTFOUND",
+    "BCME_WME_NOT_ENABLED",
+    "BCME_TSPEC_NOTFOUND",
+    "BCME_ACM_NOTSUPPORTED",
+    "BCME_NOT_WME_ASSOCIATION",
+    "BCME_SDIO_ERROR",
+    "BCME_DONGLE_DOWN",
+    "BCME_VERSION",
+    "BCME_TXFAIL",
+    "BCME_RXFAIL",
+    "BCME_NODEVICE",
+    "BCME_NMODE_DISABLED",
+    "BCME_NONRESIDENT",
+    "BCME_SCANREJECT",
+    "BCME_USAGE_ERROR",
+    "BCME_IOCTL_ERROR",
+    "BCME_SERIAL_PORT_ERR",
+    "BCME_DISABLED",
+    "BCME_DECERR",
+    "BCME_ENCERR",
+    "BCME_MICERR",
+    "BCME_REPLAY",
+    "BCME_IE_NOTFOUND",
 };
-
 
 void PacketDump(struct SDIO *sdio, APTR data, char *src)
 {
@@ -359,12 +620,23 @@ static int int_strlen(const char *c)
 void PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
-    UBYTE *pkt = sdio->s_TXBuffer;
-    
-    for (int i=0; i < 64; i++) pkt[i] = 0;
+    UBYTE *pkt;
+    struct MsgPort *port = CreateMsgPort();
+    struct PacketMessage *mpkt;
+    ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + setSize;
+
+    int varSize = int_strlen(varName) + 1;
+
+    totalLen += varSize;
+
+    mpkt = AllocVec(totalLen, MEMF_CLEAR);
+    pkt = (APTR)&mpkt->pm_Packet[0];
+
+    mpkt->pm_Message.mn_ReplyPort = port;
+    mpkt->pm_Message.mn_Length = totalLen;
+
     struct Packet *p = (struct Packet *)&pkt[0];
     struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
-    int varSize = int_strlen(varName) + 1;
 
     UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize + setSize;
     
@@ -382,20 +654,14 @@ void PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int s
     CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
     CopyMem(setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
 
-    PacketDump(sdio, p, "WiFi");
-#if 0
-    D(bug("[WiFi] Packet to be send: \n"));
-    for (int i=0; i < LE16(p->p_Length); i++)
-    {
-        if (i % 16 == 0)
-            bug("[WiFi]  ");
-        bug(" %02lx", pkt[i]);
-        if (i % 16 == 15)
-            bug("\n");
-    }
-    if (LE16(p->p_Length) % 16 != 0) bug("\n");
-#endif
-    sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
+    //PacketDump(sdio, p, "WiFi");
+
+    PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
+    WaitPort(port);
+    GetMsg(port);
+
+    FreeVec(mpkt);
+    DeleteMsgPort(port);
 }
 
 void PacketSetVarInt(struct SDIO *sdio, char *varName, ULONG varValue)
@@ -407,9 +673,17 @@ void PacketSetVarInt(struct SDIO *sdio, char *varName, ULONG varValue)
 void PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
-    UBYTE *pkt = sdio->s_TXBuffer;
+    UBYTE *pkt;
+    struct MsgPort *port = CreateMsgPort();
+    struct PacketMessage *mpkt;
+    ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
+
+    mpkt = AllocVec(totalLen, MEMF_CLEAR);
+    pkt = (APTR)&mpkt->pm_Packet[0];
+
+    mpkt->pm_Message.mn_ReplyPort = port;
+    mpkt->pm_Message.mn_Length = totalLen;
     
-    for (int i=0; i < 64; i++) pkt[i] = 0;
     struct Packet *p = (struct Packet *)&pkt[0];
     struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
 
@@ -422,38 +696,47 @@ void PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     p->c_Seq = sdio->s_TXSeq++;
     c->c_Command = LE32(cmd);
     c->c_Length = LE32(4);
-    c->c_Flags = LE16(2);
+    c->c_Flags = LE16(BCDC_DCMD_SET);
     c->c_ID = LE16(++(sdio->s_CmdID));
     c->c_Status = 0;
 
     *(ULONG*)(&pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)]) = LE32(cmdValue);
 
-    PacketDump(sdio, p, "WiFi");
-    #if 0
-    D(bug("[WiFi] Packet to be send: \n"));
-    for (int i=0; i < LE16(p->p_Length); i++)
-    {
-        if (i % 16 == 0)
-            bug("[WiFi]  ");
-        bug(" %02lx", pkt[i]);
-        if (i % 16 == 15)
-            bug("\n");
-    }
-    if (LE16(p->p_Length) % 16 != 0) bug("\n");
-    #endif
+    //PacketDump(sdio, p, "WiFi");
 
-    sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
+    PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
+    WaitPort(port);
+    GetMsg(port);
+
+    FreeVec(mpkt);
+    DeleteMsgPort(port);
 }
 
 void PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
-    UBYTE *pkt = sdio->s_TXBuffer;
-    
-    for (int i=0; i < 64; i++) pkt[i] = 0;
+    UBYTE *pkt;
+    struct MsgPort *port = CreateMsgPort();
+    struct PacketMessage *mpkt;
+    ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage);
+
+    int varSize = int_strlen(varName) + 1;
+
+    if (varSize > getSize)
+        totalLen += varSize;
+    else
+        totalLen += getSize;
+
+    mpkt = AllocVec(totalLen, MEMF_CLEAR);
+    pkt = (APTR)&mpkt->pm_Packet[0];
+
+    mpkt->pm_Message.mn_ReplyPort = port;
+    mpkt->pm_Message.mn_Length = totalLen;
+    mpkt->pm_RecvBuffer = getBuffer;
+    mpkt->pm_RecvSize = getSize;
+
     struct Packet *p = (struct Packet *)&pkt[0];
     struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
-    int varSize = int_strlen(varName) + 1;
     UWORD max = varSize;
     if (getSize > max) max = getSize;
 
@@ -471,20 +754,15 @@ void PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize
     c->c_Status = 0;
 
     CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
-    PacketDump(sdio, p, "WiFi");
-    #if 0
-    D(bug("[WiFi] Packet to be send: \n"));
-    for (int i=0; i < LE16(p->p_Length); i++)
-    {
-        if (i % 16 == 0)
-            bug("[WiFi]  ");
-        bug(" %02lx", pkt[i]);
-        if (i % 16 == 15)
-            bug("\n");
-    }
-    if (LE16(p->p_Length) % 16 != 0) bug("\n");
-    #endif
-    sdio->SendPKT(pkt, LE16(p->p_Length), sdio);
+    
+//    PacketDump(sdio, p, "WiFi");
+
+    PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
+    WaitPort(port);
+    GetMsg(port);
+
+    FreeVec(mpkt);
+    DeleteMsgPort(port);
 }
 
 #define MAX_CHUNK_LEN			1400
@@ -542,20 +820,6 @@ static int PacketUploadCLM(struct SDIO *sdio)
                 upload->crc = 0;
 
                 PacketSetVar(sdio, "clmload", upload, sizeof(struct UploadHeader) + transferLen);
-
-
-void delay_us(ULONG us, struct WiFiBase *WiFiBase)
-{
-    (void)WiFiBase;
-    ULONG timer = LE32(*(volatile ULONG*)0xf2003004);
-    ULONG end = timer + us;
-
-    if (end < timer) {
-        while (end < LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
-    }
-    while (end > LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
-}
-//delay_us(2000000, sdio->s_WiFiBase);
 
                 transferred += transferLen;
                 dataLen -= transferLen;
@@ -633,10 +897,11 @@ void StartPacketReceiver(struct SDIO *sdio)
     else
         D(bug("[WiFi] Packet receiver not started!\n"));
 
-//GetVar	= 262,
-//SetVar	= 263,
+    UBYTE ether_addr[6] = {0, 0, 0, 0, 0, 0};
+    PacketGetVar(sdio, "cur_etheraddr", ether_addr, 6);
 
-    PacketGetVar(sdio, "cur_etheraddr", NULL, 6);
+    D(bug("[WiFi] Ethernet addr: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
+        ether_addr[0], ether_addr[1], ether_addr[2], ether_addr[3], ether_addr[4], ether_addr[5]));
 
     PacketUploadCLM(sdio);
 
@@ -664,7 +929,14 @@ void StartPacketReceiver(struct SDIO *sdio)
 
     PacketCmdInt(sdio, BRCMF_C_UP, 0);
 
-    PacketGetVar(sdio, "ver", NULL, 128);
+    char ver[128];
+    for (int i=0; i < 128; i++) ver[i] = 0;
+    PacketGetVar(sdio, "ver", ver, 128);
+
+    // Remove \r and \n from version string. Replace first found with 0
+    for (int i=0; i < 128; i++) { if (ver[i] == 13 || ver[i] == 10) { ver[i] = 0; break; } }
+    D(bug("[WiFi] Firmware version: %s\n", (ULONG)ver));
+
     PacketSetVarInt(sdio, "roam_off", 1);
 
     PacketCmdInt(sdio, BRCMF_C_SET_INFRA, 1);
@@ -705,17 +977,17 @@ delay_us(1000000, sdio->s_WiFiBase);
     };
     PacketCmdInt(sdio, 49, 0);
     PacketSetVar(sdio, "escan", params, sizeof(params));
-
-
-delay_us(5000000, sdio->s_WiFiBase);
-    PacketCmdInt(sdio, 49, 0);
-    PacketSetVar(sdio, "escan", params, sizeof(params));
-
+#if 0
 
 delay_us(5000000, sdio->s_WiFiBase);
     PacketCmdInt(sdio, 49, 0);
     PacketSetVar(sdio, "escan", params, sizeof(params));
 
+
+delay_us(5000000, sdio->s_WiFiBase);
+    PacketCmdInt(sdio, 49, 0);
+    PacketSetVar(sdio, "escan", params, sizeof(params));
+#endif
 
 #if 0
 
