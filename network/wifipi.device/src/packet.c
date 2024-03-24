@@ -181,6 +181,8 @@ struct PacketMessage {
 #define D(x) x
 
 #define SCANNER_STACKSIZE       (16384 / sizeof(ULONG))
+#define SCANNER_PRIORITY         0
+
 
 #define PACKET_RECV_STACKSIZE   (65536 / sizeof(ULONG))
 #define PACKET_RECV_PRIORITY    20
@@ -1206,7 +1208,8 @@ static void StartScannerTask(struct SDIO *sdio)
 
     task->tc_Node.ln_Name = (char *)task_name;
     task->tc_Node.ln_Type = NT_TASK;
-    task->tc_Node.ln_Pri = PACKET_RECV_PRIORITY;
+    task->tc_Node.ln_Pri = SCANNER_PRIORITY;
+;
 
     NewMinList((struct MinList *)&task->tc_MemEntry);
     AddHead(&task->tc_MemEntry, &ml->ml_Node);
