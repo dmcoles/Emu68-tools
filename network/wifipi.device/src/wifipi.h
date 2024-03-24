@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "sdio.h"
+#include "d11.h"
 
 #if defined(__INTELLISENSE__)
 #define asm(x) /* x */
@@ -52,11 +53,11 @@ struct WiFiNetwork {
     struct MinNode      wn_Node;
     UBYTE               wn_BSID[6];         // MAC of broadcast station
     WORD                wn_RSSI;            // Relative signal strength
-    UWORD               wn_ChanSpec;        // Channel spec
     UBYTE               wn_SSIDLength;      // Length of network SSID
     UBYTE               wn_SSID[33];        // SSID
     UBYTE               wn_LastUpdated;     // Cleared on update, increased of not updated
-    UWORD               wn_BeaconPeriod;    
+    UWORD               wn_BeaconPeriod;
+    struct ChannelInfo  wn_ChannelInfo;     // Channel spec and info
 };
 
 struct Chip;
@@ -96,6 +97,8 @@ struct Chip {
     ULONG               c_SRSize;
 
     struct MinList      c_Cores;
+
+    UBYTE               c_D11Type;
 
     struct Core *       (*GetCore)(struct Chip *chip, UWORD coreID);
     void                (*SetPassive)(struct Chip *);
@@ -166,7 +169,8 @@ struct Opener
 static inline __attribute__((always_inline)) void putch(UBYTE data asm("d0"), APTR ignore asm("a3"))
 {
     (void)ignore;
-    *(UBYTE*)0xdeadbeef = data;
+    if (data != 0)
+        *(UBYTE*)0xdeadbeef = data;
 }
 
 

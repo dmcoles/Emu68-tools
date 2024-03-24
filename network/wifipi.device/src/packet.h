@@ -156,6 +156,7 @@ void StartPacketReceiver(struct SDIO *sdio);
 int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize);
 int PacketSetVarInt(struct SDIO *sdio, char *varName, ULONG varValue);
 int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue);
+int PacketCmdGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue);
 void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize);
 void PacketSetVarIntAsync(struct SDIO *sdio, char *varName, ULONG varValue);
 void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue);

@@ -6,6 +6,7 @@
 
 #include <proto/exec.h>
 
+#include "d11.h"
 #include "sdio.h"
 #include "brcm.h"
 #include "wifipi.h"
@@ -212,7 +213,7 @@ void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
             
 
         // If chanspec does not match, this is different network
-        if (network->wn_ChanSpec != LE16(info->bssi_ChanSpec))
+        if (network->wn_ChannelInfo.ci_CHSpec != LE16(info->bssi_ChanSpec))
             continue;
 
         // If BSID does not match, this is different network
@@ -253,7 +254,7 @@ void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
     if (!found)
     {
         network = AllocPooled(sdio->s_MemPool, sizeof(struct WiFiNetwork));
-        network->wn_ChanSpec = LE16(info->bssi_ChanSpec);
+        network->wn_ChannelInfo.ci_CHSpec = LE16(info->bssi_ChanSpec);
         network->wn_LastUpdated = 0;
         network->wn_BSID[0] = info->bssi_ID[0];
         network->wn_BSID[1] = info->bssi_ID[1];
@@ -264,6 +265,8 @@ void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
         network->wn_RSSI = LE16(info->bssi_RSSI);
         network->wn_SSIDLength = info->bssi_SSIDLength;
         network->wn_BeaconPeriod = LE16(info->bssi_BeaconPeriod);
+
+        DecodeChanSpec(&network->wn_ChannelInfo, sdio->s_Chip->c_D11Type);
 
         for (int i=0; i < network->wn_SSIDLength; i++)
         {
@@ -431,6 +434,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
         if (sigSet & ((1 << port->mp_SigBit) | 1 << ctrl->mp_SigBit))
         {
             UBYTE gotTransfer = 0;
+            UBYTE EOL = 0;
 
             if (sigSet & (1 << ctrl->mp_SigBit))
             {
@@ -453,118 +457,125 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             clearBuf[2] = 0;
             clearBuf[3] = 0;
 
-            sdio->RecvPKT(buffer, PACKET_INITIAL_FETCH_SIZE, sdio);
-            if (LE16(pkt->p_Length) != 0)
+            do
             {
-                UWORD pktLen = LE16(pkt->p_Length);
-                UWORD pktChk = LE16(pkt->c_ChkSum);
-
-                if ((pktChk | pktLen) == 0xffff)
+                sdio->RecvPKT(buffer, PACKET_INITIAL_FETCH_SIZE, sdio);
+                if (LE16(pkt->p_Length) != 0)
                 {
-                    // Until now we have fetched PACKET_INITIAL_FETCH_SIZE bytes only. If packet length is larger, fetch 
-                    // the rest now
-                    if (pktLen > PACKET_INITIAL_FETCH_SIZE)
+                    UWORD pktLen = LE16(pkt->p_Length);
+                    UWORD pktChk = LE16(pkt->c_ChkSum);
+
+                    if ((pktChk | pktLen) == 0xffff)
                     {
-                        sdio->RecvPKT(&buffer[PACKET_INITIAL_FETCH_SIZE], pktLen - PACKET_INITIAL_FETCH_SIZE, sdio);
-                    }
+                        // Until now we have fetched PACKET_INITIAL_FETCH_SIZE bytes only. If packet length is larger, fetch 
+                        // the rest now
+                        if (pktLen > PACKET_INITIAL_FETCH_SIZE)
+                        {
+                            sdio->RecvPKT(&buffer[PACKET_INITIAL_FETCH_SIZE], pktLen - PACKET_INITIAL_FETCH_SIZE, sdio);
+                        }
 
-                    switch(pkt->c_ChannelFlag)
-                    {
-                        case SDPCM_CONTROL_CHANNEL:
-                        { 
-                            // Control channel contains commands only. Get it.
-                            struct PacketCmd *cmd = (APTR)&buffer[pkt->c_DataOffset];
+                        switch(pkt->c_ChannelFlag)
+                        {
+                            case SDPCM_CONTROL_CHANNEL:
+                            { 
+                                // Control channel contains commands only. Get it.
+                                struct PacketCmd *cmd = (APTR)&buffer[pkt->c_DataOffset];
 
-                            // Go through control wait list. If message is found with given ID, reply it
-                            // No need to lock the list, it is accessed only in this task
-                            struct PacketMessage *m;
-                            ForeachNode(&ctrlWaitList, m)
-                            {
-                                struct Packet *pkt = (APTR)&m->pm_Packet[0];
-                                struct PacketCmd *c = (APTR)&((UBYTE*)pkt)[pkt->c_DataOffset];
-
-                                // If the ID of waiting packet and received packet match, copy the received
-                                // Data back into the message and reply it
-                                if (c->c_ID == cmd->c_ID)
+                                // Go through control wait list. If message is found with given ID, reply it
+                                // No need to lock the list, it is accessed only in this task
+                                struct PacketMessage *m;
+                                ForeachNode(&ctrlWaitList, m)
                                 {
-                                    // Message match. Remove it from wait list.
-                                    Remove(&m->pm_Message.mn_Node);
-                                    ULONG len = pktLen;
+                                    struct Packet *pkt = (APTR)&m->pm_Packet[0];
+                                    struct PacketCmd *c = (APTR)&((UBYTE*)pkt)[pkt->c_DataOffset];
 
-                                    // Warn in case of length mismatch. Should not be the case though!
-                                    if (pktLen != LE16(pkt->p_Length))
+                                    // If the ID of waiting packet and received packet match, copy the received
+                                    // Data back into the message and reply it
+                                    if (c->c_ID == cmd->c_ID)
                                     {
-                                        D(bug("[WiFi.RECV] Length mismatch %ld!=%ld\n", pktLen, LE16(pkt->p_Length)));
-                                        if (len > LE16(pkt->p_Length))
-                                            len = LE16(pkt->p_Length);
-                                    }
+                                        // Message match. Remove it from wait list.
+                                        Remove(&m->pm_Message.mn_Node);
+                                        ULONG len = pktLen;
 
-                                    // Copy header back to buffer
-                                    CopyMem(buffer, &m->pm_Packet[0], pkt->c_DataOffset);
-
-                                    // If get-type of packet and no error flag was set, copy data back
-                                    if (!(c->c_Flags & LE16(BCDC_DCMD_SET)))
-                                    {
-                                        if (!(c->c_Flags & LE16(BCDC_DCMD_ERROR)))
+                                        // Warn in case of length mismatch. Should not be the case though!
+                                        if (pktLen != LE16(pkt->p_Length))
                                         {
-                                            if (m->pm_RecvBuffer != NULL && m->pm_RecvSize != 0)
+                                            D(bug("[WiFi.RECV] Length mismatch %ld!=%ld\n", pktLen, LE16(pkt->p_Length)));
+                                            if (len > LE16(pkt->p_Length))
+                                                len = LE16(pkt->p_Length);
+                                        }
+
+                                        // Copy header back to buffer
+                                        CopyMem(buffer, &m->pm_Packet[0], pkt->c_DataOffset);
+
+                                        // If get-type of packet and no error flag was set, copy data back
+                                        if (!(c->c_Flags & LE16(BCDC_DCMD_SET)))
+                                        {
+                                            if (!(c->c_Flags & LE16(BCDC_DCMD_ERROR)))
                                             {
-                                                // RecvBuffer and RecvSize are given, there was no error and
-                                                // packet type is "Get"
-                                                // Copy data back now
-                                                CopyMem(&buffer[pkt->c_DataOffset + sizeof(struct PacketCmd)], m->pm_RecvBuffer, m->pm_RecvSize);
+                                                if (m->pm_RecvBuffer != NULL && m->pm_RecvSize != 0)
+                                                {
+                                                    // RecvBuffer and RecvSize are given, there was no error and
+                                                    // packet type is "Get"
+                                                    // Copy data back now
+                                                    CopyMem(&buffer[pkt->c_DataOffset + sizeof(struct PacketCmd)], m->pm_RecvBuffer, m->pm_RecvSize);
+                                                }
                                             }
                                         }
+
+                                        // Reply back to sender
+                                        ReplyMsg(&m->pm_Message);
+                                        break;
                                     }
-
-                                    // Reply back to sender
-                                    ReplyMsg(&m->pm_Message);
-                                    break;
                                 }
+                                break;
                             }
-                            break;
-                        }
 
-                        case SDPCM_EVENT_CHANNEL:
-                        {
-                            struct PacketEvent *pe = (APTR)&buffer[pkt->c_DataOffset + 4];
-
-                            if ((pkt->p_Length - pkt->c_DataOffset) >= sizeof(struct PacketEvent))
+                            case SDPCM_EVENT_CHANNEL:
                             {
-                                if (pe->e_EthHeader.eh_Type == ETHERHDR_TYPE_LINK_CTL && 
-                                    pe->e_Header.beh_OUI[0] == 0x00 && 
-                                    pe->e_Header.beh_OUI[1] == 0x10 && 
-                                    pe->e_Header.beh_OUI[2] == 0x18)
+                                struct PacketEvent *pe = (APTR)&buffer[pkt->c_DataOffset + 4];
+
+                                if ((pkt->p_Length - pkt->c_DataOffset) >= sizeof(struct PacketEvent))
                                 {
-                                    if (pe->e_Header.beh_UsrSubtype == BCMETHHDR_SUBTYPE_EVENT)
+                                    if (pe->e_EthHeader.eh_Type == ETHERHDR_TYPE_LINK_CTL && 
+                                        pe->e_Header.beh_OUI[0] == 0x00 && 
+                                        pe->e_Header.beh_OUI[1] == 0x10 && 
+                                        pe->e_Header.beh_OUI[2] == 0x18)
                                     {
-                                        ProcessEvent(sdio, pe);
+                                        if (pe->e_Header.beh_UsrSubtype == BCMETHHDR_SUBTYPE_EVENT)
+                                        {
+                                            ProcessEvent(sdio, pe);
+                                        }
                                     }
                                 }
+                                break;
                             }
-                            break;
+                            
+                            case SDPCM_DATA_CHANNEL:
+                                break;
                         }
-                        
-                        case SDPCM_DATA_CHANNEL:
-                            break;
-                    }
 
-                    // Mark that we have the transfer, we will wait for next one a bit shorter
-                    gotTransfer = 1;
+                        // Mark that we have the transfer, we will wait for next one a bit shorter
+                        gotTransfer = 1;
+                    }
+                    else
+                    {
+                        D(bug("[WiFi.RECV] Garbage received. Data:\n"));
+                        for (int i=0; i < 256; i++)
+                        {
+                            if (i % 16 == 0)
+                                bug("[WiFi]  ");
+                            bug(" %02lx", buffer[i]);
+                            if (i % 16 == 15)
+                                bug("\n");
+                        }
+                    }
                 }
                 else
                 {
-                    D(bug("[WiFi.RECV] Garbage received. Data:\n"));
-                    for (int i=0; i < 256; i++)
-                    {
-                        if (i % 16 == 0)
-                            bug("[WiFi]  ");
-                        bug(" %02lx", buffer[i]);
-                        if (i % 16 == 15)
-                            bug("\n");
-                    }
+                    EOL = 1;
                 }
-            }
+            } while(!EOL);
 
             if (gotTransfer)
             {
@@ -663,16 +674,18 @@ void NetworkScanner(struct SDIO *sdio)
                     ForeachNodeSafe(&sdio->s_WiFiBase->w_NetworkList, network, next)
                     {
                         // If network wasn't available for more than 60 seconds after scan, remove it
-                        if (network->wn_LastUpdated++ > 60) {
+                        if (network->wn_LastUpdated++ > 6) {
                             Remove((struct Node*)network);
                             FreePooled(sdio->s_MemPool, network, sizeof(struct WiFiNetwork));
                         }
                         else
                         {
-                            D(bug("[WiFi]   SSID: '%-32s', BSID: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx, ChanSpec: %04lx, RSSI: %ld\n",
+                            D(bug("[WiFi]   SSID: '%-32s', BSID: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx, Type: %s, Channel %ld, Spec:%04lx, RSSI: %ld\n",
                                 (ULONG)network->wn_SSID, network->wn_BSID[0], network->wn_BSID[1], network->wn_BSID[2],
-                                network->wn_BSID[3], network->wn_BSID[4], network->wn_BSID[5],  
-                                (ULONG)(UWORD)network->wn_ChanSpec, network->wn_RSSI
+                                network->wn_BSID[3], network->wn_BSID[4], network->wn_BSID[5], 
+                                network->wn_ChannelInfo.ci_Band == BRCMU_CHAN_BAND_2G ? (ULONG)"2.4GHz" : (ULONG)"5GHz",
+                                network->wn_ChannelInfo.ci_CHNum, network->wn_ChannelInfo.ci_CHSpec,
+                                network->wn_RSSI
                             ));
                         }
                     }
@@ -1004,6 +1017,64 @@ void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     FreePooled(sdio->s_MemPool, pkt, totalLen);
 }
 
+int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
+{
+    ULONG error_code = 2; // BADARG
+
+    if (cmdValue != NULL)
+    {
+        struct ExecBase *SysBase = sdio->s_SysBase;
+        UBYTE *pkt;
+        struct MsgPort *port = CreateMsgPort();
+        struct PacketMessage *mpkt;
+        ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage);
+        error_code = 0;
+
+        mpkt = AllocPooled(sdio->s_MemPool, totalLen);
+        pkt = (APTR)&mpkt->pm_Packet[0];
+
+        mpkt->pm_Message.mn_ReplyPort = port;
+        mpkt->pm_Message.mn_Length = totalLen;
+        
+        struct Packet *p = (struct Packet *)&pkt[0];
+        struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+
+        UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd);
+        
+        p->p_Length = LE16(totLen);
+        p->c_ChkSum = ~p->p_Length;
+        p->c_DataOffset = sizeof(struct Packet);
+        p->c_FlowControl = 0;
+        p->c_Seq = sdio->s_TXSeq++;
+        c->c_Command = LE32(cmd);
+        c->c_Length = LE32(4);
+        c->c_Flags = LE16(0);
+        c->c_ID = LE16(++(sdio->s_CmdID));
+        c->c_Status = 0;
+
+        //PacketDump(sdio, p, "WiFi");
+
+        PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
+        WaitPort(port);
+        GetMsg(port);
+
+        if (c->c_Flags & LE16(BCDC_DCMD_ERROR))
+        {
+            error_code = LE32(c->c_Status);
+            D(bug("[WiFi] PacketCmdIntGet ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
+        }
+        else
+        {
+            *cmdValue = LE32(c->c_Command);
+        }
+
+        FreePooled(sdio->s_MemPool, mpkt, totalLen);
+        DeleteMsgPort(port);
+    }
+
+    return error_code;
+}
+
 int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
@@ -1281,6 +1352,14 @@ void StartPacketReceiver(struct SDIO *sdio)
 
     D(bug("[WiFi] Ethernet addr: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
         ether_addr[0], ether_addr[1], ether_addr[2], ether_addr[3], ether_addr[4], ether_addr[5]));
+
+    ULONG d11Type = 0;
+    static const char * const types[]= { "UNKNOWN", "N", "AC" };
+    if (0 == PacketCmdIntGet(sdio, BRCMF_C_GET_VERSION, &d11Type))
+    {
+        D(bug("[WiFi] D11 Version: %s\n", (ULONG)types[d11Type]));
+        sdio->s_Chip->c_D11Type = d11Type;
+    }
 
     PacketUploadCLM(sdio);
 
