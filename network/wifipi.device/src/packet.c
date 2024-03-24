@@ -190,7 +190,7 @@ struct PacketMessage {
 #define PACKET_WAIT_DELAY_MIN   1000
 #define PACKET_WAIT_DELAY_MAX   100000
 
-#define PACKET_INITIAL_FETCH_SIZE   32
+#define PACKET_INITIAL_FETCH_SIZE   16
 
 void PacketDump(struct SDIO *sdio, APTR data, char *src);
 
@@ -351,7 +351,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     ULONG waitDelay = PACKET_WAIT_DELAY_MAX;
     struct MsgPort *ctrl = CreateMsgPort();
     struct MinList ctrlWaitList;
-    ULONG waitDelayTimeout = 1000000 / waitDelay;
+    ULONG waitDelayTimeout = 100000 / waitDelay;
 
     NewMinList(&ctrlWaitList);
 
@@ -579,9 +579,9 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 else if (waitDelay < PACKET_WAIT_DELAY_MAX)
                 {
                     ULONG oldwait = waitDelay;
-                    waitDelay = (waitDelay * 3) / 2;
+                    waitDelay <<= 2;
                     if (waitDelay > PACKET_WAIT_DELAY_MAX) waitDelay = PACKET_WAIT_DELAY_MAX;
-                    waitDelayTimeout = 1000000 / waitDelay;
+                    waitDelayTimeout = 100000 / waitDelay;
 
 //                    D(bug("[WiFi.RECV] Increasing wait delay from %ld to %ld\n", oldwait, waitDelay));
                 }
