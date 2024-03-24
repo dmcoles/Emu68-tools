@@ -436,7 +436,8 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 
     WiFiBase->w_DeviceTreeBase = DeviceTreeBase = OpenResource("devicetree.resource");
 
-    //NewMinList(&WiFiBase->w_Cores);
+    NewMinList(&WiFiBase->w_NetworkList);
+    InitSemaphore(&WiFiBase->w_NetworkListLock);
 
     if (DeviceTreeBase)
     {
@@ -504,7 +505,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
                         address_cells = *addr;
 
                     const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "reg"));
-                    WiFiBase->w_SDIO = (APTR)reg[address_cells - 1];
+                    WiFiBase->w_SDIOBase = (APTR)reg[address_cells - 1];
                     DT_CloseKey(key);
                 }
             }               
@@ -537,7 +538,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
                         address_cells = *addr;
 
                     const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "reg"));
-                    WiFiBase->w_GPIO = (APTR)reg[address_cells - 1];
+                    WiFiBase->w_GPIOBase = (APTR)reg[address_cells - 1];
                     DT_CloseKey(key);
                 }
             }               
@@ -571,29 +572,29 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
                 ULONG phys_cpu = reg[address_cells + cpu_address_cells - 1];
 
             WiFiBase->w_MailBox = (APTR)((ULONG)WiFiBase->w_MailBox - phys_vc4 + phys_cpu);
-            WiFiBase->w_SDIO = (APTR)((ULONG)WiFiBase->w_SDIO - phys_vc4 + phys_cpu);
-            WiFiBase->w_GPIO = (APTR)((ULONG)WiFiBase->w_GPIO - phys_vc4 + phys_cpu);
+            WiFiBase->w_SDIOBase = (APTR)((ULONG)WiFiBase->w_SDIOBase - phys_vc4 + phys_cpu);
+            WiFiBase->w_GPIOBase = (APTR)((ULONG)WiFiBase->w_GPIOBase - phys_vc4 + phys_cpu);
 
             D(bug("[WiFi]   Mailbox at %08lx\n", (ULONG)WiFiBase->w_MailBox));
-            D(bug("[WiFi]   SDIO regs at %08lx\n", (ULONG)WiFiBase->w_SDIO));
-            D(bug("[WiFi]   GPIO regs at %08lx\n", (ULONG)WiFiBase->w_GPIO));
+            D(bug("[WiFi]   SDIO regs at %08lx\n", (ULONG)WiFiBase->w_SDIOBase));
+            D(bug("[WiFi]   GPIO regs at %08lx\n", (ULONG)WiFiBase->w_GPIOBase));
 
             DT_CloseKey(key);
         }
 
         D(bug("[WiFi] Configuring GPIO alternate functions\n"));
 
-        ULONG tmp = rd32(WiFiBase->w_GPIO, 0x0c);
+        ULONG tmp = rd32(WiFiBase->w_GPIOBase, 0x0c);
         tmp &= 0xfff;       // Leave data for GPIO 30..33 intact
         tmp |= 0x3ffff000;  // GPIO 34..39 are ALT3 now
-        wr32(WiFiBase->w_GPIO, 0x0c, tmp);
+        wr32(WiFiBase->w_GPIOBase, 0x0c, tmp);
 
         D(bug("[WiFi] Enabling pull-ups \n"));
 
-        tmp = rd32(WiFiBase->w_GPIO, 0xec);
+        tmp = rd32(WiFiBase->w_GPIOBase, 0xec);
         tmp &= 0xffff000f;  // Clear PU/PD setting for GPIO 34..39
         tmp |= 0x00005540;  // 01 in 35..59 == pull-up
-        wr32(WiFiBase->w_GPIO, 0xec, tmp);
+        wr32(WiFiBase->w_GPIOBase, 0xec, tmp);
 #if 0
         D(bug("[WiFi] Enable GPCLK2, 32kHz on GPIO43 and output on GPIO41\n"));
 
@@ -670,6 +671,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
         struct SDIO * sdio = sdio_init(WiFiBase);
         if (sdio)
         {
+            WiFiBase->w_SDIO = sdio;
             if (chip_init(sdio))
             {
                 StartPacketReceiver(sdio);

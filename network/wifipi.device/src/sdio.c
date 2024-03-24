@@ -95,24 +95,24 @@ int switch_clock_rate(ULONG base_clock, ULONG target_rate, struct WiFiBase *WiFi
     ULONG divider = get_clock_divider(base_clock, target_rate);
 
     // Wait for the command inhibit (CMD and DAT) bits to clear
-    while(rd32(WiFiBase->w_SDIO, EMMC_STATUS) & 0x3)
+    while(rd32(WiFiBase->w_SDIOBase, EMMC_STATUS) & 0x3)
         delay_us(1000, WiFiBase);
 
     // Set the SD clock off
-    ULONG control1 = rd32(WiFiBase->w_SDIO, EMMC_CONTROL1);
+    ULONG control1 = rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1);
     control1 &= ~(1 << 2);
-    wr32(WiFiBase->w_SDIO, EMMC_CONTROL1, control1);
+    wr32(WiFiBase->w_SDIOBase, EMMC_CONTROL1, control1);
     delay_us(2000, WiFiBase);
 
     // Write the new divider
     control1 &= ~0xffe0;		// Clear old setting + clock generator select
     control1 |= divider;
-    wr32(WiFiBase->w_SDIO, EMMC_CONTROL1, control1);
+    wr32(WiFiBase->w_SDIOBase, EMMC_CONTROL1, control1);
     delay_us(2000, WiFiBase);
 
     // Enable the SD clock
     control1 |= (1 << 2);
-    wr32(WiFiBase->w_SDIO, EMMC_CONTROL1, control1);
+    wr32(WiFiBase->w_SDIOBase, EMMC_CONTROL1, control1);
     delay_us(2000, WiFiBase);
 
     return 0;
@@ -833,6 +833,9 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
 
     InitSemaphore(&sdio->s_Lock);
 
+    /* Create mem pool for internal use */
+    sdio->s_MemPool = CreatePool(MEMF_CLEAR, 16384, 4096);
+
     /* Put few functions into the struct */
     sdio->IsError = is_error;
     sdio->BackplaneAddr = sdio_backplane_addr;
@@ -848,28 +851,28 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     sdio->RecvPKT = sdio_recvpkt;
     sdio->GetIntStatus = sdio_getintstatus;
 
-    sdio->s_SDIO = WiFiBase->w_SDIO;
+    sdio->s_SDIO = WiFiBase->w_SDIOBase;
     sdio->s_WiFiBase = WiFiBase;
     sdio->s_SysBase = SysBase;
 
     sdio->s_TXBuffer = AllocMem(4096, MEMF_PUBLIC);
     sdio->s_RXBuffer = AllocMem(4096, MEMF_PUBLIC);
 
-    ULONG ver = rd32(WiFiBase->w_SDIO, EMMC_SLOTISR_VER);
+    ULONG ver = rd32(WiFiBase->w_SDIOBase, EMMC_SLOTISR_VER);
     ULONG vendor = ver >> 24;
     ULONG sdversion = (ver >> 16) & 0xff;
     ULONG slot_status = ver & 0xff;
 
     D(bug("[WiFi]   vendor %lx, sdversion %lx, slot_status %lx\n", vendor, sdversion, slot_status));
 
-    ULONG control1 = rd32(WiFiBase->w_SDIO, EMMC_CONTROL1);
+    ULONG control1 = rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1);
     control1 |= (1 << 24);
     // Disable clock
     control1 &= ~(1 << 2);
     control1 &= ~(1 << 0);
-    wr32(WiFiBase->w_SDIO, EMMC_CONTROL1, control1);
-    TIMEOUT_WAIT((rd32(WiFiBase->w_SDIO, EMMC_CONTROL1) & (0x7 << 24)) == 0, 1000000);
-    if((rd32(WiFiBase->w_SDIO, EMMC_CONTROL1) & (7 << 24)) != 0)
+    wr32(WiFiBase->w_SDIOBase, EMMC_CONTROL1, control1);
+    TIMEOUT_WAIT((rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1) & (0x7 << 24)) == 0, 1000000);
+    if((rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1) & (7 << 24)) != 0)
     {
         D(bug("[WiFi]   controller did not reset properly\n"));
         FreeMem(sdio, sizeof(struct SDIO));
@@ -877,12 +880,12 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     }
 
     D(bug("[WiFi]   control0: %08lx, control1: %08lx, control2: %08lx\n", 
-            rd32(WiFiBase->w_SDIO, EMMC_CONTROL0),
-            rd32(WiFiBase->w_SDIO, EMMC_CONTROL1),
-            rd32(WiFiBase->w_SDIO, EMMC_CONTROL2)));
+            rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL0),
+            rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1),
+            rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL2)));
 
-    TIMEOUT_WAIT(rd32(WiFiBase->w_SDIO, EMMC_STATUS) & (1 << 16), 500000);
-    ULONG status_reg = rd32(WiFiBase->w_SDIO, EMMC_STATUS);
+    TIMEOUT_WAIT(rd32(WiFiBase->w_SDIOBase, EMMC_STATUS) & (1 << 16), 500000);
+    ULONG status_reg = rd32(WiFiBase->w_SDIOBase, EMMC_STATUS);
     if((status_reg & (1 << 16)) == 0)
     {
         D(bug("[WiFi]   no SDIO connected?\n"));
@@ -893,9 +896,9 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     D(bug("[WiFi]   status: %08lx\n", status_reg));
 
     // Clear control2
-    wr32(WiFiBase->w_SDIO, EMMC_CONTROL2, 0);
+    wr32(WiFiBase->w_SDIOBase, EMMC_CONTROL2, 0);
 
-    control1 = rd32(WiFiBase->w_SDIO, EMMC_CONTROL1);
+    control1 = rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1);
     control1 |= 1;      // enable clock
 
     // Set to identification frequency (400 kHz)
@@ -904,9 +907,9 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     control1 |= f_id;
 
     control1 |= (7 << 16);		// data timeout = TMCLK * 2^10
-    wr32(WiFiBase->w_SDIO, EMMC_CONTROL1, control1);
-    TIMEOUT_WAIT((rd32(WiFiBase->w_SDIO, EMMC_CONTROL1) & 0x2), 1000000);
-    if((rd32(WiFiBase->w_SDIO, EMMC_CONTROL1) & 0x2) == 0)
+    wr32(WiFiBase->w_SDIOBase, EMMC_CONTROL1, control1);
+    TIMEOUT_WAIT((rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1) & 0x2), 1000000);
+    if((rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1) & 0x2) == 0)
     {
         D(bug("[WiFI]   controller's clock did not stabilise within 1 second\n"));
         FreeMem(sdio, sizeof(struct SDIO));
@@ -914,33 +917,33 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     }
 
     D(bug("[WiFi]   control0: %08lx, control1: %08lx\n",
-        rd32(WiFiBase->w_SDIO, EMMC_CONTROL0),
-        rd32(WiFiBase->w_SDIO, EMMC_CONTROL1)));
+        rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL0),
+        rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1)));
 
     // Enable the SD clock
     delay_us(2000, WiFiBase);
-    control1 = rd32(WiFiBase->w_SDIO, EMMC_CONTROL1);
+    control1 = rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1);
     control1 |= 4;
-    wr32(WiFiBase->w_SDIO, EMMC_CONTROL1, control1);
+    wr32(WiFiBase->w_SDIOBase, EMMC_CONTROL1, control1);
     delay_us(2000, WiFiBase);
 
     // Mask off sending interrupts to the ARM
-    wr32(WiFiBase->w_SDIO, EMMC_IRPT_EN, 0);
+    wr32(WiFiBase->w_SDIOBase, EMMC_IRPT_EN, 0);
     // Reset interrupts
-    wr32(WiFiBase->w_SDIO, EMMC_INTERRUPT, 0xffffffff);
+    wr32(WiFiBase->w_SDIOBase, EMMC_INTERRUPT, 0xffffffff);
     
     // Have all interrupts sent to the INTERRUPT register
     uint32_t irpt_mask = 0xffffffff & (~SD_CARD_INTERRUPT);
 #ifdef SD_CARD_INTERRUPTS
     irpt_mask |= SD_CARD_INTERRUPT;
 #endif
-    wr32(WiFiBase->w_SDIO, EMMC_IRPT_MASK, irpt_mask);
+    wr32(WiFiBase->w_SDIOBase, EMMC_IRPT_MASK, irpt_mask);
 
     delay_us(2000, WiFiBase);
 
     D(bug("[WiFi] Clock enabled, control0: %08lx, control1: %08lx\n",
-        rd32(WiFiBase->w_SDIO, EMMC_CONTROL0),
-        rd32(WiFiBase->w_SDIO, EMMC_CONTROL1)));
+        rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL0),
+        rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1)));
 
     // Send CMD0 to the card (reset to idle state)
     cmd(GO_IDLE_STATE, 0, 500000, sdio);
@@ -968,7 +971,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
             return NULL;
         }
 
-        wr32(WiFiBase->w_SDIO, EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
+        wr32(WiFiBase->w_SDIOBase, EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
         v2_later = 0;
     }
     else if(FAIL(sdio))

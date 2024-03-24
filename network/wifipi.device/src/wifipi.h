@@ -36,12 +36,27 @@ struct WiFiBase
     struct WiFiUnit *   w_Unit;
     struct Library *    w_DosBase;
     APTR                w_DeviceTreeBase;
-    APTR                w_SDIO;
+    APTR                w_SDIOBase;
     APTR                w_MailBox;
-    APTR                w_GPIO;
+    APTR                w_GPIOBase;
     APTR                w_RequestOrig;
     ULONG *             w_Request;
     ULONG               w_SDIOClock;
+    struct SDIO *       w_SDIO;
+    struct SignalSemaphore  w_NetworkListLock;
+    struct MinList      w_NetworkList;
+    UBYTE               w_NetworkScanInProgress;
+};
+
+struct WiFiNetwork {
+    struct MinNode      wn_Node;
+    UBYTE               wn_BSID[6];         // MAC of broadcast station
+    WORD                wn_RSSI;            // Relative signal strength
+    UWORD               wn_ChanSpec;        // Channel spec
+    UBYTE               wn_SSIDLength;      // Length of network SSID
+    UBYTE               wn_SSID[33];        // SSID
+    UBYTE               wn_LastUpdated;     // Cleared on update, increased of not updated
+    UWORD               wn_BeaconPeriod;    
 };
 
 struct Chip;
@@ -96,6 +111,14 @@ for                                                    \
     node = (void *)(((struct MinList *)(list))->mlh_Head); \
     ((struct MinNode *)(node))->mln_Succ;                  \
     node = (void *)(((struct MinNode *)(node))->mln_Succ)  \
+)
+
+#define ForeachNodeSafe(list, node, next)              \
+for                                                       \
+(                                                         \
+    *(void **)&node = (void *)(((struct MinList *)(list))->mlh_Head); \
+    (*(void **)&next = (void *)((struct MinNode *)(node))->mln_Succ); \
+    *(void **)&node = (void *)next                                \
 )
 
 struct WiFiUnit
