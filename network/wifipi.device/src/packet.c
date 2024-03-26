@@ -466,7 +466,7 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
     
     
 
-    while(1);
+//    while(1);
 
 }
 
@@ -1692,7 +1692,7 @@ void StartPacketReceiver(struct SDIO *sdio)
 
     /* Pepare event mask. Allow only events which are really needed */
     UBYTE ev_mask[(BRCMF_E_LAST + 7) / 8];
-    for (int i=0; i < (BRCMF_E_LAST + 7) / 8; i++) ev_mask[i] = 0xff;
+    for (int i=0; i < (BRCMF_E_LAST + 7) / 8; i++) ev_mask[i] = 0;
 
 #define EVENT_BIT(mask, i) (mask)[(i) / 8] |= 1 << ((i) % 8)
 #define EVENT_BIT_CLEAR(mask, i) (mask)[(i) / 8] &= ~(1 << ((i) % 8))
