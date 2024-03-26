@@ -58,6 +58,8 @@ struct WiFiNetwork {
     UBYTE               wn_LastUpdated;     // Cleared on update, increased of not updated
     UWORD               wn_BeaconPeriod;
     struct ChannelInfo  wn_ChannelInfo;     // Channel spec and info
+    ULONG               wn_IELength;
+    UBYTE *             wn_IE;
 };
 
 struct Chip;
@@ -217,5 +219,13 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
 BOOL LoadFirmware(struct Chip *chip);
 
 int chip_init(struct SDIO *sdio);
+
+void _bzero(APTR ptr, ULONG sz);
+APTR _memcpy(APTR dst, CONST_APTR src, ULONG sz);
+ULONG _strlen(CONST_STRPTR c);
+STRPTR _strncpy(STRPTR dst, CONST_STRPTR src, ULONG len);
+STRPTR _strcpy(STRPTR dst, CONST_STRPTR src);
+int _strcmp(CONST_STRPTR s1, CONST_STRPTR s2);
+int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n);
 
 #endif

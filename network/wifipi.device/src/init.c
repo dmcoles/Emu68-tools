@@ -89,7 +89,7 @@ APTR _memcpy(APTR dst, CONST_APTR src, ULONG sz)
     return dst;
 }
 
-static inline ULONG _strlen(CONST_STRPTR c)
+ULONG _strlen(CONST_STRPTR c)
 {
     ULONG result = 0;
     while (*c++)

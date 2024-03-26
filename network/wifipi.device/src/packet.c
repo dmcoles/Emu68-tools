@@ -11,6 +11,7 @@
 #include "brcm.h"
 #include "wifipi.h"
 #include "packet.h"
+#include "brcm_wifi.h"
 
 #ifndef	PAD
 #define	_PADLINE(line)	pad ## line
@@ -179,7 +180,295 @@ struct PacketMessage {
     struct Packet   pm_Packet[];
 };
 
+/* scan params for extended join */
+struct JoinScanParams {
+    UBYTE js_ScanYype;          /* 0 use default, active or passive scan */
+    UBYTE PAD[3];
+    ULONG js_NProbes;           /* -1 use default, nr of probes per channel */
+    ULONG js_ActiveTime;        /* -1 use default, dwell time per channel for active scanning */
+    ULONG js_PassiveTime;       /* -1 use default, dwell time per channel for passive scanning */
+    ULONG js_HomeTime;          /* -1 use default, dwell time for the home channel between channel scans */
+};
+
+/* used for association with a specific BSSID and chanspec list */
+struct AssocParams {
+    UBYTE ap_BSSID[6];          /* 00:00:00:00:00:00: broadcast scan */
+    ULONG ap_ChanspecNum;       /* 0: all available channels, otherwise count of chanspecs in chanspec_list */
+    UWORD ap_ChanSpecList[1];   /* list of chanspecs */
+};
+
+struct SSID {
+    ULONG   ssid_Length;
+    UBYTE   ssid_Value[32];
+};
+
+/* extended join params */
+struct ExtJoinParams {
+    struct SSID             ej_SSID;   /* {0, ""}: wildcard scan */
+    struct JoinScanParams   ej_Scan;
+    struct AssocParams      ej_Assoc;
+};
+
+/* join params */
+struct JoinParams {
+    struct SSID             j_SSID;
+    struct AssocParams      j_Assoc;
+};
+
 #define D(x) x
+
+#define VENDOR_SPECIFIC_IE  221
+#define WLAN_EID_RSN 48
+
+#define WPA_OUI				"\x00\x50\xF2"	/* WPA OUI */
+#define WPA_OUI_TYPE			1
+#define RSN_OUI				"\x00\x0F\xAC"	/* RSN OUI */
+#define	WME_OUI_TYPE			2
+#define WPS_OUI_TYPE			4
+
+/*
+static const UBYTE WPA_OUI_TYPE[] = {0x00, 0x50, 0xf2, 1};
+static const UBYTE WPA_CIPHER_SUITE_NONE[] = {0x00, 0x50, 0xf2, 0};
+static const UBYTE WPA_CIPHER_SUITE_WEP40[] = {0x00, 0x50, 0xf2, 1};
+static const UBYTE WPA_CIPHER_SUITE_TKIP[] = {0x00, 0x50, 0xf2, 2};
+static const UBYTE WPA_CIPHER_SUITE_CCMP[] = {0x00, 0x50, 0xf2, 4};
+static const UBYTE WPA_CIPHER_SUITE_WEP104[] = {0x00, 0x50, 0xf2, 5};
+
+static const UBYTE RSN_CIPHER_SUITE_NONE[] = {0x00, 0x0f, 0xac, 0};
+static const UBYTE RSN_CIPHER_SUITE_WEP40[] = {0x00, 0x0f, 0xac, 1};
+static const UBYTE RSN_CIPHER_SUITE_TKIP[] = {0x00, 0x0f, 0xac, 2};
+static const UBYTE RSN_CIPHER_SUITE_CCMP[] = {0x00, 0x0f, 0xac, 4};
+static const UBYTE RSN_CIPHER_SUITE_WEP104[] = {0x00, 0x0f, 0xac, 5};
+*/
+
+#define TLV_LEN_OFF			1	/* length offset */
+#define TLV_HDR_LEN			2	/* header length */
+#define TLV_BODY_OFF			2	/* body offset */
+#define TLV_OUI_LEN			3	/* oui id length */
+
+struct TLV {
+    UBYTE id;
+    UBYTE len;
+    UBYTE data[];
+};
+
+/* Vendor specific ie. id = 221, oui and type defines exact ie */
+struct VsTLV {
+    UBYTE id;
+    UBYTE len;
+    UBYTE oui[3];
+    UBYTE oui_type;
+};
+
+/* Traverse a string of 1-byte tag/1-byte length/variable-length value
+ * triples, returning a pointer to the substring whose first element
+ * matches tag
+ */
+static struct TLV * brcmf_parse_tlvs(void *buf, ULONG buflen, UBYTE key)
+{
+    struct TLV *elt = buf;
+    ULONG totlen = buflen;
+
+    /* find tagged parameter */
+    while (totlen >= TLV_HDR_LEN) {
+        ULONG len = elt->len;
+
+        /* validate remaining totlen */
+        if ((elt->id == key) && (totlen >= (len + TLV_HDR_LEN)))
+            return elt;
+
+        elt = (struct TLV*)((UBYTE *)elt + (len + TLV_HDR_LEN));
+        totlen -= (len + TLV_HDR_LEN);
+    }
+
+    return NULL;
+}
+
+int my_memcmp(const UBYTE *s1, const UBYTE *s2, ULONG len)
+{
+    for (int i=0; i < len; i++)
+    {
+        if (s1[i] > s2[i]) return 1;
+        else if (s1[i] < s2[i]) return -1;
+    }
+    return 0;
+}
+
+static int brcmf_tlv_has_ie(UBYTE *ie, UBYTE **tlvs, ULONG *tlvs_len,
+		 const UBYTE *oui, ULONG oui_len, UBYTE type)
+{
+    /* If the contents match the OUI and the type */
+    if (ie[TLV_LEN_OFF] >= oui_len + 1 &&
+        !my_memcmp(&ie[TLV_BODY_OFF], oui, oui_len) &&
+        type == ie[TLV_BODY_OFF + oui_len]) {
+        return TRUE;
+    }
+
+    if (tlvs == NULL)
+        return FALSE;
+
+    /* point to the next ie */
+    ie += ie[TLV_LEN_OFF] + TLV_HDR_LEN;
+    /* calculate the length of the rest of the buffer */
+    *tlvs_len -= (int)(ie - *tlvs);
+    /* update the pointer to the start of the buffer */
+    *tlvs = ie;
+
+    return FALSE;
+}
+
+struct VsTLV * FindWPAIE(UBYTE *data, ULONG len)
+{
+    const struct TLV *ie;
+
+    while ((ie = brcmf_parse_tlvs(data, len, VENDOR_SPECIFIC_IE)))
+    {
+        if (brcmf_tlv_has_ie((UBYTE *)ie, &data, &len,
+                        WPA_OUI, TLV_OUI_LEN, WPA_OUI_TYPE))
+            return (struct VsTLV *)ie;
+    }
+    return NULL;
+}
+
+#define WPA_VERSION_1   1
+#define WPA_VERSION_2   2
+#define WPA_VERSION_3   4
+
+int SetWPAVersion(struct SDIO *sdio, struct WiFiNetwork *network, ULONG wpa_versions)
+{
+    ULONG val = 0;
+
+    if (wpa_versions & WPA_VERSION_1)
+        val = WPA_AUTH_PSK | WPA_AUTH_UNSPECIFIED;
+    else if (wpa_versions & WPA_VERSION_2)
+        val = WPA2_AUTH_PSK | WPA2_AUTH_UNSPECIFIED;
+    else if (wpa_versions & WPA_VERSION_3)
+        val = WPA3_AUTH_SAE_PSK;
+    else
+        val = WPA_AUTH_DISABLED;
+
+    return PacketSetVarInt(sdio, "wpa_auth", val);
+}
+
+int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
+{
+    struct ExecBase *SysBase = sdio->s_SysBase;;
+    struct JoinParams params;
+    struct ExtJoinParams *ext_params;
+    struct VsTLV *wpa_ie;
+    struct TLV *rsn_ie;
+    ULONG ie_len = 0;
+    APTR ie = NULL;
+
+    if (network)
+    {
+        D(bug("[WiFi] Connecting to '%s'\n", (ULONG)network->wn_SSID));
+
+        /* TODO: Get channel hint... */
+        /* TODO: Get BSSID hint... */
+
+        /* Perform WPA IE setup */
+        D(bug("[WiFi] Looking for WPA IE\n"));
+        wpa_ie = FindWPAIE(network->wn_IE, network->wn_IELength);
+        if (wpa_ie)
+        {
+            D(bug("[WiFi] WPA IE = %08lx\n", (ULONG)wpa_ie));
+
+            ie = wpa_ie;
+            ie_len = wpa_ie->len + TLV_HDR_LEN;
+        }
+        else
+        {
+            D(bug("[WiFi] WPA IE not found, looking for RSN\n"));
+
+            rsn_ie = brcmf_parse_tlvs(network->wn_IE, network->wn_IELength, WLAN_EID_RSN);
+            if (rsn_ie)
+            {
+                D(bug("[WiFi] RSN IE = %08lx\n", (ULONG)rsn_ie));
+                ie = rsn_ie;
+                ie_len = rsn_ie->len + TLV_HDR_LEN;
+            }
+        }
+    }
+    else
+    {
+        D(bug("[WiFi] Connecting to open network 'pistorm'\n"));
+    }
+    //PacketSetVar(sdio, "wpaie", ie, ie_len);
+    //PacketSetVarInt(sdio, "wpaie", 0);
+    
+    // TODO: brcmf_vif_set_mgmt_ie
+
+    //SetWPAVersion(sdio, network, WPA_VERSION_2);
+
+    PacketSetVarInt(sdio, "wpa_auth", WPA_AUTH_DISABLED);
+    PacketSetVarInt(sdio, "wsec", 0);
+
+    // TODO: brcmf_set_auth_type
+    PacketSetVarInt(sdio, "auth", 0);
+    PacketSetVarInt(sdio, "mfp", 0);
+
+    // TODO: brcmf_set_wsec_mode
+    
+
+    // TODO: brcmf_set_key_mgmt
+
+    // TODO: brcmf_set_sharedkey
+
+    //PacketSetVarInt(sdio, "sup_wpa", 1);
+
+    // if PSK: TODO:  brcmf_set_pmk
+    // else PacketSetVarInt(sdio, "wpaie", 0);
+    //       brcmf_set_sae_password
+    //      if PSK:  brcmf_set_pmk
+
+    ext_params = AllocPooled(sdio->s_MemPool, sizeof(struct ExtJoinParams));
+
+
+    if (network)
+    {
+        CopyMem(network->wn_SSID, ext_params->ej_SSID.ssid_Value, 32);
+        ext_params->ej_SSID.ssid_Length = LE32(network->wn_SSIDLength);
+        ext_params->ej_Assoc.ap_ChanspecNum = 0;//1;
+        ext_params->ej_Assoc.ap_ChanSpecList[0] = 0;//LE16(network->wn_ChannelInfo.ci_CHSpec);
+        CopyMem(network->wn_BSID, &ext_params->ej_Assoc.ap_BSSID, 6);
+
+        struct ChannelInfo ci = network->wn_ChannelInfo;
+        EncodeChanSpec(&ci, sdio->s_Chip->c_D11Type);
+        D(bug("[WiFi] Chanspec encoded from %04lx to %04lx\n", network->wn_ChannelInfo.ci_CHSpec, ci.ci_CHSpec));
+    }
+    else
+    {
+        CONST_STRPTR ssid = "pistorm";
+        ULONG ssidLen = _strlen(ssid);
+
+        CopyMem(ssid, ext_params->ej_SSID.ssid_Value, ssidLen);
+        ext_params->ej_SSID.ssid_Length = LE32(ssidLen);
+        ext_params->ej_Assoc.ap_ChanspecNum = 0;
+        ext_params->ej_Assoc.ap_ChanSpecList[0] = 0;
+        ext_params->ej_Assoc.ap_BSSID[0] = 0xff;
+        ext_params->ej_Assoc.ap_BSSID[1] = 0xff;
+        ext_params->ej_Assoc.ap_BSSID[2] = 0xff;
+        ext_params->ej_Assoc.ap_BSSID[3] = 0xff;
+        ext_params->ej_Assoc.ap_BSSID[4] = 0xff;
+        ext_params->ej_Assoc.ap_BSSID[5] = 0xff;
+    }
+    ext_params->ej_Scan.js_ScanYype = -1;
+    ext_params->ej_Scan.js_HomeTime = LE32(-1);
+    ext_params->ej_Scan.js_ActiveTime = LE32(-1);
+    ext_params->ej_Scan.js_PassiveTime = LE32(-1);
+    ext_params->ej_Scan.js_NProbes = LE32(-1);
+
+    PacketSetVar(sdio, "join", ext_params, sizeof(struct ExtJoinParams));
+
+    FreePooled(sdio->s_MemPool, ext_params, sizeof(struct ExtJoinParams));
+
+    
+    
+
+    while(1);
+
+}
 
 #define SCANNER_STACKSIZE       (16384 / sizeof(ULONG))
 #define SCANNER_PRIORITY         0
@@ -266,6 +555,13 @@ void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
         network->wn_SSIDLength = info->bssi_SSIDLength;
         network->wn_BeaconPeriod = LE16(info->bssi_BeaconPeriod);
 
+        network->wn_IELength = LE32(info->bssi_IELength);
+        if (network->wn_IELength)
+        {
+            network->wn_IE = AllocPooled(sdio->s_MemPool, network->wn_IELength);
+            CopyMem(&((UBYTE*)info)[LE16(info->bssi_IEOffset)], network->wn_IE, network->wn_IELength);
+        }
+
         DecodeChanSpec(&network->wn_ChannelInfo, sdio->s_Chip->c_D11Type);
 
         for (int i=0; i < network->wn_SSIDLength; i++)
@@ -344,6 +640,17 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
 
         default:
             D(bug("[WiFi] Unhandled event type %ld\n", pe->e_EventType));
+            UBYTE *p = (APTR)pe;
+            for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+            {
+                if (i % 16 == 0)
+                bug("[WiFI]  ");
+                bug(" %02lx", p[i]);
+                if (i % 16 == 15)
+                    bug("\n");
+            }
+            if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
+                bug("\n");
             break;
     }
 }
@@ -495,14 +802,11 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                                     {
                                         // Message match. Remove it from wait list.
                                         Remove(&m->pm_Message.mn_Node);
-                                        ULONG len = pktLen;
 
                                         // Warn in case of length mismatch. Should not be the case though!
                                         if (pktLen != LE16(pkt->p_Length))
                                         {
-                                            D(bug("[WiFi.RECV] Length mismatch %ld!=%ld\n", pktLen, LE16(pkt->p_Length)));
-                                            if (len > LE16(pkt->p_Length))
-                                                len = LE16(pkt->p_Length);
+                                            //D(bug("[WiFi.RECV] Length mismatch %ld!=%ld\n", pktLen, LE16(pkt->p_Length)));
                                         }
 
                                         // Copy header back to buffer
@@ -552,7 +856,11 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                             }
                             
                             case SDPCM_DATA_CHANNEL:
+                            {
+                                PacketDump(sdio, buffer, "DATA");
                                 break;
+                            }
+                                
                         }
 
                         // Mark that we have the transfer, we will wait for next one a bit shorter
@@ -676,6 +984,8 @@ void NetworkScanner(struct SDIO *sdio)
                         // If network wasn't available for more than 60 seconds after scan, remove it
                         if (network->wn_LastUpdated++ > 6) {
                             Remove((struct Node*)network);
+                            if (network->wn_IE)
+                                FreePooled(sdio->s_MemPool, network->wn_IE, network->wn_IELength);
                             FreePooled(sdio->s_MemPool, network, sizeof(struct WiFiNetwork));
                         }
                         else
@@ -1027,7 +1337,7 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
         UBYTE *pkt;
         struct MsgPort *port = CreateMsgPort();
         struct PacketMessage *mpkt;
-        ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage);
+        ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
         error_code = 0;
 
         mpkt = AllocPooled(sdio->s_MemPool, totalLen);
@@ -1035,13 +1345,15 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
 
         mpkt->pm_Message.mn_ReplyPort = port;
         mpkt->pm_Message.mn_Length = totalLen;
+        mpkt->pm_RecvBuffer = cmdValue;
+        mpkt->pm_RecvSize = 4;
         
         struct Packet *p = (struct Packet *)&pkt[0];
         struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
 
-        UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd);
+        UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
         
-        p->p_Length = LE16(totLen);
+        p->p_Length = LE16(totLen - 4);
         p->c_ChkSum = ~p->p_Length;
         p->c_DataOffset = sizeof(struct Packet);
         p->c_FlowControl = 0;
@@ -1065,7 +1377,7 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
         }
         else
         {
-            *cmdValue = LE32(c->c_Command);
+            *cmdValue = LE32(*cmdValue);
         }
 
         FreePooled(sdio->s_MemPool, mpkt, totalLen);
@@ -1380,9 +1692,10 @@ void StartPacketReceiver(struct SDIO *sdio)
 
     /* Pepare event mask. Allow only events which are really needed */
     UBYTE ev_mask[(BRCMF_E_LAST + 7) / 8];
-    for (int i=0; i < (BRCMF_E_LAST + 7) / 8; i++) ev_mask[i] = 0;
+    for (int i=0; i < (BRCMF_E_LAST + 7) / 8; i++) ev_mask[i] = 0xff;
 
 #define EVENT_BIT(mask, i) (mask)[(i) / 8] |= 1 << ((i) % 8)
+#define EVENT_BIT_CLEAR(mask, i) (mask)[(i) / 8] &= ~(1 << ((i) % 8))
     EVENT_BIT(ev_mask, BRCMF_E_IF);
     EVENT_BIT(ev_mask, BRCMF_E_LINK);
     EVENT_BIT(ev_mask, BRCMF_E_AUTH);
@@ -1390,6 +1703,7 @@ void StartPacketReceiver(struct SDIO *sdio)
     EVENT_BIT(ev_mask, BRCMF_E_DEAUTH);
     EVENT_BIT(ev_mask, BRCMF_E_DISASSOC);
     EVENT_BIT(ev_mask, BRCMF_E_ESCAN_RESULT);
+    EVENT_BIT_CLEAR(ev_mask, 124);
 #undef EVENT_BIT
 
     PacketSetVar(sdio, "event_msgs", ev_mask, (BRCMF_E_LAST + 7) / 8);
@@ -1415,7 +1729,7 @@ void StartPacketReceiver(struct SDIO *sdio)
     PacketCmdInt(sdio, BRCMF_C_UP, 1);
 
     StartNetworkScan(sdio);
-#if 0
+
 void delay_us(ULONG us, struct WiFiBase *WiFiBase)
 {
     (void)WiFiBase;
@@ -1427,9 +1741,26 @@ void delay_us(ULONG us, struct WiFiBase *WiFiBase)
     }
     while (end > LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
 }
-delay_us(1000000, sdio->s_WiFiBase);
-#endif
-    
+delay_us(5000000, sdio->s_WiFiBase);
+
+    ObtainSemaphore(&sdio->s_WiFiBase->w_NetworkListLock);
+    struct WiFiNetwork *network;
+    UBYTE found = 0;
+    ForeachNode(&sdio->s_WiFiBase->w_NetworkList, network)
+    {
+        if (_strncmp("pistorm", network->wn_SSID, 32) == 0)
+        {
+            found = 1;
+            Connect(sdio, network);
+        }
+    }
+    ReleaseSemaphore(&sdio->s_WiFiBase->w_NetworkListLock);
+
+    if (!found)
+    {
+        Connect(sdio, NULL);
+    }
+
 #if 0
 
 delay_us(5000000, sdio->s_WiFiBase);

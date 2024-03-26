@@ -36,7 +36,7 @@
 #define EMMC_SLOTISR_VER	0xFC
 
 #define SD_CLOCK_ID         400000
-#define SD_CLOCK_NORMAL     26000000
+#define SD_CLOCK_NORMAL     41600000
 #define SD_CLOCK_HIGH       52000000
 
 #define SD_CMD_INDEX(a)		((a) << 24)

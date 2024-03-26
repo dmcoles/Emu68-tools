@@ -1033,8 +1033,9 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     }
     D(bug("[WiFi] CMD5 response %08lx\n", sdio->s_Res0));
 
-    /* The card is SDIO. Increase speed to standard 25MHz and obtain CID as well as RCA */#
-    D(bug("[WiFi] Switching clock to 25MHz\n"));
+    /* The card is SDIO. Increase speed to standard 25MHz and obtain CID as well as RCA */
+    ULONG _clk = (SD_CLOCK_NORMAL + 50000) / 100000;
+    D(bug("[WiFi] Switching clock to %ld.%ldMHz\n", _clk / 10, _clk % 10));
     switch_clock_rate(WiFiBase->w_SDIOClock, SD_CLOCK_NORMAL, WiFiBase);
 
     delay_us(10000, WiFiBase);
