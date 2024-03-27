@@ -674,7 +674,16 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
             WiFiBase->w_SDIO = sdio;
             if (chip_init(sdio))
             {
+                struct WiFiUnit *unit; 
                 StartPacketReceiver(sdio);
+                unit = AllocPooled(WiFiBase->w_SDIO->s_MemPool, sizeof(struct WiFiUnit));
+                unit->wu_Base = WiFiBase;
+                unit->wu_Unit.unit_MsgPort;
+
+                NewMinList(&unit->wu_Openers);
+                NewMinList(&unit->wu_MulticastRanges);
+                NewMinList(&unit->wu_TypeTrackers);
+                WiFiBase->w_Unit = unit;
             }
         }
     }

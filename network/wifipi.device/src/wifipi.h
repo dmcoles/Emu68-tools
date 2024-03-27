@@ -130,6 +130,8 @@ struct WiFiUnit
 {
     struct Unit         wu_Unit;
     struct MinList      wu_Openers;
+    struct MinList      wu_MulticastRanges;
+    struct MinList      wu_TypeTrackers;
     struct WiFiBase *   wu_Base;
     ULONG               wu_Flags;
 };

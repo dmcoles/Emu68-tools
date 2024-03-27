@@ -463,7 +463,18 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
 
     FreePooled(sdio->s_MemPool, ext_params, sizeof(struct ExtJoinParams));
 
-    
+    void delay_us(ULONG us, struct WiFiBase *WiFiBase)
+{
+    (void)WiFiBase;
+    ULONG timer = LE32(*(volatile ULONG*)0xf2003004);
+    ULONG end = timer + us;
+
+    if (end < timer) {
+        while (end < LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
+    }
+    while (end > LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
+}
+delay_us(5000000, sdio->s_WiFiBase);
     
 
 //    while(1);

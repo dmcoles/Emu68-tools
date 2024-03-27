@@ -216,15 +216,42 @@ ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
     return 0;
 }
 
+void WiFi_BeginIO(struct IOSana2Req * io asm("a1"))
+{
+    struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+}
+
+LONG WiFi_AbortIO(struct IOSana2Req *io asm("a1"))
+{
+    struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    /* AbortIO is a *wish* call. Someone would like to abort current IORequest */
+    if (io->ios2_Req.io_Unit != NULL)
+    {
+        Forbid();
+        /* If the IO was not quick and is of type message (not handled yet or in process), abord it and remove from queue */
+        if ((io->ios2_Req.io_Flags & IOF_QUICK) == 0 && io->ios2_Req.io_Message.mn_Node.ln_Type == NT_MESSAGE)
+        {
+            Remove(&io->ios2_Req.io_Message.mn_Node);
+            io->ios2_Req.io_Error = IOERR_ABORTED;
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+            ReplyMsg(&io->ios2_Req.io_Message);
+        }
+        Permit();
+    }
+
+    return 0;
+}
+
 static const uint32_t wifipi_functions[] = {
     (uint32_t)WiFi_Open,
     (uint32_t)WiFi_Close,
     (uint32_t)WiFi_Expunge,
     (uint32_t)WiFi_ExtFunc,
-#if 0
     (uint32_t)WiFi_BeginIO,
     (uint32_t)WiFi_AbortIO,
-#endif
     -1
 };
 
