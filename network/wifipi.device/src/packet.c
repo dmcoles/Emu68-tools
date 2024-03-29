@@ -1670,11 +1670,11 @@ void StartPacketReceiver(struct SDIO *sdio)
     else
         D(bug("[WiFi] Packet receiver not started!\n"));
 
-    UBYTE ether_addr[6] = {0, 0, 0, 0, 0, 0};
-    PacketGetVar(sdio, "cur_etheraddr", ether_addr, 6);
+    PacketGetVar(sdio, "cur_etheraddr", sdio->s_HWAddr, 6);
 
     D(bug("[WiFi] Ethernet addr: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
-        ether_addr[0], ether_addr[1], ether_addr[2], ether_addr[3], ether_addr[4], ether_addr[5]));
+        sdio->s_HWAddr[0], sdio->s_HWAddr[1], sdio->s_HWAddr[2],
+        sdio->s_HWAddr[3], sdio->s_HWAddr[4], sdio->s_HWAddr[5]));
 
     ULONG d11Type = 0;
     static const char * const types[]= { "UNKNOWN", "N", "AC" };

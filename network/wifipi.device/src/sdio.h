@@ -4,6 +4,7 @@
 #include <exec/execbase.h>
 #include <exec/types.h>
 #include <exec/semaphores.h>
+#include <devices/sana2.h>
 #include <stdint.h>
 
 #define	EMMC_ARG2		0
@@ -300,6 +301,8 @@ struct SDIO {
     struct Core *       s_CC;       // Chipcomm core
     struct Core *       s_SDIOC;    // SDIO core
     struct Chip *       s_Chip;
+    UBYTE               s_HWAddr[6];
+    struct Sana2DeviceStats s_Stats;
 
     int     (*IsError)(struct SDIO *);
     ULONG   (*BackplaneAddr)(ULONG addr, struct SDIO *);

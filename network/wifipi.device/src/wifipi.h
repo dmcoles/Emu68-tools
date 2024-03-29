@@ -128,12 +128,14 @@ for                                                       \
 
 struct WiFiUnit
 {
-    struct Unit         wu_Unit;
-    struct MinList      wu_Openers;
-    struct MinList      wu_MulticastRanges;
-    struct MinList      wu_TypeTrackers;
-    struct WiFiBase *   wu_Base;
-    ULONG               wu_Flags;
+    struct Unit             wu_Unit;
+    struct MinList          wu_Openers;
+    struct MinList          wu_MulticastRanges;
+    struct MinList          wu_TypeTrackers;
+    struct WiFiBase *       wu_Base;
+    struct Task *           wu_Task;
+    struct SignalSemaphore  wu_Lock;
+    ULONG                   wu_Flags;
 };
 
 struct Opener
@@ -229,5 +231,6 @@ STRPTR _strncpy(STRPTR dst, CONST_STRPTR src, ULONG len);
 STRPTR _strcpy(STRPTR dst, CONST_STRPTR src);
 int _strcmp(CONST_STRPTR s1, CONST_STRPTR s2);
 int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n);
+void StartUnit(struct WiFiUnit *unit);
 
 #endif
