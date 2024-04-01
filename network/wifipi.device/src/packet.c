@@ -6,8 +6,10 @@
 
 #if defined(__INTELLISENSE__)
 #include <clib/exec_protos.h>
+#include <clib/utility_protos.h>
 #else
 #include <proto/exec.h>
+#include <proto/utility.h>
 #endif
 
 #include "d11.h"
@@ -874,6 +876,11 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                             
                             case SDPCM_DATA_CHANNEL:
                             {
+                                UBYTE *frame = (APTR)&buffer[pkt->c_DataOffset + 4];
+                                ULONG frameLength = pktLen - pkt->c_DataOffset - 4;
+
+                                ProcessDataPacket(sdio, frame, frameLength);
+
                                 PacketDump(sdio, buffer, "DATA");
                                 break;
                             }
@@ -946,6 +953,155 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     DeleteIORequest(&tr->tr_node);
     DeleteMsgPort(port);
     DeleteMsgPort(ctrl);
+}
+
+void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct Opener *opener = io->ios2_BufferManagement;
+    struct Library *UtilityBase = WiFiBase->w_UtilityBase;
+    UBYTE packetFiltered = FALSE;
+
+    UBYTE *copyData;
+    ULONG copyLength;
+
+    UWORD type = *(UWORD*)&packet[12];
+
+    /* Clear broadcast and multicast flags */
+    io->ios2_Req.io_Flags &= ~(SANA2IOF_BCAST | SANA2IOF_MCAST);
+
+    /* Copy source and dest addresses */
+    CopyMem(packet, io->ios2_DstAddr, 6);
+    CopyMem(&packet[6], io->ios2_SrcAddr, 6);
+    io->ios2_PacketType = type;
+
+    /* If dest address is FF:FF:FF:FF:FF:FF then it is a broadcast */
+    if (*(ULONG*)packet == 0xffffffff && *(UWORD*)(packet+4) == 0xffff)
+    {
+        io->ios2_Req.io_Flags |= SANA2IOF_BCAST;
+    }
+    /* If dest address has lowest bit of first addr byte set, then it is a multicast */
+    else if (*packet & 0x01)
+    {
+        io->ios2_Req.io_Flags |= SANA2IOF_MCAST;
+    }
+
+    /* 
+        If RAW packet is requested, copy everything, otherwise copy only contents of 
+        the frame without ethernet header
+    */
+    if (io->ios2_Req.io_Flags & SANA2IOF_RAW)
+    {
+        copyData = packet;
+        copyLength = packetLength;
+    }
+    else
+    {
+        copyData = packet + 14;
+        copyLength = packetLength - 14;
+    }
+
+    /* Filter packet if CMD_READ and filter hook is set */
+    if (io->ios2_Req.io_Command == CMD_READ && opener->o_FilterHook)
+    {
+        if (!CallHookPkt(opener->o_FilterHook, io, copyData))
+        {
+            packetFiltered = TRUE;
+        }
+    }
+
+    /* Packet not filtered. Send it now and reply request. */
+    if (!packetFiltered)
+    {
+        if (opener->o_RXFunc(io->ios2_Data, copyData, copyLength) == 0)
+        {
+            io->ios2_WireError = S2WERR_BUFF_ERROR;
+            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+
+            /* Report error event */
+        }
+        Disable();
+        Remove((struct Node *)io);
+        Enable();
+        ReplyMsg((struct Message *)io);
+    }
+}
+
+void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
+{
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiUnit *unit = WiFiBase->w_Unit;
+    int accept = TRUE;
+    UWORD packetType = *(UWORD*)&packet[12];
+
+    // Get destination address and check if it is a multicast
+    uint64_t destAddr = ((uint64_t)*(UWORD*)&packet[0] << 32) |
+                        *(ULONG*)&packet[2];
+    
+    if (destAddr != 0xffffffffffffULL && (destAddr & 0x010000000000ULL))
+    {
+        struct MulticastRange *range;
+        accept = FALSE;
+
+        ForeachNode(&unit->wu_MulticastRanges, range)
+        {
+            if (destAddr >= range->mr_LowerBound && destAddr <= range->mr_UpperBound)
+            {
+                accept = TRUE;
+                break;
+            }
+        }
+    }
+
+    if (accept)
+    {
+        UBYTE orphan = TRUE;
+        struct Opener *opener;
+        D(bug("[WiFi] Packet accepted. Sending to openers\n"));
+
+        unit->wu_Stats.PacketsReceived++;
+
+        /* Go through all openers */
+        ForeachNode(&unit->wu_Openers, opener)
+        {
+            struct IOSana2Req *io;
+            
+            /* Go through all IO read requests pending*/
+            ForeachNode(&opener->o_ReadPort, io)
+            {
+                // EthernetII has packet type larger than 1500 (MTU),
+                // 802.3 has no packet type but just length
+                if (io->ios2_PacketType == packetType ||
+                    (packetType <= 1500 && io->ios2_PacketType <= 1500))
+                {
+                    /* Match, copy packet, break loop for this opener */
+                    CopyPacket(io, packet, packetLength);
+                    
+                    /* The packet is sent at least to one opener, not an orphan anymore */
+                    orphan = FALSE;
+                    break;
+                }
+            }
+        }
+
+        /* No receiver for this packet found? It's an orphan then */
+        if (orphan)
+        {
+            unit->wu_Stats.UnknownTypesReceived++;
+        }
+    }
+}
+
+void SendDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
+{
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiUnit *unit = WiFiBase->w_Unit;
+
+
 }
 
 void NetworkScanner(struct SDIO *sdio)
