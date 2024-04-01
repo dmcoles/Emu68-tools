@@ -743,7 +743,7 @@ static void brcmf_chip_socram_ramsize(struct Core *sr, ULONG *ramsize, ULONG *sr
 {
     struct Chip *chip = sr->c_Chip;
     ULONG coreinfo;
-    unsigned nb, banksize, lss;
+    ULONG nb, banksize, lss;
     int retent;
     int i;
 

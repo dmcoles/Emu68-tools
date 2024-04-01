@@ -442,7 +442,7 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
         CONST_STRPTR ssid = "pistorm";
         ULONG ssidLen = _strlen(ssid);
 
-        CopyMem(ssid, ext_params->ej_SSID.ssid_Value, ssidLen);
+        CopyMem((APTR)ssid, ext_params->ej_SSID.ssid_Value, ssidLen);
         ext_params->ej_SSID.ssid_Length = LE32(ssidLen);
         ext_params->ej_Assoc.ap_ChanspecNum = 0;
         ext_params->ej_Assoc.ap_ChanSpecList[0] = 0;
@@ -1184,7 +1184,7 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
     c->c_Status = 0;
 
     CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
-    CopyMem(setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
+    CopyMem((APTR)setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
 
     //PacketDump(sdio, p, "WiFi");
 
@@ -1231,7 +1231,7 @@ void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, 
     c->c_Status = 0;
 
     CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
-    CopyMem(setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
+    CopyMem((APTR)setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
 
     //PacketDump(sdio, p, "WiFi");
 
