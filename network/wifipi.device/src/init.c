@@ -817,6 +817,8 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
                 ULONG requiredLength = IoErr();
                 UBYTE *config = AllocMem(requiredLength + 1, MEMF_ANY);
                 GetVar("SYS/Wireless.prefs", config, requiredLength + 1, 0);
+                WiFiBase->w_NetworkConfigVar = config;
+                WiFiBase->w_NetworkConfigLength = requiredLength;
                 ParseConfig(WiFiBase);
             }
         }
