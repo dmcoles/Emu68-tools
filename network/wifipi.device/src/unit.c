@@ -41,9 +41,10 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     unit->wu_CmdQueue = CreateMsgPort();
     unit->wu_WriteQueue = CreateMsgPort();
 
-    if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL || unit->wu_WriteQueue)
+    if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL || unit->wu_WriteQueue == NULL)
     {
         D(bug("[WiFi.0] Failed to create requested MsgPorts\n"));
+        
         DeleteMsgPort(unit->wu_WriteQueue);
         DeleteMsgPort(unit->wu_CmdQueue);
         DeleteIORequest((struct IORequest *)tr);
@@ -147,7 +148,7 @@ void StartUnitTask(struct WiFiUnit *unit)
     ULONG *stack;
     static const char task_name[] = "WiFiPi Unit";
 
-    D(bug("[WiFi] StartUnitTas\n"));
+    D(bug("[WiFi] StartUnitTask\n"));
 
     // Get all memory we need for the receiver task
     task = AllocMem(sizeof(struct Task), MEMF_PUBLIC | MEMF_CLEAR);
@@ -228,19 +229,17 @@ static const UWORD WiFi_SupportedCommands[] = {
     0
 };
 
-
-
 static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
 {
     struct NSDeviceQueryResult *dq;
     dq = io->io_Data;
 
     /* Fill out structure */
-    dq->DeviceType = NSDEVTYPE_SANA2;
-    dq->DeviceSubType = 0;
-    dq->SupportedCommands = (UWORD*)WiFi_SupportedCommands;
+    dq->nsdqr_DeviceType = NSDEVTYPE_SANA2;
+    dq->nsdqr_DeviceSubType = 0;
+    dq->nsdqr_SupportedCommands = (UWORD*)WiFi_SupportedCommands;
     io->io_Actual = sizeof(struct NSDeviceQueryResult) + sizeof(APTR);
-    dq->SizeAvailable = io->io_Actual;
+    dq->nsdqr_SizeAvailable = io->io_Actual;
     io->io_Error = 0;
 
     return 1;

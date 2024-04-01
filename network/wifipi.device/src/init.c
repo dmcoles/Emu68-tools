@@ -252,7 +252,7 @@ BOOL LoadFirmware(struct Chip *chip)
 
                     D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->binFile, size));
                     allocSize = size;
-                    buffer = AllocPooled(WiFiBase->w_MemPool, allocSize);
+                    buffer = AllocVecPooled(WiFiBase->w_MemPool, allocSize);
                     if (buffer == NULL)
                     {
                         Close(file);
@@ -263,7 +263,7 @@ BOOL LoadFirmware(struct Chip *chip)
                     {
                         D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
                         Close(file);
-                        FreePooled(WiFiBase->w_MemPool, buffer, size);
+                        FreeVecPooled(WiFiBase->w_MemPool, buffer);
                         return FALSE;
                     }
                     Close(file);
@@ -294,9 +294,9 @@ BOOL LoadFirmware(struct Chip *chip)
                         D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->clmFile, size));
                         if ((ULONG)size > allocSize)
                         {
-                            FreePooled(WiFiBase->w_MemPool, buffer, allocSize);
+                            FreeVecPooled(WiFiBase->w_MemPool, buffer);
                             allocSize = size;
-                            buffer = AllocPooled(WiFiBase->w_MemPool, size);
+                            buffer = AllocVecPooled(WiFiBase->w_MemPool, size);
                         }
                         
                         if (buffer == NULL)
@@ -309,7 +309,7 @@ BOOL LoadFirmware(struct Chip *chip)
                         {
                             D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
                             Close(file);
-                            FreePooled(WiFiBase->w_MemPool, buffer, size);
+                            FreeVecPooled(WiFiBase->w_MemPool, buffer);
                             return FALSE;
                         }
                         Close(file);
@@ -339,9 +339,9 @@ BOOL LoadFirmware(struct Chip *chip)
                     D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->txtFile, size));
                     if ((ULONG)size > allocSize)
                     {
-                        FreePooled(WiFiBase->w_MemPool, buffer, allocSize);
+                        FreeVecPooled(WiFiBase->w_MemPool, buffer);
                         allocSize = size;
-                        buffer = AllocPooled(WiFiBase->w_MemPool, size);
+                        buffer = AllocVecPooled(WiFiBase->w_MemPool, size);
                     }
                     
                     if (buffer == NULL)
@@ -354,7 +354,7 @@ BOOL LoadFirmware(struct Chip *chip)
                     {
                         D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
                         Close(file);
-                        FreePooled(WiFiBase->w_MemPool, buffer, size);
+                        FreeVecPooled(WiFiBase->w_MemPool, buffer);
                         return FALSE;
                     }
                     Close(file);
@@ -426,7 +426,7 @@ BOOL LoadFirmware(struct Chip *chip)
                     chip->c_ConfigSize = dst_pos;
 
                     /* Get rid of temporary buffer */
-                    FreePooled(WiFiBase->w_MemPool, buffer, size);
+                    FreeVecPooled(WiFiBase->w_MemPool, buffer);
                     FreeVecPooled(WiFiBase->w_MemPool, path);
                     
                     return TRUE;
@@ -438,6 +438,8 @@ BOOL LoadFirmware(struct Chip *chip)
             }
         }
     }
+
+    FreeVecPooled(WiFiBase->w_MemPool, path);
 
     return FALSE;
 }
@@ -847,7 +849,7 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
             LONG confLen = 4;
             UBYTE buffer[4];
-
+#if 0
             /* Get the variable into a too small buffer. Required length will be returned in IoErr() */
             if (GetVar("SYS/Wireless.prefs", buffer, 4, 0) > 0)
             {
@@ -858,6 +860,7 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
                 WiFiBase->w_NetworkConfigLength = requiredLength;
                 ParseConfig(WiFiBase);
             }
+#endif
         }
         else
             D(bug("[WiFi] I'm a task\n"));

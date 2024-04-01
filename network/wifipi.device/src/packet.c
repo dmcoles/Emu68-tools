@@ -1832,13 +1832,13 @@ void StartPacketReceiver(struct SDIO *sdio)
     AddTask(task, entry, NULL);
     Wait(SIGBREAKF_CTRL_C);
 
-    StartScannerTask(sdio);
+//    StartScannerTask(sdio);
 
     if (sdio->s_ReceiverTask)
         D(bug("[WiFi] Packet receiver up and running\n"));
     else
         D(bug("[WiFi] Packet receiver not started!\n"));
-
+#if 0
     PacketGetVar(sdio, "cur_etheraddr", sdio->s_HWAddr, 6);
 
     D(bug("[WiFi] Ethernet addr: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
@@ -1940,7 +1940,7 @@ delay_us(5000000, sdio->s_WiFiBase);
     {
         Connect(sdio, NULL);
     }
-
+#endif
 #if 0
 
 delay_us(5000000, sdio->s_WiFiBase);
