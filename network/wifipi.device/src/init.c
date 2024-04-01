@@ -875,12 +875,13 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
                 StartPacketReceiver(sdio);
                 unit = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct WiFiUnit));
                 unit->wu_Base = WiFiBase;
-                unit->wu_Unit.unit_MsgPort;
 
                 InitSemaphore(&unit->wu_Lock);
                 NewMinList(&unit->wu_Openers);
                 NewMinList(&unit->wu_MulticastRanges);
                 NewMinList(&unit->wu_TypeTrackers);
+                
+                StartUnitTask(unit);
                 WiFiBase->w_Unit = unit;
             }
         }
