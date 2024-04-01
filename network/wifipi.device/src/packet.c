@@ -356,7 +356,8 @@ int SetWPAVersion(struct SDIO *sdio, struct WiFiNetwork *network, ULONG wpa_vers
 
 int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
 {
-    struct ExecBase *SysBase = sdio->s_SysBase;;
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     struct JoinParams params;
     struct ExtJoinParams *ext_params;
     struct VsTLV *wpa_ie;
@@ -426,7 +427,7 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
     //       brcmf_set_sae_password
     //      if PSK:  brcmf_set_pmk
 
-    ext_params = AllocPooled(sdio->s_MemPool, sizeof(struct ExtJoinParams));
+    ext_params = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct ExtJoinParams));
 
 
     if (network)
@@ -465,7 +466,7 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
 
     PacketSetVar(sdio, "join", ext_params, sizeof(struct ExtJoinParams));
 
-    FreePooled(sdio->s_MemPool, ext_params, sizeof(struct ExtJoinParams));
+    FreePooled(WiFiBase->w_MemPool, ext_params, sizeof(struct ExtJoinParams));
 
     void delay_us(ULONG us, struct WiFiBase *WiFiBase)
 {
@@ -502,6 +503,7 @@ void PacketDump(struct SDIO *sdio, APTR data, char *src);
 void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     struct MinList *networkList = &sdio->s_WiFiBase->w_NetworkList;
     struct SignalSemaphore *networkListLock = &sdio->s_WiFiBase->w_NetworkListLock;
     UBYTE found = 0;
@@ -557,7 +559,7 @@ void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
     // Network entry not found. Insert new network
     if (!found)
     {
-        network = AllocPooled(sdio->s_MemPool, sizeof(struct WiFiNetwork));
+        network = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct WiFiNetwork));
         network->wn_ChannelInfo.ci_CHSpec = LE16(info->bssi_ChanSpec);
         network->wn_LastUpdated = 0;
         network->wn_BSID[0] = info->bssi_ID[0];
@@ -573,7 +575,7 @@ void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
         network->wn_IELength = LE32(info->bssi_IELength);
         if (network->wn_IELength)
         {
-            network->wn_IE = AllocPooled(sdio->s_MemPool, network->wn_IELength);
+            network->wn_IE = AllocPooled(WiFiBase->w_MemPool, network->wn_IELength);
             CopyMem(&((UBYTE*)info)[LE16(info->bssi_IEOffset)], network->wn_IE, network->wn_IELength);
         }
 
@@ -949,6 +951,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
 void NetworkScanner(struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
 
     // Create MessagePort and timer.device IORequest
     struct MsgPort *port = CreateMsgPort();
@@ -1000,8 +1003,8 @@ void NetworkScanner(struct SDIO *sdio)
                         if (network->wn_LastUpdated++ > 6) {
                             Remove((struct Node*)network);
                             if (network->wn_IE)
-                                FreePooled(sdio->s_MemPool, network->wn_IE, network->wn_IELength);
-                            FreePooled(sdio->s_MemPool, network, sizeof(struct WiFiNetwork));
+                                FreePooled(WiFiBase->w_MemPool, network->wn_IE, network->wn_IELength);
+                            FreePooled(WiFiBase->w_MemPool, network, sizeof(struct WiFiNetwork));
                         }
                         else
                         {
@@ -1155,6 +1158,7 @@ static int int_strlen(const char *c)
 int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     UBYTE *pkt;
     struct MsgPort *port = CreateMsgPort();
     struct PacketMessage *mpkt;
@@ -1165,7 +1169,7 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
 
     totalLen += varSize;
 
-    mpkt = AllocPooled(sdio->s_MemPool, totalLen);
+    mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
     pkt = (APTR)&mpkt->pm_Packet[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
@@ -1202,7 +1206,7 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
         D(bug("[WiFi] PacketSetVar ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
     }
 
-    FreePooled(sdio->s_MemPool, mpkt, totalLen);
+    FreePooled(WiFiBase->w_MemPool, mpkt, totalLen);
     DeleteMsgPort(port);
 
     return error_code;
@@ -1211,6 +1215,7 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
 void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     UBYTE *pkt;
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + setSize;
 
@@ -1218,7 +1223,7 @@ void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, 
 
     totalLen += varSize;
 
-    pkt = AllocPooled(sdio->s_MemPool, totalLen);
+    pkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
 
     struct Packet *p = (struct Packet *)&pkt[0];
     struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
@@ -1242,7 +1247,7 @@ void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, 
     // Async - fire the packet and forget
     sdio->SendPKT(pkt, totalLen, sdio);
 
-    FreePooled(sdio->s_MemPool, pkt, totalLen);
+    FreePooled(WiFiBase->w_MemPool, pkt, totalLen);
 }
 
 int PacketSetVarInt(struct SDIO *sdio, char *varName, ULONG varValue)
@@ -1260,13 +1265,14 @@ void PacketSetVarIntAsync(struct SDIO *sdio, char *varName, ULONG varValue)
 int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     UBYTE *pkt;
     struct MsgPort *port = CreateMsgPort();
     struct PacketMessage *mpkt;
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
     ULONG error_code = 0;
 
-    mpkt = AllocPooled(sdio->s_MemPool, totalLen);
+    mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
     pkt = (APTR)&mpkt->pm_Packet[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
@@ -1302,7 +1308,7 @@ int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
         D(bug("[WiFi] PacketCmdInt ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
     }
 
-    FreePooled(sdio->s_MemPool, mpkt, totalLen);
+    FreePooled(WiFiBase->w_MemPool, mpkt, totalLen);
     DeleteMsgPort(port);
 
     return error_code;
@@ -1311,11 +1317,12 @@ int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
 void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     UBYTE *pkt;
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
     ULONG error_code = 0;
 
-    pkt = AllocPooled(sdio->s_MemPool, totalLen);
+    pkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
     
     struct Packet *p = (struct Packet *)&pkt[0];
     struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
@@ -1339,7 +1346,7 @@ void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     // Fire packet and forget it
     sdio->SendPKT(pkt, totalLen, sdio);
 
-    FreePooled(sdio->s_MemPool, pkt, totalLen);
+    FreePooled(WiFiBase->w_MemPool, pkt, totalLen);
 }
 
 int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
@@ -1349,13 +1356,14 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
     if (cmdValue != NULL)
     {
         struct ExecBase *SysBase = sdio->s_SysBase;
+        struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
         UBYTE *pkt;
         struct MsgPort *port = CreateMsgPort();
         struct PacketMessage *mpkt;
         ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
         error_code = 0;
 
-        mpkt = AllocPooled(sdio->s_MemPool, totalLen);
+        mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
         pkt = (APTR)&mpkt->pm_Packet[0];
 
         mpkt->pm_Message.mn_ReplyPort = port;
@@ -1395,7 +1403,7 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
             *cmdValue = LE32(*cmdValue);
         }
 
-        FreePooled(sdio->s_MemPool, mpkt, totalLen);
+        FreePooled(WiFiBase->w_MemPool, mpkt, totalLen);
         DeleteMsgPort(port);
     }
 
@@ -1405,6 +1413,7 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
 int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     UBYTE *pkt;
     struct MsgPort *port = CreateMsgPort();
     struct PacketMessage *mpkt;
@@ -1418,7 +1427,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
     else
         totalLen += getSize;
 
-    mpkt = AllocPooled(sdio->s_MemPool, totalLen);
+    mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
     pkt = (APTR)&mpkt->pm_Packet[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
@@ -1458,7 +1467,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
         D(bug("[WiFi] PacketGetVar ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
     }
 
-    FreePooled(sdio->s_MemPool, mpkt, totalLen);
+    FreePooled(WiFiBase->w_MemPool, mpkt, totalLen);
     DeleteMsgPort(port);
 
     return error_code;
@@ -1478,6 +1487,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
 static int PacketUploadCLM(struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
 
     // Check if there is CLM to be uploaded
     if (sdio->s_Chip->c_CLMBase && sdio->s_Chip->c_CLMSize)
@@ -1495,7 +1505,7 @@ static int PacketUploadCLM(struct SDIO *sdio)
             UBYTE data[];
         };
 
-        struct UploadHeader *upload = AllocPooled(sdio->s_MemPool, sizeof(struct UploadHeader) + MAX_CHUNK_LEN);
+        struct UploadHeader *upload = AllocPooled(WiFiBase->w_MemPool, sizeof(struct UploadHeader) + MAX_CHUNK_LEN);
 
         if (upload)
         {
@@ -1527,11 +1537,11 @@ static int PacketUploadCLM(struct SDIO *sdio)
                 flag &= ~DL_BEGIN;
             } while (dataLen > 0);
 
-            FreePooled(sdio->s_MemPool, upload, sizeof(struct UploadHeader) + MAX_CHUNK_LEN);
+            FreePooled(WiFiBase->w_MemPool, upload, sizeof(struct UploadHeader) + MAX_CHUNK_LEN);
         }
 
-        D(bug("[WiFi] CLM upload complete. Getting status\n"));
-        PacketGetVar(sdio, "clmload_status", NULL, 32);
+        //D(bug("[WiFi] CLM upload complete. Getting status\n"));
+        //PacketGetVar(sdio, "clmload_status", NULL, 32);
     }
     else
     {

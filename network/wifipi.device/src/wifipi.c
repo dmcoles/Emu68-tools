@@ -564,7 +564,8 @@ static int brcm_chip_dmp_get_regaddr(struct SDIO *sdio, ULONG *eromaddr, LONG *r
 
 int brcm_chip_dmp_erom_scan(struct Chip * chip)
 {
-    struct ExecBase *SysBase = chip->c_WiFiBase->w_SysBase;
+    struct WiFiBase *WiFiBase = chip->c_WiFiBase;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct SDIO * sdio = chip->c_SDIO;
     ULONG val;
     UBYTE desc_type = 0;
@@ -619,7 +620,7 @@ int brcm_chip_dmp_erom_scan(struct Chip * chip)
 
         D(bug("[WiFi] Found core with id=0x%04lx, base=0x%08lx, wrap=0x%08lx\n", id, base, wrap));
 
-        struct Core *core = AllocMem(sizeof(struct Core), MEMF_ANY);
+        struct Core *core = AllocPooled(WiFiBase->w_MemPool, sizeof(struct Core));
         if (core)
         {
             core->c_Chip = chip;
@@ -1035,7 +1036,7 @@ int chip_init(struct SDIO *sdio)
     struct Chip *chip;
 
     // Get memory for the chip structure
-    chip = AllocMem(sizeof(struct Chip), MEMF_CLEAR);
+    chip = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct Chip));
     
     D(bug("[WiFi] chip_init\n"));
 
@@ -1078,7 +1079,7 @@ int chip_init(struct SDIO *sdio)
 
     if (!sdio_buscoreprep(sdio))
     {
-        FreeMem(chip, sizeof(struct Chip));
+        FreePooled(WiFiBase->w_MemPool, chip, sizeof(struct Chip));
         return 0;
     }
 
@@ -1109,7 +1110,7 @@ int chip_init(struct SDIO *sdio)
     else
     {
         D(bug("[WiFi] SB type SOCI not supported!\n"));
-        FreeMem(chip, sizeof(struct Chip));
+        FreePooled(WiFiBase->w_MemPool, chip, sizeof(struct Chip));
         return 0;
     }
 
@@ -1121,9 +1122,9 @@ int chip_init(struct SDIO *sdio)
         struct Core *core;
         while ((core = (struct Core *)RemHead((struct List *)&chip->c_Cores)))
         {
-            FreeMem(core, sizeof(struct Core));
+            FreePooled(WiFiBase->w_MemPool, core, sizeof(struct Core));
         }
-        FreeMem(chip, sizeof(struct Chip));
+        FreePooled(WiFiBase->w_MemPool, chip, sizeof(struct Chip));
         return 0;
     }
 

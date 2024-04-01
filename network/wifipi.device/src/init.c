@@ -147,16 +147,39 @@ int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n)
 APTR AllocVecPooled(APTR pool, ULONG byteSize)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4UL;
-    ULONG *buffer = AllocPooled(pool, byteSize + 4);
-    *buffer++ = byteSize;
+    ULONG *buffer = AllocPooled(pool, byteSize + 8);
+    *buffer = byteSize + 8;
+    return &buffer[2];
+}
+
+APTR AllocVecPooledClear(APTR pool, ULONG byteSize)
+{
+    struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+    ULONG *buffer = AllocPooled(pool, byteSize + 8);
+    *buffer = byteSize + 8;
+    ULONG *clrL = buffer + 2;
+    while(byteSize >= 4) { *clrL++ = 0; byteSize -= 4; }
+    UBYTE *clrB = (APTR)clrL;
+    while(byteSize--) { *clrB++ = 0; }
+    return &buffer[2];
+}
+
+APTR AllocPooledClear(APTR pool, ULONG byteSize)
+{
+    struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+    ULONG *buffer = AllocPooled(pool, byteSize);
+    ULONG *clrL = buffer;
+    while(byteSize >= 4) { *clrL++ = 0; byteSize -= 4; }
+    UBYTE *clrB = (APTR)clrL;
+    while(byteSize--) { *clrB++ = 0; }
     return buffer;
 }
 
 void FreeVecPooled(APTR pool, APTR buf)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4UL;
-    ULONG *buffer = buf;
-    ULONG length = *--buffer;
+    ULONG *buffer = (APTR)((ULONG)buf - 8);
+    ULONG length = *buffer;
     FreePooled(pool, buffer, length);
 }
 
@@ -169,7 +192,7 @@ BOOL LoadFirmware(struct Chip *chip)
     APTR buffer = NULL;
 
     /* Firmware name shall never exceed total size of 256 bytes */
-    STRPTR path = AllocVec(256, MEMF_CLEAR);
+    STRPTR path = AllocVecPooled(WiFiBase->w_MemPool, 256);
     
     D(bug("[WiFi] Trying to match firmware files for chip ID %04lx rev %lx\n", chip->c_ChipID, chip->c_ChipREV));
 
@@ -229,7 +252,7 @@ BOOL LoadFirmware(struct Chip *chip)
 
                     D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->binFile, size));
                     allocSize = size;
-                    buffer = AllocMem(allocSize, MEMF_ANY);
+                    buffer = AllocPooled(WiFiBase->w_MemPool, allocSize);
                     if (buffer == NULL)
                     {
                         Close(file);
@@ -240,14 +263,14 @@ BOOL LoadFirmware(struct Chip *chip)
                     {
                         D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
                         Close(file);
-                        FreeMem(buffer, size);
+                        FreePooled(WiFiBase->w_MemPool, buffer, size);
                         return FALSE;
                     }
                     Close(file);
 
                     /* Upload firmware to the WiFi module */
 
-                    chip->c_FirmwareBase = AllocMem(size, MEMF_PUBLIC);
+                    chip->c_FirmwareBase = AllocPooled(WiFiBase->w_MemPool, size);
                     CopyMem(buffer, chip->c_FirmwareBase, size);
                     chip->c_FirmwareSize = size;
 
@@ -271,9 +294,9 @@ BOOL LoadFirmware(struct Chip *chip)
                         D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->clmFile, size));
                         if ((ULONG)size > allocSize)
                         {
-                            FreeMem(buffer, allocSize);
+                            FreePooled(WiFiBase->w_MemPool, buffer, allocSize);
                             allocSize = size;
-                            buffer = AllocMem(size, MEMF_ANY);
+                            buffer = AllocPooled(WiFiBase->w_MemPool, size);
                         }
                         
                         if (buffer == NULL)
@@ -286,14 +309,14 @@ BOOL LoadFirmware(struct Chip *chip)
                         {
                             D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
                             Close(file);
-                            FreeMem(buffer, size);
+                            FreePooled(WiFiBase->w_MemPool, buffer, size);
                             return FALSE;
                         }
                         Close(file);
 
                         /* Upload firmware to the WiFi module */
 
-                        chip->c_CLMBase = AllocMem(size, MEMF_PUBLIC);
+                        chip->c_CLMBase = AllocPooled(WiFiBase->w_MemPool, size);
                         CopyMem(buffer, chip->c_CLMBase, size);
                         chip->c_CLMSize = size;
                     }
@@ -316,9 +339,9 @@ BOOL LoadFirmware(struct Chip *chip)
                     D(bug("[WiFi] Firmware %s file size: %ld bytes\n", (ULONG)fw->txtFile, size));
                     if ((ULONG)size > allocSize)
                     {
-                        FreeMem(buffer, allocSize);
+                        FreePooled(WiFiBase->w_MemPool, buffer, allocSize);
                         allocSize = size;
-                        buffer = AllocMem(size, MEMF_ANY);
+                        buffer = AllocPooled(WiFiBase->w_MemPool, size);
                     }
                     
                     if (buffer == NULL)
@@ -331,7 +354,7 @@ BOOL LoadFirmware(struct Chip *chip)
                     {
                         D(bug("[WiFi] Something went wrong when reading WiFi firmware\n"));
                         Close(file);
-                        FreeMem(buffer, size);
+                        FreePooled(WiFiBase->w_MemPool, buffer, size);
                         return FALSE;
                     }
                     Close(file);
@@ -398,13 +421,13 @@ BOOL LoadFirmware(struct Chip *chip)
 
                     /* Upload NVRAM to WiFi module */
                     
-                    chip->c_ConfigBase = AllocMem(dst_pos, MEMF_PUBLIC);
+                    chip->c_ConfigBase = AllocPooled(WiFiBase->w_MemPool, dst_pos);
                     CopyMem(buffer, chip->c_ConfigBase, dst_pos);
                     chip->c_ConfigSize = dst_pos;
 
                     /* Get rid of temporary buffer */
-                    FreeMem(buffer, size);
-                    FreeVec(path);
+                    FreePooled(WiFiBase->w_MemPool, buffer, size);
+                    FreeVecPooled(WiFiBase->w_MemPool, path);
                     
                     return TRUE;
                 }
@@ -493,7 +516,7 @@ void ParseConfig(struct WiFiBase *WiFiBase)
                             break;
                         }
                     }
-                    WiFiBase->w_NetworkConfig.nc_SSID = AllocVec(len + 1, MEMF_CLEAR);
+                    WiFiBase->w_NetworkConfig.nc_SSID = AllocVecPooled(WiFiBase->w_MemPool, len + 1);
                     CopyMem(config, WiFiBase->w_NetworkConfig.nc_SSID, len);
                     state = S_WAITING_FOR_KEY;
                     break;
@@ -509,7 +532,7 @@ void ParseConfig(struct WiFiBase *WiFiBase)
                             break;
                         }
                     }
-                    WiFiBase->w_NetworkConfig.nc_PSK = AllocVec(len + 1, MEMF_CLEAR);
+                    WiFiBase->w_NetworkConfig.nc_PSK = AllocVecPooled(WiFiBase->w_MemPool, len + 1);
                     CopyMem(config, WiFiBase->w_NetworkConfig.nc_PSK, len);
                     state = S_WAITING_FOR_KEY;
                     break;
@@ -581,18 +604,23 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
     D(bug("[WiFi] WiFi_Init(%08lx, %08lx, %08lx)\n", (ULONG)base, seglist, (ULONG)SysBase));
 
+    /* Create mem pool for internal use */
+    WiFiBase->w_MemPool = CreatePool(MEMF_ANY, 16384, 4096);
+
     WiFiBase->w_SegList = seglist;
     WiFiBase->w_SysBase = SysBase;
     WiFiBase->w_UtilityBase = OpenLibrary("utility.library", 0);
     WiFiBase->w_Device.dd_Library.lib_Revision = WIFIPI_REVISION;
     
-    WiFiBase->w_RequestOrig = AllocMem(512, MEMF_CLEAR);
+    WiFiBase->w_RequestOrig = AllocPooled(WiFiBase->w_MemPool, 512);
     WiFiBase->w_Request = (APTR)(((ULONG)WiFiBase->w_RequestOrig + 31) & ~31);
 
     WiFiBase->w_DeviceTreeBase = DeviceTreeBase = OpenResource("devicetree.resource");
 
     NewMinList(&WiFiBase->w_NetworkList);
     InitSemaphore(&WiFiBase->w_NetworkListLock);
+
+
 
     if (DeviceTreeBase)
     {
@@ -824,7 +852,7 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
             if (GetVar("SYS/Wireless.prefs", buffer, 4, 0) > 0)
             {
                 ULONG requiredLength = IoErr();
-                UBYTE *config = AllocMem(requiredLength + 1, MEMF_ANY);
+                UBYTE *config = AllocPooled(WiFiBase->w_MemPool, requiredLength + 1);
                 GetVar("SYS/Wireless.prefs", config, requiredLength + 1, 0);
                 WiFiBase->w_NetworkConfigVar = config;
                 WiFiBase->w_NetworkConfigLength = requiredLength;
@@ -845,7 +873,7 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
             {
                 struct WiFiUnit *unit; 
                 StartPacketReceiver(sdio);
-                unit = AllocPooled(WiFiBase->w_SDIO->s_MemPool, sizeof(struct WiFiUnit));
+                unit = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct WiFiUnit));
                 unit->wu_Base = WiFiBase;
                 unit->wu_Unit.unit_MsgPort;
 

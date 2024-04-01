@@ -831,14 +831,11 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     D(bug("[WiFi] SDIO init\n"));
 
     /* Allocate memory for SDIO structure */
-    sdio = AllocMem(sizeof(struct SDIO), MEMF_PUBLIC | MEMF_CLEAR);
+    sdio = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct SDIO));
     if (sdio == NULL)
         return NULL;
 
     InitSemaphore(&sdio->s_Lock);
-
-    /* Create mem pool for internal use */
-    sdio->s_MemPool = CreatePool(MEMF_CLEAR, 16384, 4096);
 
     /* Put few functions into the struct */
     sdio->IsError = is_error;
@@ -859,8 +856,8 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     sdio->s_WiFiBase = WiFiBase;
     sdio->s_SysBase = SysBase;
 
-    sdio->s_TXBuffer = AllocMem(4096, MEMF_PUBLIC);
-    sdio->s_RXBuffer = AllocMem(4096, MEMF_PUBLIC);
+    sdio->s_TXBuffer = AllocPooled(WiFiBase->w_MemPool, 4096);
+    sdio->s_RXBuffer = AllocPooled(WiFiBase->w_MemPool, 4096);
 
     ULONG ver = rd32(WiFiBase->w_SDIOBase, EMMC_SLOTISR_VER);
     ULONG vendor = ver >> 24;
@@ -879,7 +876,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     if((rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1) & (7 << 24)) != 0)
     {
         D(bug("[WiFi]   controller did not reset properly\n"));
-        FreeMem(sdio, sizeof(struct SDIO));
+        FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
         return NULL;
     }
 
@@ -893,7 +890,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     if((status_reg & (1 << 16)) == 0)
     {
         D(bug("[WiFi]   no SDIO connected?\n"));
-        FreeMem(sdio, sizeof(struct SDIO));
+        FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
         return NULL;
     }
 
@@ -916,7 +913,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     if((rd32(WiFiBase->w_SDIOBase, EMMC_CONTROL1) & 0x2) == 0)
     {
         D(bug("[WiFI]   controller's clock did not stabilise within 1 second\n"));
-        FreeMem(sdio, sizeof(struct SDIO));
+        FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
         return NULL;
     }
 
@@ -954,7 +951,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     if(FAIL(sdio))
     {
         D(bug("[WiFi] SDIO: no CMD0 response\n"));
-        FreeMem(sdio, sizeof(struct SDIO));
+        FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
         return NULL;
     }
 
@@ -971,7 +968,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     {
         if(reset_cmd(sdio) == -1)
         {
-            FreeMem(sdio, sizeof(struct SDIO));
+            FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
             return NULL;
         }
 
@@ -981,7 +978,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     else if(FAIL(sdio))
     {
         D(bug("[WiFi] failure sending CMD8 (%08lx)\n", sdio->s_LastInterrupt));
-        FreeMem(sdio, sizeof(struct SDIO));
+        FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
         return NULL;
     }
     else
@@ -990,7 +987,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
         {
             D(bug("[WiFi] unusable card\n"));
             D(bug("[WiFi] CMD8 response %08lx\n", sdio->s_Res0));
-            FreeMem(sdio, sizeof(struct SDIO));
+            FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
             return NULL;
         }
         else
@@ -1006,13 +1003,13 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
         {
             if(reset_cmd(sdio) == -1)
             {
-                FreeMem(sdio, sizeof(struct SDIO));
+                FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
                 return NULL;
             }
             wr32(sdio->s_SDIO, EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
             D(bug("[WiFi] Not a SDIO card - aborting\n"));
 
-            FreeMem(sdio, sizeof(struct SDIO));
+            FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
             return NULL;
         }
         else
@@ -1029,7 +1026,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
         {
             if(reset_cmd(sdio) == -1)
             {
-                FreeMem(sdio, sizeof(struct SDIO));
+                FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
                 return NULL;
             }
             wr32(sdio->s_SDIO, EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
@@ -1049,7 +1046,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     if(FAIL(sdio))
     {
         D(bug("[WiFi] error sending SEND_RELATIVE_ADDR\n"));
-        FreeMem(sdio, sizeof(struct SDIO));
+        FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
         return NULL;
     }
 

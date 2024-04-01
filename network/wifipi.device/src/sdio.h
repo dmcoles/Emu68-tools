@@ -270,8 +270,6 @@ struct SDIO {
     struct Task *       s_ReceiverTask;
     struct MsgPort *    s_ReceiverPort;
 
-    APTR                s_MemPool;
-
     struct SignalSemaphore s_Lock;
     APTR                s_SDIO;
     ULONG               s_CardRCA;

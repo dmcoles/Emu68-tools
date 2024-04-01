@@ -44,6 +44,7 @@ struct WiFiBase
     APTR                w_MailBox;
     APTR                w_GPIOBase;
     APTR                w_RequestOrig;
+    APTR                w_MemPool;
     ULONG *             w_Request;
     ULONG               w_SDIOClock;
     struct SDIO *       w_SDIO;
@@ -241,9 +242,10 @@ STRPTR _strncpy(STRPTR dst, CONST_STRPTR src, ULONG len);
 STRPTR _strcpy(STRPTR dst, CONST_STRPTR src);
 int _strcmp(CONST_STRPTR s1, CONST_STRPTR s2);
 int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n);
-void StartUnit(struct WiFiUnit *unit);
 void StartuUnitTask(struct WiFiUnit *unit);
 void HandleRequest(struct IOSana2Req *io);
+APTR AllocPooledClear(APTR pool, ULONG byteSize);
+APTR AllocVecPooledClear(APTR pool, ULONG byteSize);
 APTR AllocVecPooled(APTR pool, ULONG byteSize);
 void FreeVecPooled(APTR pool, APTR buf);
 
