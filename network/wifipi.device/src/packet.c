@@ -747,6 +747,8 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             // Repeat until we run out of the messages
             while(msg = (struct PacketMessage *)GetMsg(ctrl))
             {
+                D(bug("[WiFi] Got CTL message, pushing it out\n"));
+
                 // Put message in the control wait list
                 AddTail((struct List*)&ctrlWaitList, &msg->pm_Message.mn_Node);
 
@@ -799,6 +801,8 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                         {
                             sdio->RecvPKT(&buffer[PACKET_INITIAL_FETCH_SIZE], pktLen - PACKET_INITIAL_FETCH_SIZE, sdio);
                         }
+
+                        PacketDump(sdio, buffer, "WiFi.IN");
 
                         switch(pkt->c_ChannelFlag)
                         {
@@ -1325,7 +1329,7 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
 
     totalLen += varSize;
 
-    mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
+    mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
     pkt = (APTR)&mpkt->pm_Packet[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
@@ -1379,7 +1383,7 @@ void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, 
 
     totalLen += varSize;
 
-    pkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
+    pkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
 
     struct Packet *p = (struct Packet *)&pkt[0];
     struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
@@ -1428,7 +1432,7 @@ int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
     ULONG error_code = 0;
 
-    mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
+    mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
     pkt = (APTR)&mpkt->pm_Packet[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
@@ -1478,7 +1482,7 @@ void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
     ULONG error_code = 0;
 
-    pkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
+    pkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
     
     struct Packet *p = (struct Packet *)&pkt[0];
     struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
@@ -1519,7 +1523,7 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
         ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
         error_code = 0;
 
-        mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
+        mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
         pkt = (APTR)&mpkt->pm_Packet[0];
 
         mpkt->pm_Message.mn_ReplyPort = port;
@@ -1583,7 +1587,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
     else
         totalLen += getSize;
 
-    mpkt = AllocPooled(WiFiBase->w_MemPool, totalLen);
+    mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
     pkt = (APTR)&mpkt->pm_Packet[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
@@ -1611,7 +1615,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
 
     CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
     
-//    PacketDump(sdio, p, "WiFi");
+    PacketDump(sdio, p, "WiFi.OUT");
 
     PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
     WaitPort(port);
@@ -1832,18 +1836,20 @@ void StartPacketReceiver(struct SDIO *sdio)
     AddTask(task, entry, NULL);
     Wait(SIGBREAKF_CTRL_C);
 
-//    StartScannerTask(sdio);
+    //StartScannerTask(sdio);
 
     if (sdio->s_ReceiverTask)
         D(bug("[WiFi] Packet receiver up and running\n"));
     else
         D(bug("[WiFi] Packet receiver not started!\n"));
+
 #if 0
-    PacketGetVar(sdio, "cur_etheraddr", sdio->s_HWAddr, 6);
+    UBYTE s_HWAddr[6];
+    PacketGetVar(sdio, "cur_etheraddr", s_HWAddr, 6);
 
     D(bug("[WiFi] Ethernet addr: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
-        sdio->s_HWAddr[0], sdio->s_HWAddr[1], sdio->s_HWAddr[2],
-        sdio->s_HWAddr[3], sdio->s_HWAddr[4], sdio->s_HWAddr[5]));
+        s_HWAddr[0], s_HWAddr[1], s_HWAddr[2],
+        s_HWAddr[3], s_HWAddr[4], s_HWAddr[5]));
 
     ULONG d11Type = 0;
     static const char * const types[]= { "UNKNOWN", "N", "AC" };

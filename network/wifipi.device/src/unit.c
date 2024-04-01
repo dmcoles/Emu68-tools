@@ -14,14 +14,17 @@
 #if defined(__INTELLISENSE__)
 #include <clib/exec_protos.h>
 #include <clib/utility_protos.h>
+#include <clib/dos_protos.h>
 #else
 #include <proto/exec.h>
 #include <proto/utility.h>
+#include <proto/dos.h>
 #endif
 
 #include <stdint.h>
 
 #include "wifipi.h"
+#include "packet.h"
 
 #define D(x) x
 #define UNIT_STACK_SIZE (32768 / sizeof(ULONG))
@@ -35,6 +38,8 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     struct timerequest *tr;
     ULONG scanDelay = 10;
     ULONG sigset;
+
+    D(bug("[WiFi.0] Unit task starting\n"));
 
     port = CreateMsgPort();
     tr = (struct timerequest *)CreateIORequest(port, sizeof(struct timerequest));
@@ -138,6 +143,41 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     DeleteMsgPort(unit->wu_CmdQueue);
 }
 
+void StartUnit(struct WiFiUnit *unit)
+{
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    if (WiFiBase->w_DosBase)
+    {
+        struct Library *DOSBase = (struct Library *)WiFiBase->w_DosBase;
+
+        LONG confLen = 4;
+        UBYTE buffer[4];
+
+        /* Get the variable into a too small buffer. Required length will be returned in IoErr() */
+        if (GetVar("SYS/Wireless.prefs", buffer, 4, GVF_BINARY_VAR) > 0)
+        {
+            ULONG requiredLength = IoErr();
+            UBYTE *config = AllocPooled(WiFiBase->w_MemPool, requiredLength + 1);
+            GetVar("SYS/Wireless.prefs", config, requiredLength + 1, GVF_BINARY_VAR);
+            WiFiBase->w_NetworkConfigVar = config;
+            WiFiBase->w_NetworkConfigLength = requiredLength;
+            ParseConfig(WiFiBase);
+        }
+    }
+
+    PacketGetVar(WiFiBase->w_SDIO, "cur_etheraddr", unit->wu_OrigEtherAddr, 6);
+
+    D(bug("[WiFi.0] Ethernet addr: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
+        unit->wu_OrigEtherAddr[0], unit->wu_OrigEtherAddr[1], unit->wu_OrigEtherAddr[2],
+        unit->wu_OrigEtherAddr[3], unit->wu_OrigEtherAddr[4], unit->wu_OrigEtherAddr[5]));
+
+    CopyMem(unit->wu_OrigEtherAddr, unit->wu_EtherAddr, 6);
+
+    unit->wu_Flags |= IFF_STARTED;
+}
+
 void StartUnitTask(struct WiFiUnit *unit)
 {
     struct WiFiBase *WiFiBase = unit->wu_Base;
@@ -188,8 +228,6 @@ void StartUnitTask(struct WiFiUnit *unit)
     Wait(SIGBREAKF_CTRL_F);
 }
 
-
-
 static const UWORD WiFi_SupportedCommands[] = {
     //CMD_FLUSH,
     //CMD_READ,
@@ -231,8 +269,13 @@ static const UWORD WiFi_SupportedCommands[] = {
 
 static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
 {
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->io_Unit;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
     struct NSDeviceQueryResult *dq;
     dq = io->io_Data;
+
+    D(bug("[WiFi.0] NSCMD_DEVICEQUERY\n"));
 
     /* Fill out structure */
     dq->nsdqr_DeviceType = NSDEVTYPE_SANA2;
@@ -250,6 +293,8 @@ static int Do_S2_ADDMULTICASTADDRESSES(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    D(bug("[WiFi.0] S2_ADDMULTICASTADDRESS%s\n", (ULONG)(io->ios2_Req.io_Command == S2_ADDMULTICASTADDRESSES ? "ES":"")));
 
     struct MulticastRange *range;
     uint64_t lower_bound, upper_bound;
@@ -291,6 +336,8 @@ static int Do_S2_DELMULTICASTADDRESSES(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    D(bug("[WiFi.0] S2_DELMULTICASTADDRESS%s\n", (ULONG)(io->ios2_Req.io_Command == S2_DELMULTICASTADDRESSES ? "ES":"")));
 
     struct MulticastRange *range;
     uint64_t lower_bound, upper_bound;
@@ -339,6 +386,8 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
     CONST_STRPTR only_this_ssid = (CONST_STRPTR)GetTagData(S2INFO_SSID, 0, tags);
     struct TagItem **replyList = NULL;
     ULONG networkCount = 0;
+
+    D(bug("[WiFi.0] S2_GETNETWORKS\n"));
 
     ObtainSemaphore(&WiFiBase->w_NetworkListLock);
 
@@ -435,8 +484,13 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
 
 int Do_S2_DEVICEQUERY(struct IOSana2Req *io)
 {
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct Sana2DeviceQuery *info = io->ios2_StatData;
     ULONG size;
+
+    D(bug("[WiFi.0] S2_DEVICEQUERY\n"));
 
     size = info->SizeAvailable;
     if (size < sizeof(*info))
@@ -458,6 +512,10 @@ int Do_S2_DEVICEQUERY(struct IOSana2Req *io)
 static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
 {
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    D(bug("[WiFi.0] S2_CONFIGINTERFACE\n"));
 
     if (unit->wu_Flags & IFF_CONFIGURED)
     {
@@ -511,13 +569,15 @@ void HandleRequest(struct IOSana2Req *io)
                 break;
         
             case S2_GETSTATIONADDRESS:
-                CopyMem(sdio->s_HWAddr, io->ios2_DstAddr, 6);
-                CopyMem(sdio->s_HWAddr, io->ios2_SrcAddr, 6);
+                D(bug("[WiFi.0] S2_GETSTATIONADDRESS\n"));
+                CopyMem(unit->wu_OrigEtherAddr, io->ios2_DstAddr, 6);
+                CopyMem(unit->wu_EtherAddr, io->ios2_SrcAddr, 6);
                 io->ios2_Req.io_Error = 0;
                 complete = 1;
                 break;
 
             case S2_GETGLOBALSTATS:
+                D(bug("[WiFi.0] S2_GETGLOBALSTATS\n"));
                 CopyMem(&unit->wu_Stats, io->ios2_StatData, sizeof(struct Sana2DeviceStats));
                 io->ios2_Req.io_Error = 0;
                 complete = 1;
@@ -538,6 +598,7 @@ void HandleRequest(struct IOSana2Req *io)
                 break;
 
             default:
+                D(bug("[WiFi.0] Unknown command %ld\n", io->ios2_Req.io_Command));
                 io->ios2_Req.io_Error = IOERR_NOCMD;
                 complete = 1;
                 break;

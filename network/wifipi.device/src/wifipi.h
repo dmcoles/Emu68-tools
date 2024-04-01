@@ -190,6 +190,7 @@ struct Opener
 #define IFF_DYNAMIC     0x8000          /* dialup device with changing addresses*/
 #define IFF_SHARED      0x10000         /* interface may be shared */
 #define IFF_CONFIGURED  0x20000         /* interface already configured */
+#define IFF_STARTED     0x40000         /* interface already started */
 
 static inline __attribute__((always_inline)) void putch(REGARG(UBYTE data, "d0"), REGARG(APTR ignore, "a3"))
 {
@@ -251,6 +252,7 @@ STRPTR _strncpy(STRPTR dst, CONST_STRPTR src, ULONG len);
 STRPTR _strcpy(STRPTR dst, CONST_STRPTR src);
 int _strcmp(CONST_STRPTR s1, CONST_STRPTR s2);
 int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n);
+void StartUnit(struct WiFiUnit *unit);
 void StartUnitTask(struct WiFiUnit *unit);
 void HandleRequest(struct IOSana2Req *io);
 APTR AllocPooledClear(APTR pool, ULONG byteSize);
@@ -258,5 +260,6 @@ APTR AllocVecPooledClear(APTR pool, ULONG byteSize);
 APTR AllocVecPooled(APTR pool, ULONG byteSize);
 void FreeVecPooled(APTR pool, APTR buf);
 void ProcessDataPacket(struct SDIO *, UBYTE *, ULONG);
+void ParseConfig(struct WiFiBase *WiFiBase);
 
 #endif

@@ -122,7 +122,7 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
     BYTE error=0;
     int i;
 
-    D(bug("[WiFi] WiFiOpen(%08lx, %ld, %lx)\n", (ULONG)io, unitNumber, flags));
+    D(bug("[WiFi] WiFi_Open(%08lx, %ld, %lx)\n", (ULONG)io, unitNumber, flags));
 
     if (unitNumber != 0)
     {
@@ -213,7 +213,13 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
         Enable();
 
         /* Start unit here? */
+        if (!(unit->wu_Flags & IFF_STARTED))
+        {
+            StartUnit(unit);
+        }
     }
+
+    D(bug("[WiFi] WiFi_Open ends with status %ld\n", error));
 
     io->ios2_Req.io_Error = error;
 }
