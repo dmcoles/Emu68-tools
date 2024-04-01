@@ -4,8 +4,6 @@
 #include <exec/io.h>
 #include <devices/timer.h>
 
-#include <proto/exec.h>
-
 #include "d11.h"
 
 /*

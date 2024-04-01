@@ -1,9 +1,15 @@
 #include <exec/devices.h>
 #include <exec/execbase.h>
 #include <dos/dos.h>
+#if defined(__INTELLISENSE__)
+#include <clib/exec_protos.h>
+#include <clib/devicetree_protos.h>
+#include <clib/dos_protos.h>
+#else
 #include <proto/exec.h>
 #include <proto/devicetree.h>
 #include <proto/dos.h>
+#endif
 
 #include "wifipi.h"
 #include "sdio.h"

@@ -13,9 +13,11 @@
 #include <exec/io.h>
 #include <exec/errors.h>
 
+#if defined(__INTELLISENSE__)
+#include <clib/exec_protos.h>
+#else
 #include <proto/exec.h>
-#include <proto/expansion.h>
-#include <proto/devicetree.h>
+#endif
 
 #include <libraries/configregs.h>
 #include <libraries/configvars.h>

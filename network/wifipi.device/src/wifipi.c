@@ -2,7 +2,11 @@
 #include <exec/lists.h>
 #include <exec/nodes.h>
 
+#if defined(__INTELLISENSE__)
+#include <clib/exec_protos.h>
+#else
 #include <proto/exec.h>
+#endif
 
 #include "wifipi.h"
 #include "sdio.h"

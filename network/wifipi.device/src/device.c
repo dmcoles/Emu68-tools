@@ -10,8 +10,13 @@
 #include <devices/sana2specialstats.h>
 #include <devices/newstyle.h>
 
+#if defined(__INTELLISENSE__)
+#include <clib/exec_protos.h>
+#include <clib/utility_protos.h>
+#else
 #include <proto/exec.h>
 #include <proto/utility.h>
+#endif
 
 #include <stdint.h>
 
@@ -32,8 +37,8 @@ const struct Resident RomTag __attribute__((used)) = {
     WIFIPI_VERSION,
     NT_DEVICE,
     WIFIPI_PRIORITY,
-    (char *)((intptr_t)&deviceName),
-    (char *)((intptr_t)&deviceIdString),
+    (APTR)deviceName,
+    (APTR)deviceIdString,
     (APTR)InitTable,
 };
 

@@ -11,8 +11,13 @@
 #include <devices/sana2wireless.h>
 #include <devices/newstyle.h>
 
+#if defined(__INTELLISENSE__)
+#include <clib/exec_protos.h>
+#include <clib/utility_protos.h>
+#else
 #include <proto/exec.h>
 #include <proto/utility.h>
+#endif
 
 #include <stdint.h>
 

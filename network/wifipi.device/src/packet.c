@@ -4,7 +4,11 @@
 #include <exec/io.h>
 #include <devices/timer.h>
 
+#if defined(__INTELLISENSE__)
+#include <clib/exec_protos.h>
+#else
 #include <proto/exec.h>
+#endif
 
 #include "d11.h"
 #include "sdio.h"
