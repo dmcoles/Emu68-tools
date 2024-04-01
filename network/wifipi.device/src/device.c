@@ -248,61 +248,6 @@ ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
     return 0;
 }
 
-static const UWORD WiFi_SupportedCommands[] = {
-    CMD_FLUSH,
-    CMD_READ,
-    CMD_UPDATE,
-    CMD_WRITE,
-
-    // S2_DEVICEQUERY,
-    S2_GETSTATIONADDRESS,
-    // S2_CONFIGINTERFACE,
-    // S2_ADDMULTICASTADDRESS,
-    // S2_DELMULTICASTADDRESS,
-    // S2_MULTICAST,
-    // S2_BROADCAST,
-    // S2_TRACKTYPE,
-    // S2_UNTRACKTYPE,
-    // S2_GETTYPESTATS,
-//    S2_GETSPECIALSTATS,
-    S2_GETGLOBALSTATS,
-    //S2_ONEVENT,
-    //S2_READORPHAN,
-    //S2_ONLINE,
-    //S2_OFFLINE,
-    //S2_ADDMULTICASTADDRESSES,
-    //S2_DELMULTICASTADDRESSES,
-
-
-    NSCMD_DEVICEQUERY,
-    0
-};
-
-#if 0
- 
-static BOOL CmdDeviceQuery(LIBBASETYPEPTR LIBBASE, struct IOStdReq *request)
-{
-    struct NSDeviceQueryResult *info;
-
-    /* Set structure size twice */
-
-    info = request->io_Data;
-    request->io_Actual = info->SizeAvailable =
-        offsetof(struct NSDeviceQueryResult, SupportedCommands) + sizeof(APTR);
-
-    /* Report device details */
-
-    info->DeviceType = NSDEVTYPE_SANA2;
-    info->DeviceSubType = 0;
-
-    info->SupportedCommands = (APTR)supported_commands;
-
-    /* Return */
-
-    return TRUE;
-}
-#endif
-
 void WiFi_BeginIO(struct IOSana2Req * io asm("a1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
@@ -310,52 +255,17 @@ void WiFi_BeginIO(struct IOSana2Req * io asm("a1"))
     struct SDIO *sdio = WiFiBase->w_SDIO;
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
 
-    /* NSCMD_DEVICEQUERY works always and is quick */
-    if (io->ios2_Req.io_Command == NSCMD_DEVICEQUERY)
+    // Try to do the request directly by obtaining the lock, otherwise put in unit's CMD queue
+    if (AttemptSemaphore(&unit->wu_Lock))
     {
-        struct NSDeviceQueryResult *dq;
-        struct IOStdReq *std = (struct IOStdReq *)io;
-        dq = std->io_Data;
-
-        /* Set quick flag */
-        io->ios2_Req.io_Flags |= IOF_QUICK;
-
-        /* Fill out structure */
-        dq->DeviceType = NSDEVTYPE_SANA2;
-        dq->DeviceSubType = 0;
-        dq->SupportedCommands = (UWORD*)WiFi_SupportedCommands;
-        std->io_Actual = sizeof(struct NSDeviceQueryResult) + sizeof(APTR);
-        dq->SizeAvailable = std->io_Actual;
-        std->io_Error = 0;
-    }
-    else if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOSana2Req))
-    {
-        // All CMDs but NSCMD_DEVICEQUERY must have proper length!
-        io->ios2_Req.io_Error = IOERR_BADLENGTH;
+        HandleRequest(io);
+        ReleaseSemaphore(&unit->wu_Lock);
     }
     else
     {
-        int command_done = 0;
-
-        switch (io->ios2_Req.io_Command)
-        {
-            case S2_GETSTATIONADDRESS:
-                CopyMem(sdio->s_HWAddr, io->ios2_DstAddr, 6);
-                CopyMem(sdio->s_HWAddr, io->ios2_SrcAddr, 6);
-                io->ios2_Req.io_Error = 0;
-                command_done = 1;
-                break;
-
-            case S2_GETGLOBALSTATS:
-                CopyMem(&sdio->s_Stats, io->ios2_StatData, sizeof(struct Sana2DeviceStats));
-                io->ios2_Req.io_Error = 0;
-                command_done = 1;
-                break;
-
-            default:
-                io->ios2_Req.io_Error = IOERR_NOCMD;
-                return;
-        }
+        /* Unit was busy, remove QUICK flag so that Exec will wait for completion properly */
+        io->ios2_Req.io_Flags &= ~IOF_QUICK;
+        PutMsg(unit->wu_CmdQueue, (struct Message *)io);
     }
 }
 

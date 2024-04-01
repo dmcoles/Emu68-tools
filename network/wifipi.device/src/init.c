@@ -136,6 +136,22 @@ int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n)
 	return (*(const unsigned char *)s1 - *(const unsigned char *)(s2 - 1));
 }
 
+APTR AllocVecPooled(APTR pool, ULONG byteSize)
+{
+    struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+    ULONG *buffer = AllocPooled(pool, byteSize + 4);
+    *buffer++ = byteSize;
+    return buffer;
+}
+
+void FreeVecPooled(APTR pool, APTR buf)
+{
+    struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+    ULONG *buffer = buf;
+    ULONG length = *--buffer;
+    FreePooled(pool, buffer, length);
+}
+
 BOOL LoadFirmware(struct Chip *chip)
 {
     struct WiFiBase *WiFiBase = chip->c_WiFiBase;
@@ -393,6 +409,136 @@ BOOL LoadFirmware(struct Chip *chip)
     }
 
     return FALSE;
+}
+
+void ParseConfig(struct WiFiBase *WiFiBase)
+{
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    UBYTE *config = WiFiBase->w_NetworkConfigVar;
+    LONG remaining = WiFiBase->w_NetworkConfigLength;
+    ULONG len;
+    enum {
+        S_WAITING_FOR_START,
+        S_WAITING_FOR_KEY,
+        S_SSID,
+        S_KEY_MGMT,
+        S_PSK,
+        S_DONE,
+        S_ERROR,
+    } state = S_WAITING_FOR_START;
+    D(bug("[WiFi] ParseConfig\n"));
+
+    while (remaining > 0 && state != S_DONE && state != S_ERROR)
+    {
+        // Skip empty lines and whitespace, but only if waiting for key or start
+        if ((state == S_WAITING_FOR_KEY || state == S_WAITING_FOR_START) &&
+            (*config == '\n' || *config == '\t' || *config == ' ' || *config == '\t'))
+        {
+            config++;
+            remaining--;
+        }
+        else
+        {
+            switch (state)
+            {
+                case S_WAITING_FOR_START:
+                    if (_strcmp("network={", config) == 0)
+                    {
+                        state = S_WAITING_FOR_KEY;
+                        config += 9;
+                        remaining -= 9;
+                    }
+                    break;
+                
+                case S_WAITING_FOR_KEY:
+                    if (*config == '}')
+                    {
+                        state = S_DONE;
+                    }
+                    else if (_strcmp("ssid=\"", config) == 0)
+                    {
+                        state = S_SSID;
+                    }
+                    else if (_strcmp("psk=\"", config) == 0)
+                    {
+                        state = S_PSK;
+                    }
+                    else if (_strcmp("key_mgmt=", config) == 0)
+                    {
+                        state = S_KEY_MGMT;
+                    }
+                    else
+                    {
+                        bug("[WiFi] Unknown character sequence found: '%s'\n", (ULONG)config);
+                        state = S_ERROR;
+                    }
+                    break;
+                
+                case S_SSID:
+                    // Get length of SSID. Break with error if \n, \r or \t is found
+                    for (len=0; config[len] != '"'; len++)
+                    {
+                        if (config[len] == '\n' || config[len] == '\r' || config[len] == '\t')
+                        {
+                            D(bug("[WiFi] Illegal character found in SSID\n"));
+                            state = S_ERROR;
+                            break;
+                        }
+                    }
+                    WiFiBase->w_NetworkConfig.nc_SSID = AllocVec(len + 1, MEMF_CLEAR);
+                    CopyMem(config, WiFiBase->w_NetworkConfig.nc_SSID, len);
+                    state = S_WAITING_FOR_KEY;
+                    break;
+                
+                case S_PSK:
+                    // Get length of PSK. Break with error if \n, \r or \t is found
+                    for (len=0; config[len] != '"'; len++)
+                    {
+                        if (config[len] == '\n' || config[len] == '\r' || config[len] == '\t')
+                        {
+                            D(bug("[WiFi] Illegal character found in PSK\n"));
+                            state = S_ERROR;
+                            break;
+                        }
+                    }
+                    WiFiBase->w_NetworkConfig.nc_PSK = AllocVec(len + 1, MEMF_CLEAR);
+                    CopyMem(config, WiFiBase->w_NetworkConfig.nc_PSK, len);
+                    state = S_WAITING_FOR_KEY;
+                    break;
+                
+                case S_KEY_MGMT:
+                    if (_strcmp("NONE", config) == 0)
+                    {
+                        WiFiBase->w_NetworkConfig.nc_Open = TRUE;
+                        state = S_WAITING_FOR_KEY;
+                    }
+                    else
+                    {
+                        D(bug("[WiFi] Error parsing key_mgmt\n"));
+                        state = S_ERROR;
+                    }
+                    break;
+            }
+        }
+    }
+
+    if (state != S_DONE && state != S_ERROR)
+    {
+        D(bug("[WiFi] Config parsing ended with illegal state %ld\n", state));
+    }
+    else
+    {
+        D(bug("[WiFi] Parse OK. Configured network:\n"));
+        if (WiFiBase->w_NetworkConfig.nc_SSID)
+        {
+            D(bug("[WiFi]   SSID='%s'\n", (ULONG)WiFiBase->w_NetworkConfig.nc_SSID));
+        }
+        if (WiFiBase->w_NetworkConfig.nc_SSID)
+        {
+            D(bug("[WiFi]   PSK='%s'\n", (ULONG)WiFiBase->w_NetworkConfig.nc_SSID));
+        }
+        D(bug("[WiFi]   Open network=%s", (ULONG)(WiFiBase->w_NetworkConfig.nc_Open ? "YES" : "NO")));
+    }
 }
 
 /*
@@ -661,6 +807,18 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
             struct Library *DOSBase = (struct Library *)WiFiBase->w_DosBase;
 
             D(bug("[WiFi] I'm a process, DosBase=%08lx\n", (ULONG)WiFiBase->w_DosBase));
+
+            LONG confLen = 4;
+            UBYTE buffer[4];
+
+            /* Get the variable into a too small buffer. Required length will be returned in IoErr() */
+            if (GetVar("SYS/Wireless.prefs", buffer, 4, 0) > 0)
+            {
+                ULONG requiredLength = IoErr();
+                UBYTE *config = AllocMem(requiredLength + 1, MEMF_ANY);
+                GetVar("SYS/Wireless.prefs", config, requiredLength + 1, 0);
+                ParseConfig(WiFiBase);
+            }
         }
         else
             D(bug("[WiFi] I'm a task\n"));
@@ -680,6 +838,7 @@ struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a
                 unit->wu_Base = WiFiBase;
                 unit->wu_Unit.unit_MsgPort;
 
+                InitSemaphore(&unit->wu_Lock);
                 NewMinList(&unit->wu_Openers);
                 NewMinList(&unit->wu_MulticastRanges);
                 NewMinList(&unit->wu_TypeTrackers);

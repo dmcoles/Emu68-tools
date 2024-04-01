@@ -28,6 +28,12 @@
 
 struct WiFiUnit;
 
+struct NetworkConfig {
+    UBYTE *     nc_SSID;
+    UBYTE *     nc_PSK;
+    UBYTE       nc_Open;
+};
+
 struct WiFiBase
 {
     struct Device       w_Device;
@@ -47,6 +53,9 @@ struct WiFiBase
     struct SignalSemaphore  w_NetworkListLock;
     struct MinList      w_NetworkList;
     UBYTE               w_NetworkScanInProgress;
+    UBYTE *             w_NetworkConfigVar;
+    ULONG               w_NetworkConfigLength;
+    struct NetworkConfig    w_NetworkConfig;
 };
 
 struct WiFiNetwork {
@@ -135,7 +144,10 @@ struct WiFiUnit
     struct WiFiBase *       wu_Base;
     struct Task *           wu_Task;
     struct SignalSemaphore  wu_Lock;
+    struct MsgPort *        wu_CmdQueue;
     ULONG                   wu_Flags;
+    UBYTE                   wu_OrigEtherAddr[6];
+    UBYTE                   wu_EtherAddr[6];
 };
 
 struct Opener
@@ -232,5 +244,9 @@ STRPTR _strcpy(STRPTR dst, CONST_STRPTR src);
 int _strcmp(CONST_STRPTR s1, CONST_STRPTR s2);
 int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n);
 void StartUnit(struct WiFiUnit *unit);
+void StartuUnitTask(struct WiFiUnit *unit);
+void HandleRequest(struct IOSana2Req *io);
+APTR AllocVecPooled(APTR pool, ULONG byteSize);
+void FreeVecPooled(APTR pool, APTR buf);
 
 #endif

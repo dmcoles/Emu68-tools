@@ -1603,7 +1603,6 @@ static void StartScannerTask(struct SDIO *sdio)
     task->tc_Node.ln_Name = (char *)task_name;
     task->tc_Node.ln_Type = NT_TASK;
     task->tc_Node.ln_Pri = SCANNER_PRIORITY;
-;
 
     NewMinList((struct MinList *)&task->tc_MemEntry);
     AddHead(&task->tc_MemEntry, &ml->ml_Node);
