@@ -39,10 +39,12 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     port = CreateMsgPort();
     tr = (struct timerequest *)CreateIORequest(port, sizeof(struct timerequest));
     unit->wu_CmdQueue = CreateMsgPort();
+    unit->wu_WriteQueue = CreateMsgPort();
 
-    if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL)
+    if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL || unit->wu_WriteQueue)
     {
         D(bug("[WiFi.0] Failed to create requested MsgPorts\n"));
+        DeleteMsgPort(unit->wu_WriteQueue);
         DeleteMsgPort(unit->wu_CmdQueue);
         DeleteIORequest((struct IORequest *)tr);
         DeleteMsgPort(port);
@@ -59,6 +61,10 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
         unit->wu_CmdQueue = NULL;
         return;
     }
+
+    unit->wu_Unit.unit_MsgPort.mp_SigTask = FindTask(NULL);
+    unit->wu_Unit.unit_flags = PA_IGNORE;
+    NewList(&unit->wu_Unit.unit_MsgPort.mp_MsgList);
 
     /* Let timer run every 10 seconds, this will trigger scan for networks */
     tr->tr_node.io_Command = TR_ADDREQUEST;
@@ -85,6 +91,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
 
 
 
+
             // Restart timer request
             tr->tr_node.io_Command = TR_ADDREQUEST;
             tr->tr_time.tv_sec = 1;
@@ -107,6 +114,17 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
             }
         }
 
+        if (sigset & (1 << unit->wu_WriteQueue->mp_SigBit))
+        {
+            struct IOSana2Req *io;
+            
+            // Drain Data write queue and process it
+            while ((io = (struct IOSana2Req *)GetMsg(unit->wu_WriteQueue)))
+            {
+                /* ... */
+            }
+        }
+
         // If CtrlC is sent, abort timer request
         if (sigset & SIGBREAKF_CTRL_C)
         {
@@ -119,7 +137,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     DeleteMsgPort(unit->wu_CmdQueue);
 }
 
-void StartuUnitTask(struct WiFiUnit *unit)
+void StartUnitTask(struct WiFiUnit *unit)
 {
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
@@ -180,8 +198,8 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_DEVICEQUERY,
     S2_GETSTATIONADDRESS,
     S2_CONFIGINTERFACE,
-    // S2_ADDMULTICASTADDRESS,
-    // S2_DELMULTICASTADDRESS,
+    S2_ADDMULTICASTADDRESS,
+    S2_DELMULTICASTADDRESS,
     // S2_MULTICAST,
     // S2_BROADCAST,
     // S2_TRACKTYPE,
@@ -193,8 +211,8 @@ static const UWORD WiFi_SupportedCommands[] = {
     //S2_READORPHAN,
     //S2_ONLINE,
     //S2_OFFLINE,
-    //S2_ADDMULTICASTADDRESSES,
-    //S2_DELMULTICASTADDRESSES,
+    S2_ADDMULTICASTADDRESSES,
+    S2_DELMULTICASTADDRESSES,
    
     //S2_GETSIGNALQUALITY,
     S2_GETNETWORKS,
@@ -210,6 +228,8 @@ static const UWORD WiFi_SupportedCommands[] = {
     0
 };
 
+
+
 static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
 {
     struct NSDeviceQueryResult *dq;
@@ -222,6 +242,88 @@ static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
     io->io_Actual = sizeof(struct NSDeviceQueryResult) + sizeof(APTR);
     dq->SizeAvailable = io->io_Actual;
     io->io_Error = 0;
+
+    return 1;
+}
+
+static int Do_S2_ADDMULTICASTADDRESSES(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    struct MulticastRange *range;
+    uint64_t lower_bound, upper_bound;
+    lower_bound = (uint64_t)*(UWORD*)io->ios2_SrcAddr << 32 | *(ULONG*)&io->ios2_SrcAddr[2];
+    if (io->ios2_Req.io_Command == S2_ADDMULTICASTADDRESS)
+    {
+        upper_bound = lower_bound;
+    }
+    else
+    {
+        upper_bound = (uint64_t)*(UWORD*)io->ios2_DstAddr << 32 | *(ULONG*)&io->ios2_DstAddr[2];
+    }
+
+    /* Go through already registered multicast ranges. If one is found, increase use count and return */
+    ForeachNode(&unit->wu_MulticastRanges, range)
+    {
+        if (range->mr_LowerBound == lower_bound && range->mr_UpperBound == upper_bound)
+        {
+            range->mr_UseCount++;
+            return 1;
+        }
+    }
+
+    /* No range was found. Create new one and add the multicast range on the WiFi module */
+    range = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct MulticastRange));
+    range->mr_UseCount = 1;
+    range->mr_LowerBound = lower_bound;
+    range->mr_UpperBound = upper_bound;
+    AddHead((struct List *)&unit->wu_MulticastRanges, (struct Node *)range);
+
+    /* Add range on WiFi now */
+    // ...
+
+    return 1;
+}
+
+static int Do_S2_DELMULTICASTADDRESSES(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    struct MulticastRange *range;
+    uint64_t lower_bound, upper_bound;
+    lower_bound = (uint64_t)*(UWORD*)io->ios2_SrcAddr << 32 | *(ULONG*)&io->ios2_SrcAddr[2];
+    if (io->ios2_Req.io_Command == S2_ADDMULTICASTADDRESS)
+    {
+        upper_bound = lower_bound;
+    }
+    else
+    {
+        upper_bound = (uint64_t)*(UWORD*)io->ios2_DstAddr << 32 | *(ULONG*)&io->ios2_DstAddr[2];
+    }
+
+    /* Go through already registered multicast ranges. Once found, decrease use count */
+    ForeachNode(&unit->wu_MulticastRanges, range)
+    {
+        if (range->mr_LowerBound == lower_bound && range->mr_UpperBound == upper_bound)
+        {
+            range->mr_UseCount--;
+
+            /* No user of this multicast range. Remove it and unregister on WiFi module */
+            if (range->mr_UseCount == 0)
+            {
+                Remove((struct Node *)range);
+                FreePooled(WiFiBase->w_MemPool, range, sizeof(struct MulticastRange));
+
+                /* Remove the range on WiFi now... */
+                // ...
+            }
+            return 1;
+        }
+    }
 
     return 1;
 }
@@ -417,13 +519,23 @@ void HandleRequest(struct IOSana2Req *io)
                 break;
 
             case S2_GETGLOBALSTATS:
-                CopyMem(&sdio->s_Stats, io->ios2_StatData, sizeof(struct Sana2DeviceStats));
+                CopyMem(&unit->wu_Stats, io->ios2_StatData, sizeof(struct Sana2DeviceStats));
                 io->ios2_Req.io_Error = 0;
                 complete = 1;
                 break;
 
             case S2_GETNETWORKS:
                 complete = Do_S2_GETNETWORKS(io);
+                break;
+
+            case S2_ADDMULTICASTADDRESS: /* Fallthrough */
+            case S2_ADDMULTICASTADDRESSES:
+                complete = Do_S2_ADDMULTICASTADDRESSES(io);
+                break;
+
+            case S2_DELMULTICASTADDRESS: /* Fallthrough */
+            case S2_DELMULTICASTADDRESSES:
+                complete = Do_S2_DELMULTICASTADDRESSES(io);
                 break;
 
             default:

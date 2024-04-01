@@ -143,9 +143,18 @@ struct WiFiUnit
     struct Task *           wu_Task;
     struct SignalSemaphore  wu_Lock;
     struct MsgPort *        wu_CmdQueue;
+    struct MsgPort *        wu_WriteQueue;
+    struct Sana2DeviceStats wu_Stats;
     ULONG                   wu_Flags;
     UBYTE                   wu_OrigEtherAddr[6];
     UBYTE                   wu_EtherAddr[6];
+};
+
+struct MulticastRange {
+    struct MinNode  mr_Node;
+    ULONG           mr_UseCount;
+    uint64_t        mr_LowerBound;
+    uint64_t        mr_UpperBound;
 };
 
 struct Opener
@@ -153,8 +162,8 @@ struct Opener
     struct MinNode      o_Node;
     struct MsgPort      o_ReadPort;
     struct Hook *       o_FilterHook;
-    BOOL              (*o_RXFunc)(APTR, APTR, ULONG);
-    BOOL              (*o_TXFunc)(APTR, APTR, ULONG);
+    BOOL              (*o_RXFunc)(REGARG(APTR, "a0"), REGARG(APTR, "a1"), REGARG(ULONG, "d0"));
+    BOOL              (*o_TXFunc)(REGARG(APTR, "a0"), REGARG(APTR, "a1"), REGARG(ULONG, "d0"));
 };
 
 /* Standard interface flags (netdevice->flags). */
@@ -242,11 +251,12 @@ STRPTR _strncpy(STRPTR dst, CONST_STRPTR src, ULONG len);
 STRPTR _strcpy(STRPTR dst, CONST_STRPTR src);
 int _strcmp(CONST_STRPTR s1, CONST_STRPTR s2);
 int _strncmp(CONST_STRPTR s1, CONST_STRPTR s2, ULONG n);
-void StartuUnitTask(struct WiFiUnit *unit);
+void StartUnitTask(struct WiFiUnit *unit);
 void HandleRequest(struct IOSana2Req *io);
 APTR AllocPooledClear(APTR pool, ULONG byteSize);
 APTR AllocVecPooledClear(APTR pool, ULONG byteSize);
 APTR AllocVecPooled(APTR pool, ULONG byteSize);
 void FreeVecPooled(APTR pool, APTR buf);
+void ProcessDataPacket(struct SDIO *, UBYTE *, ULONG);
 
 #endif

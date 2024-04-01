@@ -300,7 +300,6 @@ struct SDIO {
     struct Core *       s_SDIOC;    // SDIO core
     struct Chip *       s_Chip;
     UBYTE               s_HWAddr[6];
-    struct Sana2DeviceStats s_Stats;
 
     int     (*IsError)(struct SDIO *);
     ULONG   (*BackplaneAddr)(ULONG addr, struct SDIO *);
