@@ -1,6 +1,8 @@
 #include <exec/devices.h>
 #include <exec/execbase.h>
 #include <dos/dos.h>
+#include <common/compiler.h>
+
 #if defined(__INTELLISENSE__)
 #include <clib/exec_protos.h>
 #include <clib/devicetree_protos.h>
@@ -571,7 +573,8 @@ CONST_APTR GetPropValueRecursive(APTR key, CONST_STRPTR property, APTR DeviceTre
     return NULL;
 }
 
-struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a0"), struct ExecBase *SysBase asm("a6"))
+struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seglist, "a0"), 
+                            REGARG(struct ExecBase *SysBase, "a6"))
 {
     APTR DeviceTreeBase;
     struct WiFiBase *WiFiBase = base;

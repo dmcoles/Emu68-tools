@@ -10,6 +10,8 @@
 #include <devices/sana2specialstats.h>
 #include <devices/newstyle.h>
 
+#include <common/compiler.h>
+
 #if defined(__INTELLISENSE__)
 #include <clib/exec_protos.h>
 #include <clib/utility_protos.h>
@@ -57,7 +59,7 @@ void NewList(struct List *lh)
     lh->lh_TailPred = (struct Node *)&(lh->lh_Head);
 }
 
-static BPTR WiFi_Expunge(struct WiFiBase * WiFiBase asm("a6"))
+static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
 {
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     BPTR segList = 0;
@@ -105,7 +107,7 @@ static const ULONG tx_tags[] = {
     0
 };
 
-void WiFi_Open(struct IOSana2Req * io asm("a1"), LONG unitNumber asm("d0"), ULONG flags asm("d1"))
+void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0"), REGARG(ULONG flags, "d1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
@@ -213,7 +215,7 @@ void WiFi_Open(struct IOSana2Req * io asm("a1"), LONG unitNumber asm("d0"), ULON
     io->ios2_Req.io_Error = error;
 }
 
-ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
+ULONG WiFi_Close(REGARG(struct IOSana2Req * io, "a1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
@@ -253,7 +255,7 @@ ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
     return 0;
 }
 
-void WiFi_BeginIO(struct IOSana2Req * io asm("a1"))
+void WiFi_BeginIO(REGARG(struct IOSana2Req * io, "a1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
@@ -274,7 +276,7 @@ void WiFi_BeginIO(struct IOSana2Req * io asm("a1"))
     }
 }
 
-LONG WiFi_AbortIO(struct IOSana2Req *io asm("a1"))
+LONG WiFi_AbortIO(REGARG(struct IOSana2Req *io, "a1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;

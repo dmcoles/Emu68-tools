@@ -19,7 +19,7 @@ add_executable(wifipi.device
     src/unit.c
 )
 target_include_directories(wifipi.device PRIVATE include)
-target_link_libraries(wifipi.device devicetree amiga sana2)
+target_link_libraries(wifipi.device devicetree amiga sana2 common)
 
 add_executable(wifipi_rom
     src/start.c
@@ -35,7 +35,7 @@ add_executable(wifipi_rom
 )
 
 target_include_directories(wifipi_rom PRIVATE include)
-target_link_libraries(wifipi_rom devicetree sana2)
+target_link_libraries(wifipi_rom devicetree sana2 common)
 target_link_options(wifipi_rom PRIVATE -Wl,-e_rom_start -Wl,-T${CMAKE_SOURCE_DIR}/extrom.lds)
 add_custom_command(
     TARGET wifipi_rom POST_BUILD

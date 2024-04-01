@@ -4,6 +4,7 @@
 #include <exec/types.h>
 #include <exec/libraries.h>
 #include <exec/devices.h>
+#include <common/compiler.h>
 
 #include <dos/dos.h>
 #include <libraries/dos.h>
@@ -14,10 +15,6 @@
 
 #include "sdio.h"
 #include "d11.h"
-
-#if defined(__INTELLISENSE__)
-#define asm(x) /* x */
-#endif
 
 #define STR(s) #s
 #define XSTR(s) STR(s)
@@ -184,7 +181,7 @@ struct Opener
 #define IFF_SHARED      0x10000         /* interface may be shared */
 #define IFF_CONFIGURED  0x20000         /* interface already configured */
 
-static inline __attribute__((always_inline)) void putch(UBYTE data asm("d0"), APTR ignore asm("a3"))
+static inline __attribute__((always_inline)) void putch(REGARG(UBYTE data, "d0"), REGARG(APTR ignore, "a3"))
 {
     (void)ignore;
     if (data != 0)
@@ -226,7 +223,8 @@ static inline void wr32be(APTR addr, ULONG offset, ULONG val)
     asm volatile("nop");
 }
 
-struct WiFiBase * WiFi_Init(struct WiFiBase *base asm("d0"), BPTR seglist asm("a0"), struct ExecBase *SysBase asm("a6"));
+struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seglist, "a0"),
+                            REGARG(struct ExecBase *SysBase, "a6"));
 
 #define bug(string, ...) \
     do { ULONG args[] = {0, __VA_ARGS__}; RawDoFmt(string, &args[1], (APTR)putch, NULL); } while(0)
