@@ -1644,7 +1644,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
 
 #define DL_TYPE_CLM			2
 
-static int PacketUploadCLM(struct SDIO *sdio)
+int PacketUploadCLM(struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;

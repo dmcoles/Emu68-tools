@@ -25,6 +25,7 @@
 
 #include "wifipi.h"
 #include "packet.h"
+#include "brcm.h"
 
 #define D(x) x
 #define UNIT_STACK_SIZE (32768 / sizeof(ULONG))
@@ -252,7 +253,7 @@ static const UWORD WiFi_SupportedCommands[] = {
     //S2_OFFLINE,
     S2_ADDMULTICASTADDRESSES,
     S2_DELMULTICASTADDRESSES,
-   
+
     //S2_GETSIGNALQUALITY,
     S2_GETNETWORKS,
     //S2_SETOPTIONS,
@@ -514,6 +515,7 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct SDIO *sdio = WiFiBase->w_SDIO;
 
     D(bug("[WiFi.0] S2_CONFIGINTERFACE\n"));
 
@@ -524,14 +526,85 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
     }
     else
     {
-        /* Go online */
-        D(bug("[WiFi] S2_CONFIGINTERFACE not done yet - going online is missing\n"));
+        /* Try to set HW addr */
+        PacketSetVar(sdio, "cur_etheraddr", io->ios2_SrcAddr, 6);
+
+        /* Get HW addr back */
+        PacketGetVar(sdio, "cur_etheraddr", unit->wu_EtherAddr, 6);
+        D(bug("[WiFi.0] Ethernet addr set: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
+                    unit->wu_EtherAddr[0], unit->wu_EtherAddr[1], unit->wu_EtherAddr[2],
+                    unit->wu_EtherAddr[3], unit->wu_EtherAddr[4], unit->wu_EtherAddr[5]));
+
+        ULONG d11Type = 0;
+        static const char * const types[]= { "UNKNOWN", "N", "AC" };
+        if (0 == PacketCmdIntGet(sdio, BRCMF_C_GET_VERSION, &d11Type))
+        {
+            D(bug("[WiFi] D11 Version: %s\n", (ULONG)types[d11Type]));
+            sdio->s_Chip->c_D11Type = d11Type;
+        }
+
+        PacketUploadCLM(sdio);
+
+        PacketSetVarInt(sdio, "assoc_listen", 10);
+
+        if (sdio->s_Chip->c_ChipID == BRCM_CC_43430_CHIP_ID || sdio->s_Chip->c_ChipID == BRCM_CC_4345_CHIP_ID)
+        {
+            PacketCmdInt(sdio, 0x56, 0);
+        }
+        else
+        {
+            PacketCmdInt(sdio, 0x56, 2);
+        }
+
+        PacketSetVarInt(sdio, "bus:txglom", 0);
+        PacketSetVarInt(sdio, "bcn_timeout", 10);
+        PacketSetVarInt(sdio, "assoc_retry_max", 3);
+
+        /* Pepare event mask. Allow only events which are really needed */
+        UBYTE ev_mask[(BRCMF_E_LAST + 7) / 8];
+        for (int i=0; i < (BRCMF_E_LAST + 7) / 8; i++) ev_mask[i] = 0;
+
+#define EVENT_BIT(mask, i) (mask)[(i) / 8] |= 1 << ((i) % 8)
+#define EVENT_BIT_CLEAR(mask, i) (mask)[(i) / 8] &= ~(1 << ((i) % 8))
+        EVENT_BIT(ev_mask, BRCMF_E_IF);
+        EVENT_BIT(ev_mask, BRCMF_E_LINK);
+        EVENT_BIT(ev_mask, BRCMF_E_AUTH);
+        EVENT_BIT(ev_mask, BRCMF_E_ASSOC);
+        EVENT_BIT(ev_mask, BRCMF_E_DEAUTH);
+        EVENT_BIT(ev_mask, BRCMF_E_DISASSOC);
+        EVENT_BIT(ev_mask, BRCMF_E_ESCAN_RESULT);
+        EVENT_BIT_CLEAR(ev_mask, 124);
+#undef EVENT_BIT
+
+        PacketSetVar(sdio, "event_msgs", ev_mask, (BRCMF_E_LAST + 7) / 8);
+
+        PacketCmdInt(sdio, BRCMF_C_SET_SCAN_CHANNEL_TIME, 40);
+        PacketCmdInt(sdio, BRCMF_C_SET_SCAN_UNASSOC_TIME, 40);
+        PacketCmdInt(sdio, BRCMF_C_SET_SCAN_PASSIVE_TIME, 120);
+
+        PacketCmdInt(sdio, BRCMF_C_UP, 0);
+
+        char ver[128];
+        for (int i=0; i < 128; i++) ver[i] = 0;
+        PacketGetVar(sdio, "ver", ver, 128);
+
+        // Remove \r and \n from version string. Replace first found with 0
+        for (int i=0; i < 128; i++) { if (ver[i] == 13 || ver[i] == 10) { ver[i] = 0; break; } }
+        D(bug("[WiFi.0] Firmware version: %s\n", (ULONG)ver));
+
+        PacketSetVarInt(sdio, "roam_off", 1);
+
+        PacketCmdInt(sdio, BRCMF_C_SET_INFRA, 1);
+        PacketCmdInt(sdio, BRCMF_C_SET_PROMISC, 0);
+        PacketCmdInt(sdio, BRCMF_C_UP, 1);
+
+        D(bug("[WiFi.0] Interface is up\n"));
 
         /* Get current address */
         CopyMem(unit->wu_EtherAddr, io->ios2_SrcAddr, 6);
 
         /* We do not allow to change ethernet address yet */
-        unit->wu_Flags |= IFF_CONFIGURED;
+        unit->wu_Flags |= IFF_CONFIGURED | IFF_UP;
     }
 
     return 1;
@@ -595,6 +668,10 @@ void HandleRequest(struct IOSana2Req *io)
             case S2_DELMULTICASTADDRESS: /* Fallthrough */
             case S2_DELMULTICASTADDRESSES:
                 complete = Do_S2_DELMULTICASTADDRESSES(io);
+                break;
+            
+            case S2_CONFIGINTERFACE:
+                complete = Do_S2_CONFIGINTERFACE(io);
                 break;
 
             default:

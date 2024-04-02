@@ -156,11 +156,13 @@ void StartPacketReceiver(struct SDIO *sdio);
 int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize);
 int PacketSetVarInt(struct SDIO *sdio, char *varName, ULONG varValue);
 int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue);
+int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue);
 int PacketCmdGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue);
 void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize);
 void PacketSetVarIntAsync(struct SDIO *sdio, char *varName, ULONG varValue);
 void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue);
 int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize);
 void StartNetworkScan(struct SDIO *sdio);
+int PacketUploadCLM(struct SDIO *sdio);
 
 #endif /* _PACKET_H */
