@@ -775,15 +775,15 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 }
             }
 
-            // Clear first 16 bytes of the buffer before fetching data
-            ULONG *clearBuf = (APTR)buffer;
-            clearBuf[0] = 0;
-            clearBuf[1] = 0;
-            clearBuf[2] = 0;
-            clearBuf[3] = 0;
-
             do
             {
+                // Clear first 16 bytes of the buffer before fetching data
+                //ULONG *clearBuf = (APTR)buffer;
+                //clearBuf[0] = 0;
+                //clearBuf[1] = 0;
+                //clearBuf[2] = 0;
+                //clearBuf[3] = 0;
+
                 sdio->RecvPKT(buffer, PACKET_INITIAL_FETCH_SIZE, sdio);
                 if (LE16(pkt->p_Length) != 0)
                 {
