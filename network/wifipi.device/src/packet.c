@@ -976,8 +976,13 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
     io->ios2_Req.io_Flags &= ~(SANA2IOF_BCAST | SANA2IOF_MCAST);
 
     /* Copy source and dest addresses */
-    CopyMem(packet, io->ios2_DstAddr, 6);
-    CopyMem(&packet[6], io->ios2_SrcAddr, 6);
+    *(ULONG*)&io->ios2_DstAddr[0] = *(ULONG*)&packet[0];
+    *(UWORD*)&io->ios2_DstAddr[4] = *(UWORD*)&packet[4];
+    *(ULONG*)&io->ios2_SrcAddr[0] = *(ULONG*)&packet[6];
+    *(UWORD*)&io->ios2_SrcAddr[4] = *(UWORD*)&packet[10];
+
+    //CopyMem(packet, io->ios2_DstAddr, 6);
+    //CopyMem(&packet[6], io->ios2_SrcAddr, 6);
     io->ios2_PacketType = type;
 
     /* If dest address is FF:FF:FF:FF:FF:FF then it is a broadcast */
@@ -1137,16 +1142,16 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
     {
         // Copy destination
-        CopyMem(io->ios2_DstAddr, ptr, 6);
-        ptr+=6;
+        *(ULONG*)&ptr[0] = *(ULONG*)&io->ios2_DstAddr[0];
+        *(UWORD*)&ptr[4] = *(UWORD*)&io->ios2_DstAddr[4];
 
         // Copy source
-        CopyMem(io->ios2_SrcAddr, ptr, 6);
-        ptr+=6;
+        *(ULONG*)&ptr[6] = *(ULONG*)&io->ios2_SrcAddr[0];
+        *(UWORD*)&ptr[10] = *(UWORD*)&io->ios2_SrcAddr[4];
 
         // Copy packet type
-        *(UWORD*)ptr = io->ios2_PacketType;
-        ptr+=2;
+        *(UWORD*)&ptr[12] = io->ios2_PacketType;
+        ptr+=14;
     }
 
     // Copy packet contents
