@@ -191,6 +191,7 @@ struct Opener
 #define IFF_SHARED      0x10000         /* interface may be shared */
 #define IFF_CONFIGURED  0x20000         /* interface already configured */
 #define IFF_STARTED     0x40000         /* interface already started */
+#define IFF_ONLINE      0x40000         /* interface online */
 
 static inline __attribute__((always_inline)) void putch(REGARG(UBYTE data, "d0"), REGARG(APTR ignore, "a3"))
 {

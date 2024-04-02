@@ -749,7 +749,7 @@ void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         sdio->Write(SD_FUNC_RAD, addr, pkt, size, sdio);
 
         length -= size;
-        //addr += size;
+        addr += size;
         pkt += size;
     } while (length > 0);
 

@@ -292,6 +292,7 @@ struct SDIO {
     APTR                s_TXBuffer;
     APTR                s_RXBuffer;
 
+    UBYTE               s_MaxTXSeq;
     UBYTE               s_TXSeq;
     UBYTE               s_RXSeq;
     UWORD               s_CmdID;

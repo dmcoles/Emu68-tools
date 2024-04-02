@@ -231,9 +231,9 @@ void StartUnitTask(struct WiFiUnit *unit)
 
 static const UWORD WiFi_SupportedCommands[] = {
     //CMD_FLUSH,
-    //CMD_READ,
+    CMD_READ,
     //CMD_UPDATE,
-    //CMD_WRITE,
+    CMD_WRITE,
 
     S2_DEVICEQUERY,
     S2_GETSTATIONADDRESS,
@@ -241,7 +241,7 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_ADDMULTICASTADDRESS,
     S2_DELMULTICASTADDRESS,
     // S2_MULTICAST,
-    // S2_BROADCAST,
+    S2_BROADCAST,
     // S2_TRACKTYPE,
     // S2_UNTRACKTYPE,
     // S2_GETTYPESTATS,
@@ -249,7 +249,7 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_GETGLOBALSTATS,
     //S2_ONEVENT,
     //S2_READORPHAN,
-    //S2_ONLINE,
+    S2_ONLINE,
     //S2_OFFLINE,
     S2_ADDMULTICASTADDRESSES,
     S2_DELMULTICASTADDRESSES,
@@ -287,6 +287,59 @@ static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
     io->io_Error = 0;
 
     return 1;
+}
+
+static int Do_CMD_READ(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
+    //D(bug("[WiFi.0] CMD_READ packet type %04lx\n", io->ios2_PacketType));
+
+    // If interface is up, put the read request in units read queue
+    if (unit->wu_Flags & IFF_UP)
+    {
+        struct Opener *opener = io->ios2_BufferManagement;
+        io->ios2_Req.io_Flags &= ~IOF_QUICK;
+        PutMsg(&opener->o_ReadPort, (struct Message *)io);
+        return 0;
+    }
+    else
+    {
+        io->ios2_WireError = S2WERR_UNIT_OFFLINE;
+        io->ios2_Req.io_Error = S2ERR_OUTOFSERVICE;
+        return 1;
+    }
+}
+
+static int Do_CMD_WRITE(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+    struct SDIO *sdio = unit->wu_Base->w_SDIO;
+
+    if (io->ios2_Req.io_Command == CMD_WRITE)
+    {
+        //D(bug("[WiFi.0] CMD_WRITE packet type %04lx to destination ", io->ios2_PacketType));
+        /*D(bug("%02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
+                io->ios2_DstAddr[0], io->ios2_DstAddr[1], io->ios2_DstAddr[2],
+                io->ios2_DstAddr[3], io->ios2_DstAddr[4], io->ios2_DstAddr[5]));*/
+    }
+    else
+    {
+        //D(bug("[WiFi.0] S2_BROADCAST packet type %04lx\n", io->ios2_PacketType));
+    }
+
+    if (unit->wu_Flags & IFF_UP)
+    {
+        return SendDataPacket(sdio, io);
+    }
+    else
+    {
+        io->ios2_WireError = S2WERR_UNIT_OFFLINE;
+        io->ios2_Req.io_Error = S2ERR_OUTOFSERVICE;
+        return 1;
+    }
 }
 
 static int Do_S2_ADDMULTICASTADDRESSES(struct IOSana2Req *io)
@@ -598,6 +651,20 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
         PacketCmdInt(sdio, BRCMF_C_SET_PROMISC, 0);
         PacketCmdInt(sdio, BRCMF_C_UP, 1);
 
+        // If Network Config is already set up, attempt to connect.
+        // For now, only open networks are supported
+        if (WiFiBase->w_NetworkConfig.nc_Open && WiFiBase->w_NetworkConfig.nc_SSID)
+        {
+            struct WiFiNetwork *network = AllocVecPooledClear(WiFiBase->w_MemPool, sizeof(struct WiFiNetwork));
+            network->wn_SSIDLength = _strlen(WiFiBase->w_NetworkConfig.nc_SSID);
+            CopyMem(WiFiBase->w_NetworkConfig.nc_SSID, network->wn_SSID, network->wn_SSIDLength);
+            for (int i=0; i < 6; i++) network->wn_BSID[i] = 0xff;
+            
+            Connect(sdio, network);
+
+            FreeVecPooled(WiFiBase->w_MemPool, network);
+        }
+
         D(bug("[WiFi.0] Interface is up\n"));
 
         /* Get current address */
@@ -606,6 +673,23 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
         /* We do not allow to change ethernet address yet */
         unit->wu_Flags |= IFF_CONFIGURED | IFF_UP;
     }
+
+    return 1;
+}
+
+static int Do_S2_ONLINE(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct SDIO *sdio = WiFiBase->w_SDIO;
+
+    // Bring all stats to 0
+    _bzero(&unit->wu_Stats, sizeof(struct Sana2DeviceStats));
+
+
+
+    unit->wu_Flags |= IFF_ONLINE;
 
     return 1;
 }
@@ -672,6 +756,21 @@ void HandleRequest(struct IOSana2Req *io)
             
             case S2_CONFIGINTERFACE:
                 complete = Do_S2_CONFIGINTERFACE(io);
+                break;
+            
+            case S2_ONLINE:
+                complete = Do_S2_ONLINE(io);
+                break;
+
+            case CMD_READ:
+                complete = Do_CMD_READ(io);
+                break;
+            
+            case S2_BROADCAST: /* Fallthrough */
+                *(ULONG*)&io->ios2_DstAddr[0] = 0xffffffff;
+                *(UWORD*)&io->ios2_DstAddr[4] = 0xffff;
+            case CMD_WRITE:
+                complete = Do_CMD_WRITE(io);
                 break;
 
             default:

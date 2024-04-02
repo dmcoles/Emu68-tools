@@ -441,7 +441,6 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
         CopyMem(network->wn_BSID, &ext_params->ej_Assoc.ap_BSSID, 6);
 
         struct ChannelInfo ci = network->wn_ChannelInfo;
-        EncodeChanSpec(&ci, sdio->s_Chip->c_D11Type);
         D(bug("[WiFi] Chanspec encoded from %04lx to %04lx\n", network->wn_ChannelInfo.ci_CHSpec, ci.ci_CHSpec));
     }
     else
@@ -495,7 +494,7 @@ delay_us(5000000, sdio->s_WiFiBase);
 #define PACKET_RECV_STACKSIZE   (65536 / sizeof(ULONG))
 #define PACKET_RECV_PRIORITY    20
 
-#define PACKET_WAIT_DELAY_MIN   1000
+#define PACKET_WAIT_DELAY_MIN   500
 #define PACKET_WAIT_DELAY_MAX   100000
 
 #define PACKET_INITIAL_FETCH_SIZE   16
@@ -747,8 +746,6 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             // Repeat until we run out of the messages
             while(msg = (struct PacketMessage *)GetMsg(ctrl))
             {
-                D(bug("[WiFi] Got CTL message, pushing it out\n"));
-
                 // Put message in the control wait list
                 AddTail((struct List*)&ctrlWaitList, &msg->pm_Message.mn_Node);
 
@@ -792,7 +789,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 {
                     UWORD pktLen = LE16(pkt->p_Length);
                     UWORD pktChk = LE16(pkt->c_ChkSum);
-
+                    
                     if ((pktChk | pktLen) == 0xffff)
                     {
                         // Until now we have fetched PACKET_INITIAL_FETCH_SIZE bytes only. If packet length is larger, fetch 
@@ -802,7 +799,9 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                             sdio->RecvPKT(&buffer[PACKET_INITIAL_FETCH_SIZE], pktLen - PACKET_INITIAL_FETCH_SIZE, sdio);
                         }
 
-                        PacketDump(sdio, buffer, "WiFi.IN");
+                        sdio->s_MaxTXSeq = pkt->c_MaxSeq;
+
+                        //PacketDump(sdio, buffer, "WiFi.IN");
 
                         switch(pkt->c_ChannelFlag)
                         {
@@ -885,7 +884,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
 
                                 ProcessDataPacket(sdio, frame, frameLength);
 
-                                PacketDump(sdio, buffer, "DATA");
+                                //PacketDump(sdio, buffer, "DATA");
                                 break;
                             }
                                 
@@ -1064,7 +1063,6 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
     {
         UBYTE orphan = TRUE;
         struct Opener *opener;
-        D(bug("[WiFi] Packet accepted. Sending to openers\n"));
 
         unit->wu_Stats.PacketsReceived++;
 
@@ -1074,7 +1072,7 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
             struct IOSana2Req *io;
             
             /* Go through all IO read requests pending*/
-            ForeachNode(&opener->o_ReadPort, io)
+            ForeachNode(&opener->o_ReadPort.mp_MsgList, io)
             {
                 // EthernetII has packet type larger than 1500 (MTU),
                 // 802.3 has no packet type but just length
@@ -1099,13 +1097,68 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
     }
 }
 
-void SendDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
+int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     struct ExecBase *SysBase = sdio->s_SysBase;
     struct WiFiUnit *unit = WiFiBase->w_Unit;
+    struct Opener *opener = io->ios2_BufferManagement;
 
+    UWORD totLen = sizeof(struct Packet) + io->ios2_DataLength + 4;
+    
+    // Raw packet has all data in it, non-raw need to reserve 14 bytes extra
+    if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
+    {
+        totLen += 14;
+    }
 
+    struct Packet *p = AllocVecPooledClear(WiFiBase->w_MemPool, totLen);
+
+    if (sdio->s_TXSeq == sdio->s_MaxTXSeq)
+    {
+        D(bug("[WiFi] This packet needs to wait!\n"));
+    }
+
+    p->p_Length = LE16(totLen);
+    p->c_ChkSum = ~p->p_Length;
+    p->c_ChannelFlag = SDPCM_DATA_CHANNEL;
+    p->c_DataOffset = sizeof(struct Packet);
+    p->c_FlowControl = 0;
+    p->c_Seq = sdio->s_TXSeq++;
+
+    UBYTE *ptr = (UBYTE *)p + p->c_DataOffset;
+
+    // BDC Header
+    *ptr++ = 0x20;
+    *ptr++ = 0;
+    *ptr++ = 0;
+    *ptr++ = 0;
+
+    if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
+    {
+        // Copy destination
+        CopyMem(io->ios2_DstAddr, ptr, 6);
+        ptr+=6;
+
+        // Copy source
+        CopyMem(io->ios2_SrcAddr, ptr, 6);
+        ptr+=6;
+
+        // Copy packet type
+        *(UWORD*)ptr = io->ios2_PacketType;
+        ptr+=2;
+    }
+
+    // Copy packet contents
+    opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
+
+    //PacketDump(sdio, p, "WiFi.OUT");
+
+    sdio->SendPKT((UBYTE*)p, totLen, sdio);
+    
+    FreeVecPooled(WiFiBase->w_MemPool, p);
+
+    return 1;
 }
 
 void NetworkScanner(struct SDIO *sdio)
@@ -1615,7 +1668,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
 
     CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
     
-    PacketDump(sdio, p, "WiFi.OUT");
+    //PacketDump(sdio, p, "WiFi.OUT");
 
     PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
     WaitPort(port);

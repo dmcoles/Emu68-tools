@@ -164,5 +164,7 @@ void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue);
 int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize);
 void StartNetworkScan(struct SDIO *sdio);
 int PacketUploadCLM(struct SDIO *sdio);
+int Connect(struct SDIO *sdio, struct WiFiNetwork *network);
+int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io);
 
 #endif /* _PACKET_H */
