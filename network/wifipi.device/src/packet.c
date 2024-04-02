@@ -1117,7 +1117,13 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
         totLen += 14;
     }
 
-    struct Packet *p = AllocVecPooledClear(WiFiBase->w_MemPool, totLen);
+    
+    struct Packet *p = AllocVecPooled(WiFiBase->w_MemPool, totLen);
+    ULONG *clr = (ULONG*)p;
+
+    *clr++ = 0;
+    *clr++ = 0;
+    *clr++ = 0;
 
     if (sdio->s_TXSeq == sdio->s_MaxTXSeq)
     {
