@@ -679,7 +679,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     ULONG waitDelay = PACKET_WAIT_DELAY_MAX;
     struct MsgPort *ctrl = CreateMsgPort();
     struct MinList ctrlWaitList;
-    ULONG waitDelayTimeout = 100000 / waitDelay;
+    ULONG waitDelayTimeout = PACKET_WAIT_DELAY_MAX / waitDelay;
 
     NewMinList(&ctrlWaitList);
 
@@ -927,7 +927,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                     ULONG oldwait = waitDelay;
                     waitDelay <<= 2;
                     if (waitDelay > PACKET_WAIT_DELAY_MAX) waitDelay = PACKET_WAIT_DELAY_MAX;
-                    waitDelayTimeout = 100000 / waitDelay;
+                    waitDelayTimeout = PACKET_WAIT_DELAY_MAX / waitDelay;
 
 //                    D(bug("[WiFi.RECV] Increasing wait delay from %ld to %ld\n", oldwait, waitDelay));
                 }
