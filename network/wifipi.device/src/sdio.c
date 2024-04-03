@@ -231,22 +231,26 @@ void cmd_int(ULONG cmd, ULONG arg, ULONG timeout, struct SDIO *sdio)
 
             // Transfer the block
             UWORD cur_byte_no = 0;
-            while(cur_byte_no < sdio->s_BlockSize)
+            if (is_write)
             {
-                if(is_write)
+                while(cur_byte_no < sdio->s_BlockSize)
                 {
                     ULONG data = *(ULONG*)cur_buf_addr;
                     wr32be(sdio->s_SDIO, EMMC_DATA, data);
+                    cur_byte_no += 4;
+                    cur_buf_addr++;
                 }
-                else
+            }
+            else
+            {
+                while(cur_byte_no < sdio->s_BlockSize)
                 {
                     ULONG data = rd32be(sdio->s_SDIO, EMMC_DATA);
                     *(ULONG*)cur_buf_addr = data;
+                    cur_byte_no += 4;
+                    cur_buf_addr++;
                 }
-                cur_byte_no += 4;
-                cur_buf_addr++;
             }
-
             cur_block++;
         }
     }
