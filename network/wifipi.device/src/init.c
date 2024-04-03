@@ -636,8 +636,6 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
     NewMinList(&WiFiBase->w_NetworkList);
     InitSemaphore(&WiFiBase->w_NetworkListLock);
 
-
-
     if (DeviceTreeBase)
     {
         APTR key;
@@ -842,6 +840,9 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
         set_extgpio_state(1, 0, WiFiBase);
         set_extgpio_state(1, 1, WiFiBase);
+
+        set_extgpio_state(7, 1, WiFiBase);
+        //set_extgpio_state(3, 1, WiFiBase);
         
         D(bug("[WiFi] EXT GPIO:"));
         for (int i=0; i < 8; i++)
