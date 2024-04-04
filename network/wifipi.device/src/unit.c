@@ -609,7 +609,8 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
             PacketCmdInt(sdio, 0x56, 2);
         }
 
-        PacketSetVarInt(sdio, "bus:txglom", 0);
+        PacketSetVarInt(sdio, "bus:txglom", 1);
+        PacketSetVarInt(sdio, "bus:txglomalign", 4);
         PacketSetVarInt(sdio, "bcn_timeout", 10);
         PacketSetVarInt(sdio, "assoc_retry_max", 3);
 

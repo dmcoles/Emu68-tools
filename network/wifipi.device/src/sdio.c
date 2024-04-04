@@ -230,25 +230,36 @@ void cmd_int(ULONG cmd, ULONG arg, ULONG timeout, struct SDIO *sdio)
             }
 
             // Transfer the block
-            UWORD cur_byte_no = 0;
             if (is_write)
             {
-                while(cur_byte_no < sdio->s_BlockSize)
-                {
-                    ULONG data = *(ULONG*)cur_buf_addr;
-                    wr32be(sdio->s_SDIO, EMMC_DATA, data);
-                    cur_byte_no += 4;
-                    cur_buf_addr++;
+                const ULONG word_count = sdio->s_BlockSize / 4;
+                ULONG cnt = (word_count + 7) / 8;
+                switch (word_count % 8) {
+                    case 0: do {    *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    case 7:         *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    case 6:         *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    case 5:         *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    case 4:         *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    case 3:         *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    case 2:         *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    case 1:         *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA) = *cur_buf_addr++;
+                    } while (--cnt > 0);
                 }
             }
             else
             {
-                while(cur_byte_no < sdio->s_BlockSize)
-                {
-                    ULONG data = rd32be(sdio->s_SDIO, EMMC_DATA);
-                    *(ULONG*)cur_buf_addr = data;
-                    cur_byte_no += 4;
-                    cur_buf_addr++;
+                const ULONG word_count = sdio->s_BlockSize / 4;
+                ULONG cnt = (word_count + 7) / 8;
+                switch (word_count % 8) {
+                    case 0: do {    *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    case 7:         *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    case 6:         *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    case 5:         *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    case 4:         *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    case 3:         *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    case 2:         *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    case 1:         *cur_buf_addr++ = *(volatile ULONG *)((ULONG)sdio->s_SDIO + EMMC_DATA);
+                    } while (--cnt > 0);
                 }
             }
             cur_block++;
@@ -768,7 +779,11 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
     // Round up length to next 4 byte boundary
     length = (length + 3) & ~3;
 
+    ULONG orig_len = length;
+
     S_LOCK(sdio);
+
+    ULONG t1 = LE32(*(volatile ULONG*)0xf2003004);
 
     do {
         ULONG size;
@@ -777,7 +792,7 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         else size = length;
 
         // Set backplane address
-        addr = sdio->BackplaneAddr(addr, sdio);
+        //addr = sdio->BackplaneAddr(addr, sdio);
 
         // 32-bit window
         addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
@@ -786,11 +801,21 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         sdio->Read(SD_FUNC_RAD, addr, pkt, size, sdio);
 
         length -= size;
-        addr += size;
+        //addr += size;
         pkt += size;
     } while (length > 0);
-
 #if 0
+    ULONG t2 = LE32(*(volatile ULONG*)0xf2003004);
+
+    if (orig_len > 10000)
+    {
+        double sz = orig_len;
+        sz /= (t2 - t1);
+        D(bug("[WiFi] RecvPkt speed: %ld KB/s\n", (ULONG)(sz * 1024)));
+    }
+#endif
+#if 0
+
     // Set backplane address
     addr = sdio->BackplaneAddr(addr, sdio);
 
@@ -860,8 +885,9 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
     sdio->s_WiFiBase = WiFiBase;
     sdio->s_SysBase = SysBase;
 
-    sdio->s_TXBuffer = AllocPooled(WiFiBase->w_MemPool, 4096);
-    sdio->s_RXBuffer = AllocPooled(WiFiBase->w_MemPool, 4096);
+    // Make sure both buffers are enough to fit glom frames (32 times the normal frame size)
+    sdio->s_TXBuffer = AllocPooled(WiFiBase->w_MemPool, 65536);
+    sdio->s_RXBuffer = AllocPooled(WiFiBase->w_MemPool, 65536);
 
     ULONG ver = rd32(WiFiBase->w_SDIOBase, EMMC_SLOTISR_VER);
     ULONG vendor = ver >> 24;
