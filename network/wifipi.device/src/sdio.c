@@ -754,17 +754,17 @@ void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         if (length > 512) size = 512;
         else size = length;
 
-        // Set backplane address
-        addr = sdio->BackplaneAddr(addr, sdio);
-
         // 32-bit window
         addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
 
         // Send out the data
-        sdio->Write(SD_FUNC_RAD, addr, pkt, size, sdio);
+        sdio->s_Buffer = pkt;
+        sdio->s_BlockSize = size;
+        sdio->s_BlocksToTransfer = 1;
+        cmd(IO_RW_EXTENDED | SD_DATA_WRITE, 0x80000000 | ((addr & 0x1ffff) << 9) | ((SD_FUNC_RAD & 7) << 28) | (size & 0x1ff) | (1 << 26), 500000, sdio);
 
         length -= size;
-        addr += size;
+        //addr += size;
         pkt += size;
     } while (length > 0);
 
@@ -791,40 +791,19 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         if (length > 512) size = 512;
         else size = length;
 
-        // Set backplane address
-        //addr = sdio->BackplaneAddr(addr, sdio);
-
         // 32-bit window
         addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
 
         // Send out the data
-        sdio->Read(SD_FUNC_RAD, addr, pkt, size, sdio);
+        sdio->s_Buffer = pkt;
+        sdio->s_BlockSize = size;
+        sdio->s_BlocksToTransfer = 1;
+        cmd(IO_RW_EXTENDED | SD_DATA_READ, ((addr & 0x1ffff) << 9) | ((SD_FUNC_RAD & 7) << 28) | (size & 0x1ff) | (1 << 26), 5000000, sdio);
 
         length -= size;
         //addr += size;
         pkt += size;
     } while (length > 0);
-#if 0
-    ULONG t2 = LE32(*(volatile ULONG*)0xf2003004);
-
-    if (orig_len > 10000)
-    {
-        double sz = orig_len;
-        sz /= (t2 - t1);
-        D(bug("[WiFi] RecvPkt speed: %ld KB/s\n", (ULONG)(sz * 1024)));
-    }
-#endif
-#if 0
-
-    // Set backplane address
-    addr = sdio->BackplaneAddr(addr, sdio);
-
-    // 32-bit window
-    addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
-
-    // Read the data
-    sdio->Read(SD_FUNC_RAD, addr, pkt, length, sdio);
-#endif
 
     S_UNLOCK(sdio);
 }
