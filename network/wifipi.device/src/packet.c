@@ -785,6 +785,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     struct ExecBase *SysBase = sdio->s_SysBase;
     ULONG waitDelay = PACKET_WAIT_DELAY_MAX;
     struct MsgPort *ctrl = CreateMsgPort();
+    struct MsgPort *sender = CreateMsgPort();
     struct MinList ctrlWaitList;
     ULONG waitDelayTimeout = PACKET_WAIT_DELAY_MAX / waitDelay;
 
@@ -825,6 +826,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
 
     // Create message port used by receiver
     sdio->s_ReceiverPort = ctrl;
+    sdio->s_SenderPort = sender;
     sdio->s_CtrlWaitList = &ctrlWaitList;
 
     // Signal caller that we are done with setup
@@ -844,7 +846,10 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     // Loop forever
     while(1)
     {
-        ULONG sigSet = Wait(SIGBREAKF_CTRL_C | (1 << port->mp_SigBit) | (1 << ctrl->mp_SigBit));
+        ULONG sigSet = Wait(SIGBREAKF_CTRL_C | 
+                            (1 << port->mp_SigBit) |
+                            (1 << sender->mp_SigBit) |
+                            (1 << ctrl->mp_SigBit));
        
         // Signal from control message port?
         if (sigSet & (1 << ctrl->mp_SigBit))
@@ -862,9 +867,55 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             }
         }
 
+        // Signal from packet sender
+        if (sigSet & (1 << sender->mp_SigBit))
+        {
+            struct IOSana2Req *ioList[32];
+            struct IOSana2Req *msg;
+            ULONG ioCount = 0;
+
+            // Drain outgoing packet requests
+            while (msg = (struct IOSana2Req *)GetMsg(sender))
+            {
+                // Put the packet into an array. It will be used later to construct Glom frame
+                ioList[ioCount++] = msg;
+
+                // Glom full? Push out large frame
+                // But not yet, for now just send them all out, one after another
+                if (ioCount == 32)
+                {
+                    D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
+                    for (ULONG i=0; i < ioCount; i++)
+                    {
+                        SendDataPacket(sdio, ioList[i]);
+                        ReplyMsg((struct Message *)ioList[i]);
+                    }
+                    ioCount = 0;
+                }
+            }
+
+            // Any write requests left? Push them out now
+            // One item only? Send it as one packet.
+            if (ioCount == 1)
+            {
+                SendDataPacket(sdio, ioList[0]);
+                ReplyMsg((struct Message *)ioList[0]);
+            }
+            else if (ioCount > 1)
+            {
+                D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
+                // More items? Construct glom frame
+                for (ULONG i=0; i < ioCount; i++)
+                {
+                    SendDataPacket(sdio, ioList[i]);
+                    ReplyMsg((struct Message *)ioList[i]);
+                }
+            }
+        }
+
         // Signal from timer.device or from control message port?
         // Both are great occasions to test if some data is pending
-        if (sigSet & ((1 << port->mp_SigBit) | 1 << ctrl->mp_SigBit))
+        if (sigSet & ((1 << port->mp_SigBit) | (1 << ctrl->mp_SigBit) | (1 << sender->mp_SigBit)))
         {
             UBYTE gotTransfer = 0;
             UBYTE EOL = 0;
@@ -1209,9 +1260,8 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     {
         totLen += 14;
     }
-
     
-    struct Packet *p = AllocVecPooled(WiFiBase->w_MemPool, totLen);
+    struct Packet *p = sdio->s_TXBuffer;
     ULONG *clr = (ULONG*)p;
 
     *clr++ = 0;
@@ -1264,8 +1314,6 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     //PacketDump(sdio, p, "WiFi.OUT");
 
     sdio->SendPKT((UBYTE*)p, totLen, sdio);
-    
-    FreeVecPooled(WiFiBase->w_MemPool, p);
 
     return 1;
 }

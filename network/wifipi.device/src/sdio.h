@@ -269,6 +269,7 @@ struct SDIO {
     struct Task *       s_ScannerTask;
     struct Task *       s_ReceiverTask;
     struct MsgPort *    s_ReceiverPort;
+    struct MsgPort *    s_SenderPort;
     struct MinList *    s_CtrlWaitList;
 
     struct SignalSemaphore s_Lock;

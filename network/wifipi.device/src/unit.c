@@ -318,21 +318,10 @@ static int Do_CMD_WRITE(struct IOSana2Req *io)
     struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
     struct SDIO *sdio = unit->wu_Base->w_SDIO;
 
-    if (io->ios2_Req.io_Command == CMD_WRITE)
-    {
-        //D(bug("[WiFi.0] CMD_WRITE packet type %04lx to destination ", io->ios2_PacketType));
-        /*D(bug("%02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
-                io->ios2_DstAddr[0], io->ios2_DstAddr[1], io->ios2_DstAddr[2],
-                io->ios2_DstAddr[3], io->ios2_DstAddr[4], io->ios2_DstAddr[5]));*/
-    }
-    else
-    {
-        //D(bug("[WiFi.0] S2_BROADCAST packet type %04lx\n", io->ios2_PacketType));
-    }
-
     if (unit->wu_Flags & IFF_UP)
     {
-        return SendDataPacket(sdio, io);
+        PutMsg(sdio->s_SenderPort, (struct Message *)io);
+        return 0;
     }
     else
     {
