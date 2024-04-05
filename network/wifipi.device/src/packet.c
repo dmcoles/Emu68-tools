@@ -492,7 +492,7 @@ delay_us(5000000, sdio->s_WiFiBase);
 
 
 #define PACKET_RECV_STACKSIZE   (65536 / sizeof(ULONG))
-#define PACKET_RECV_PRIORITY    5
+#define PACKET_RECV_PRIORITY    0
 
 #define PACKET_WAIT_DELAY_MIN   1000
 #define PACKET_WAIT_DELAY_MAX   100000
@@ -791,6 +791,10 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
 
     NewMinList(&ctrlWaitList);
 
+    /* Sender port is signal-free */
+    FreeSignal(sender->mp_SigBit);
+    sender->mp_Flags = PA_IGNORE;
+
     D(bug("[WiFi.RECV] Packet receiver task\n"));
     D(bug("[WiFi.RECV] SDIO=%08lx, Caller task=%08lx\n", (ULONG)sdio, (ULONG)caller));
 
@@ -846,9 +850,10 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     // Loop forever
     while(1)
     {
+        UBYTE gotTransfer = 0;
+
         ULONG sigSet = Wait(SIGBREAKF_CTRL_C | 
                             (1 << port->mp_SigBit) |
-                            (1 << sender->mp_SigBit) |
                             (1 << ctrl->mp_SigBit));
        
         // Signal from control message port?
@@ -867,66 +872,78 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             }
         }
 
-        // Signal from packet sender
-        if (sigSet & (1 << sender->mp_SigBit))
+        // Always check if there are data packets for sending
+        if (TRUE)
         {
             struct IOSana2Req *ioList[32];
             struct IOSana2Req *msg;
             ULONG ioCount = 0;
+            UBYTE maxCount;
 
-            // Drain outgoing packet requests
-            while (msg = (struct IOSana2Req *)GetMsg(sender))
+            maxCount = sdio->s_MaxTXSeq - sdio->s_TXSeq;
+            
+            /* Make sure we have place in TX */
+            if (maxCount > 1)
             {
-                // Put the packet into an array. It will be used later to construct Glom frame
-                ioList[ioCount++] = msg;
+                // Drain outgoing packet requests
+                while (msg = (struct IOSana2Req *)GetMsg(sender))
+                {
+                    gotTransfer = TRUE;
 
-                // Glom full? Push out large frame
-                // But not yet, for now just send them all out, one after another
-                if (ioCount == 32)
+                    // Put the packet into an array. It will be used later to construct Glom frame
+                    ioList[ioCount++] = msg;
+
+                    if (--maxCount == 1)
+                    {
+                        D(bug("[WiFi] No more place in TX\n"));
+                        break;
+                    }
+
+                    // Glom full? Push out large frame
+                    // But not yet, for now just send them all out, one after another
+                    if (ioCount == 32)
+                    {
+                        D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
+                        for (ULONG i=0; i < ioCount; i++)
+                        {
+                            SendDataPacket(sdio, ioList[i]);
+                            ReplyMsg((struct Message *)ioList[i]);
+                        }
+                        ioCount = 0;
+                    }
+                }
+
+                // Any write requests left? Push them out now
+                // One item only? Send it as one packet.
+                if (ioCount == 1)
+                {
+                    SendDataPacket(sdio, ioList[0]);
+                    ReplyMsg((struct Message *)ioList[0]);
+                }
+                else if (ioCount > 1)
                 {
                     D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
+                    // More items? Construct glom frame
                     for (ULONG i=0; i < ioCount; i++)
                     {
                         SendDataPacket(sdio, ioList[i]);
                         ReplyMsg((struct Message *)ioList[i]);
                     }
-                    ioCount = 0;
-                }
-            }
-
-            // Any write requests left? Push them out now
-            // One item only? Send it as one packet.
-            if (ioCount == 1)
-            {
-                SendDataPacket(sdio, ioList[0]);
-                ReplyMsg((struct Message *)ioList[0]);
-            }
-            else if (ioCount > 1)
-            {
-                D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
-                // More items? Construct glom frame
-                for (ULONG i=0; i < ioCount; i++)
-                {
-                    SendDataPacket(sdio, ioList[i]);
-                    ReplyMsg((struct Message *)ioList[i]);
                 }
             }
         }
 
         // Signal from timer.device or from control message port?
         // Both are great occasions to test if some data is pending
-        if (sigSet & ((1 << port->mp_SigBit) | (1 << ctrl->mp_SigBit) | (1 << sender->mp_SigBit)))
+        if (sigSet & ((1 << port->mp_SigBit) | (1 << ctrl->mp_SigBit)))
         {
-            UBYTE gotTransfer = 0;
             UBYTE EOL = 0;
 
-#if 0
             if (sigSet & (1 << ctrl->mp_SigBit))
             {
                 AbortIO(&tr->tr_node);
                 WaitIO(&tr->tr_node);
             }
-#endif
 
             ULONG t0 = LE32(*(volatile ULONG*)0xf2003004);
 
@@ -934,7 +951,8 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
 
             ULONG t1 = LE32(*(volatile ULONG*)0xf2003004);
 
-            gotTransfer = LE16(pkt->p_Length) != 0;
+            /* Update gotTransfer flag if it wasn't set already */
+            gotTransfer |= LE16(pkt->p_Length) != 0;
 
             if (sigSet & (1 << port->mp_SigBit))
             {
