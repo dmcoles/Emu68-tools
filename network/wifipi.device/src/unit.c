@@ -600,6 +600,8 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
 
         PacketSetVarInt(sdio, "bus:txglom", 1);
         PacketSetVarInt(sdio, "bus:txglomalign", 4);
+        if (PacketSetVarInt(sdio, "bus:rxglom", 1) == 0)
+        sdio->s_GlomEnabled = TRUE;
         PacketSetVarInt(sdio, "bcn_timeout", 10);
         PacketSetVarInt(sdio, "assoc_retry_max", 3);
 

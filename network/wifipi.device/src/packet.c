@@ -49,7 +49,7 @@
  * Byte 2: Length of next data frame, reserved for Tx
  * Byte 3: Data offset
  * Byte 4: Flow control bits, reserved for Tx
- * Byte 5: Maximum Sequence number allowed by firmware for Tx, N/A for Tx packet
+ * Byte 5: Maximum Sequence number allowed by firmware for Tx, N/A for Rx packet
  * Byte 6~7: Reserved
  */
 #define SDPCM_HWHDR_LEN			4
@@ -74,6 +74,29 @@
 #define SDPCM_FCMASK_MASK		0x000000ff
 #define SDPCM_WINDOW_MASK		0x0000ff00
 #define SDPCM_WINDOW_SHIFT		8
+
+struct PacketHeaderHW {
+    UWORD ph_Length;
+    UWORD ph_ChkSum;
+} __attribute__((packed));
+
+struct GlomHeader {
+    UWORD gh_Length;
+    UBYTE gh_ReservedB;
+    UBYTE gh_LastItem;
+    UWORD gh_ReservedW;
+    UWORD gh_TailPad;
+} __attribute__((packed));
+
+struct PacketHeaderSW {
+    UBYTE c_Seq;
+    UBYTE c_ChannelFlag;
+    UBYTE c_NextLength;
+    UBYTE c_DataOffset;
+    UBYTE c_FlowControl;
+    UBYTE c_MaxSeq;
+    UBYTE c_Reserved[2];
+} __attribute__((packed));
 
 struct Packet {
     // Hardware header
@@ -183,7 +206,8 @@ struct PacketMessage {
     struct Message  pm_Message;
     APTR            pm_RecvBuffer;
     ULONG           pm_RecvSize;
-    struct Packet   pm_Packet[];
+    APTR            pm_PacketData;
+    struct Packet   pm_PacketHeader[];
 };
 
 /* scan params for extended join */
@@ -678,8 +702,6 @@ ULONG ProcessPacket(struct SDIO *sdio, struct Packet *pkt)
     struct ExecBase *SysBase = sdio->s_SysBase;
     UBYTE *buffer = (UBYTE*)pkt;
 
-//    D(bug("[WiFI] ProcessPacket(%08lx, %08lx)\n", (ULONG)sdio, (ULONG)pkt));
-
     UWORD pktLen = LE16(pkt->p_Length);
     UWORD pktChk = LE16(pkt->c_ChkSum);
 
@@ -704,8 +726,7 @@ ULONG ProcessPacket(struct SDIO *sdio, struct Packet *pkt)
             struct PacketMessage *m;
             ForeachNode(sdio->s_CtrlWaitList, m)
             {
-                struct Packet *pkt = (APTR)&m->pm_Packet[0];
-                struct PacketCmd *c = (APTR)&((UBYTE*)pkt)[pkt->c_DataOffset];
+                struct PacketCmd *c = (APTR)m->pm_PacketData;
 
                 // If the ID of waiting packet and received packet match, copy the received
                 // Data back into the message and reply it
@@ -720,8 +741,8 @@ ULONG ProcessPacket(struct SDIO *sdio, struct Packet *pkt)
                         //D(bug("[WiFi.RECV] Length mismatch %ld!=%ld\n", pktLen, LE16(pkt->p_Length)));
                     }
 
-                    // Copy header back to buffer
-                    CopyMem(buffer, &m->pm_Packet[0], pkt->c_DataOffset);
+                    // Copy PacketCmd back to buffer
+                    CopyMem(cmd, c, sizeof(struct PacketCmd));
 
                     // If get-type of packet and no error flag was set, copy data back
                     if (!(c->c_Flags & LE16(BCDC_DCMD_SET)))
@@ -733,7 +754,7 @@ ULONG ProcessPacket(struct SDIO *sdio, struct Packet *pkt)
                                 // RecvBuffer and RecvSize are given, there was no error and
                                 // packet type is "Get"
                                 // Copy data back now
-                                CopyMem(&buffer[pkt->c_DataOffset + sizeof(struct PacketCmd)], m->pm_RecvBuffer, m->pm_RecvSize);
+                                CopyMem((UBYTE*)cmd + sizeof(struct PacketCmd), m->pm_RecvBuffer, m->pm_RecvSize);
                             }
                         }
                     }
@@ -779,6 +800,8 @@ ULONG ProcessPacket(struct SDIO *sdio, struct Packet *pkt)
 
     return pktLen;
 }
+
+int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE count);
 
 void PacketReceiver(struct SDIO *sdio, struct Task *caller)
 {
@@ -851,6 +874,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     while(1)
     {
         UBYTE gotTransfer = 0;
+        UBYTE sendTransfer = 0;
 
         ULONG sigSet = Wait(SIGBREAKF_CTRL_C | 
                             (1 << port->mp_SigBit) |
@@ -868,7 +892,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 AddTail((struct List*)&ctrlWaitList, &msg->pm_Message.mn_Node);
 
                 // Send out the control packet
-                sdio->SendPKT((APTR)&msg->pm_Packet[0], LE16(msg->pm_Packet[0].p_Length), sdio);
+                sdio->SendPKT((APTR)&msg->pm_PacketHeader[0], LE16(msg->pm_PacketHeader[0].p_Length), sdio);
             }
         }
 
@@ -883,19 +907,19 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             maxCount = sdio->s_MaxTXSeq - sdio->s_TXSeq;
             
             /* Make sure we have place in TX */
-            if (maxCount > 1)
+            if (maxCount)
             {
                 // Drain outgoing packet requests
                 while (msg = (struct IOSana2Req *)GetMsg(sender))
                 {
-                    gotTransfer = TRUE;
+                    sendTransfer = TRUE;
 
                     // Put the packet into an array. It will be used later to construct Glom frame
                     ioList[ioCount++] = msg;
 
-                    if (--maxCount == 1)
+                    if (--maxCount == 0)
                     {
-                        D(bug("[WiFi] No more place in TX\n"));
+                        //D(bug("[WiFi] No more place in TX\n"));
                         break;
                     }
 
@@ -903,32 +927,41 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                     // But not yet, for now just send them all out, one after another
                     if (ioCount == 32)
                     {
-                        D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
+                        //D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
+                        /*
                         for (ULONG i=0; i < ioCount; i++)
                         {
                             SendDataPacket(sdio, ioList[i]);
                             ReplyMsg((struct Message *)ioList[i]);
                         }
+                        */
+                        SendGlomDataPacket(sdio, ioList, ioCount);
                         ioCount = 0;
                     }
                 }
 
                 // Any write requests left? Push them out now
                 // One item only? Send it as one packet.
-                if (ioCount == 1)
+                #if 0
+                 if (ioCount == 1)
                 {
                     SendDataPacket(sdio, ioList[0]);
                     ReplyMsg((struct Message *)ioList[0]);
                 }
-                else if (ioCount > 1)
+                else 
+                #endif
+                if (ioCount)
                 {
-                    D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
+                    //D(bug("[WiFi] Glom frame would do, there are %ld entries in queue\n", ioCount));
                     // More items? Construct glom frame
+                    SendGlomDataPacket(sdio, ioList, ioCount);
+                    /*
                     for (ULONG i=0; i < ioCount; i++)
                     {
                         SendDataPacket(sdio, ioList[i]);
                         ReplyMsg((struct Message *)ioList[i]);
                     }
+                    */
                 }
             }
         }
@@ -952,7 +985,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             ULONG t1 = LE32(*(volatile ULONG*)0xf2003004);
 
             /* Update gotTransfer flag if it wasn't set already */
-            gotTransfer |= LE16(pkt->p_Length) != 0;
+            gotTransfer = LE16(pkt->p_Length) != 0;
 
             if (sigSet & (1 << port->mp_SigBit))
             {
@@ -962,7 +995,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                     WaitIO(&tr->tr_node);
                 }
             
-                if (gotTransfer)
+                if (gotTransfer || sendTransfer)
                 {
                     waitDelay = PACKET_WAIT_DELAY_MIN;
                 }
@@ -1264,6 +1297,134 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
     }
 }
 
+/*
+ * brcmfmac sdio bus specific header
+ * This is the lowest layer header wrapped on the packets transmitted between
+ * host and WiFi dongle which contains information needed for SDIO core and
+ * firmware
+ *
+ * It consists of 3 parts: hardware header, hardware extension header and
+ * software header
+ * hardware header (frame tag) - 4 bytes
+ * Byte 0~1: Frame length
+ * Byte 2~3: Checksum, bit-wise inverse of frame length
+ * hardware extension header - 8 bytes
+ * Tx glom mode only, N/A for Rx or normal Tx
+ * Byte 0~1: Packet length excluding hw frame tag
+ * Byte 2: Reserved
+ * Byte 3: Frame flags, bit 0: last frame indication
+ * Byte 4~5: Reserved
+ * Byte 6~7: Tail padding length
+ * software header - 8 bytes
+ * Byte 0: Rx/Tx sequence number
+ * Byte 1: 4 MSB Channel number, 4 LSB arbitrary flag
+ * Byte 2: Length of next data frame, reserved for Tx
+ * Byte 3: Data offset
+ * Byte 4: Flow control bits, reserved for Tx
+ * Byte 5: Maximum Sequence number allowed by firmware for Tx, N/A for Rx packet
+ * Byte 6~7: Reserved
+ */
+
+int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE count)
+{
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
+    struct ExecBase *SysBase = sdio->s_SysBase;
+    struct WiFiUnit *unit = WiFiBase->w_Unit;
+    ULONG totalLength = 0;
+
+    struct PacketHeaderHW *pktBase = sdio->s_TXBuffer;
+    UBYTE *byteBuffer = sdio->s_TXBuffer;
+
+    for (UBYTE i; i < count; i++)
+    {
+        struct IOSana2Req *io = ioList[i];
+        struct Opener *opener = io->ios2_BufferManagement;
+        struct PacketHeaderHW *hw = (APTR)(byteBuffer + totalLength);
+        struct GlomHeader *gh = (APTR)((UBYTE*)hw + sizeof(struct PacketHeaderHW));
+        struct PacketHeaderSW *hdr = (APTR)((UBYTE*)gh + sizeof(struct GlomHeader));
+        
+        UWORD packetLength = io->ios2_DataLength + sizeof(struct Packet) + sizeof(struct GlomHeader) + 4;
+
+        if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
+        {
+            packetLength += 14;
+        }
+
+        /* Fill HW header */
+        hw->ph_Length = LE16(packetLength);
+        hw->ph_ChkSum = ~hw->ph_Length;
+
+        /* Fill out glom header */
+        gh->gh_Length = LE16(packetLength - 4);
+        gh->gh_ReservedB = 0;
+        gh->gh_ReservedW = 0;
+        if (i == count - 1) gh->gh_LastItem = 1;
+        else gh->gh_LastItem = 0;
+        gh->gh_TailPad = LE16((-packetLength) & 3);
+
+        /* Following glom header there is PacketSW header */
+        hdr->c_ChannelFlag = SDPCM_DATA_CHANNEL;
+        hdr->c_DataOffset = sizeof(struct Packet) + sizeof(struct GlomHeader);
+        hdr->c_FlowControl = 0;
+        hdr->c_Seq = sdio->s_TXSeq++;
+        hdr->c_NextLength = 0;
+        hdr->c_MaxSeq = 0;
+        hdr->c_Reserved[0] = 0;
+        hdr->c_Reserved[1] = 0;
+
+        /* Finally packet data */
+        UBYTE *ptr = (UBYTE *)hdr + sizeof(struct PacketHeaderSW);
+
+        /* BDC Header */
+        *ptr++ = 0x20;
+        *ptr++ = 0;
+        *ptr++ = 0;
+        *ptr++ = 0;
+
+        if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
+        {
+            // Copy destination
+            *(ULONG*)&ptr[0] = *(ULONG*)&io->ios2_DstAddr[0];
+            *(UWORD*)&ptr[4] = *(UWORD*)&io->ios2_DstAddr[4];
+
+            // Copy source
+            *(ULONG*)&ptr[6] = *(ULONG*)&io->ios2_SrcAddr[0];
+            *(UWORD*)&ptr[10] = *(UWORD*)&io->ios2_SrcAddr[4];
+
+            // Copy packet type
+            *(UWORD*)&ptr[12] = io->ios2_PacketType;
+            ptr+=14;
+        }
+
+        // Copy packet contents
+        opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
+
+        // Increase total length by packet length (aligned)
+        totalLength += (packetLength + 3) & ~3;
+    }
+
+    pktBase->ph_Length = LE16(totalLength);
+    pktBase->ph_ChkSum = ~pktBase->ph_Length;
+#if 0
+    UBYTE *bdata = (UBYTE*)pktBase;
+    for (ULONG i=0; i < totalLength; i++)
+    {
+        if (i % 16 == 0)
+            bug("[GLOM] %04lx:", i);
+        bug(" %02lx", bdata[i]);
+        if (i % 16 == 15)
+            bug("\n");
+    }
+    if (totalLength % 16 != 0) bug("\n");
+#endif
+#if 0
+    while(1);
+#endif
+    sdio->SendPKT((UBYTE *)pktBase, totalLength, sdio);
+
+    for (UBYTE i; i < count; i++) ReplyMsg(&ioList[i]->ios2_Req.io_Message);
+}
+
 int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
@@ -1285,16 +1446,6 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     *clr++ = 0;
     *clr++ = 0;
     *clr++ = 0;
-
-    UBYTE delta = 0;
-    if (sdio->s_TXSeq > sdio->s_MaxTXSeq)
-        delta = sdio->s_TXSeq - sdio->s_MaxTXSeq;
-    else
-        delta = sdio->s_MaxTXSeq - sdio->s_TXSeq;
-    if (delta < 10)
-    {
-        D(bug("[WiFi] Delta getting low: %ld, %ld, %ld\n", delta, sdio->s_TXSeq, sdio->s_MaxTXSeq));
-    }
 
     p->p_Length = LE16(totLen);
     p->c_ChkSum = ~p->p_Length;
@@ -1554,36 +1705,54 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + setSize;
     ULONG error_code = 0;
 
+    if (sdio->s_GlomEnabled)
+        totalLen += 8;
+
     int varSize = int_strlen(varName) + 1;
 
     totalLen += varSize;
 
     mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
-    pkt = (APTR)&mpkt->pm_Packet[0];
+    pkt = (APTR)&mpkt->pm_PacketHeader[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
     mpkt->pm_Message.mn_Length = totalLen;
 
-    struct Packet *p = (struct Packet *)&pkt[0];
-    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
-
+    struct PacketHeaderHW *hw = (APTR)&pkt[0];
+    struct GlomHeader *gl = (APTR)&pkt[4];
+    struct PacketHeaderSW *sw = sdio->s_GlomEnabled ? (APTR)&pkt[12] : (APTR)&pkt[4];
+    struct PacketCmd *c = sdio->s_GlomEnabled ? (APTR)&pkt[20] : (APTR)&pkt[12];
+    
+    mpkt->pm_PacketData = c;
     UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize + setSize;
     
-    p->p_Length = LE16(totLen);
-    p->c_ChkSum = ~p->p_Length;
-    p->c_DataOffset = sizeof(struct Packet);
-    p->c_FlowControl = 0;
-    p->c_Seq = sdio->s_TXSeq++;
+    if (sdio->s_GlomEnabled)
+    {
+        totLen += 8;
+        gl->gh_Length = LE16(totLen - sizeof(struct PacketHeaderHW));
+        gl->gh_ReservedB = 0;
+        gl->gh_LastItem = 1;
+        gl->gh_ReservedW = 0;
+        gl->gh_TailPad = LE16((-totLen) & 3);
+    }
+
+    hw->ph_Length = LE16(totLen);
+    hw->ph_ChkSum = ~hw->ph_Length;
+    sw->c_DataOffset = sizeof(struct Packet);
+    if (sdio->s_GlomEnabled) sw->c_DataOffset += sizeof(struct GlomHeader);
+    sw->c_FlowControl = 0;
+    sw->c_Seq = sdio->s_TXSeq++;
+
     c->c_Command = LE32(263);
     c->c_Length = LE32(varSize + setSize);
     c->c_Flags = LE16(BCDC_DCMD_SET);
     c->c_ID = LE16(++(sdio->s_CmdID));
     c->c_Status = 0;
 
-    CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
-    CopyMem((APTR)setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
-
-    //PacketDump(sdio, p, "WiFi");
+    UBYTE *param = (UBYTE*)c + sizeof(struct PacketCmd);
+    
+    CopyMem(varName, &param[0], varSize);
+    CopyMem((APTR)setBuffer, &param[varSize], setSize);
 
     PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
     WaitPort(port);
@@ -1592,7 +1761,7 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
     if (c->c_Flags & LE16(BCDC_DCMD_ERROR))
     {
         error_code = LE32(c->c_Status);
-        D(bug("[WiFi] PacketSetVar ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
+        D(bug("[WiFi] PacketSetVar ended with error. Code: %s", (ULONG)brcmf_fil_errstr[-error_code]));
     }
 
     FreePooled(WiFiBase->w_MemPool, mpkt, totalLen);
@@ -1608,30 +1777,46 @@ void PacketSetVarAsync(struct SDIO *sdio, char *varName, const void *setBuffer, 
     UBYTE *pkt;
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + setSize;
 
+    if (sdio->s_GlomEnabled)
+        totalLen += 8;
+
     int varSize = int_strlen(varName) + 1;
 
     totalLen += varSize;
 
     pkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
 
-    struct Packet *p = (struct Packet *)&pkt[0];
-    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+    struct PacketHeaderHW *hw = (APTR)&pkt[0];
+    struct GlomHeader *gl = (APTR)&pkt[4];
+    struct PacketHeaderSW *sw = sdio->s_GlomEnabled ? (APTR)&pkt[12] : (APTR)&pkt[4];
+    struct PacketCmd *c = sdio->s_GlomEnabled ? (APTR)&pkt[20] : (APTR)&pkt[12];
 
-    p->p_Length = LE16(totalLen);
-    p->c_ChkSum = ~p->p_Length;
-    p->c_DataOffset = sizeof(struct Packet);
-    p->c_FlowControl = 0;
-    p->c_Seq = sdio->s_TXSeq++;
+    if (sdio->s_GlomEnabled)
+    {
+        gl->gh_Length = LE16(totalLen - sizeof(struct PacketHeaderHW));
+        gl->gh_ReservedB = 0;
+        gl->gh_LastItem = 1;
+        gl->gh_ReservedW = 0;
+        gl->gh_TailPad = LE16((-totalLen) & 3);
+    }
+
+    hw->ph_Length = LE16(totalLen);
+    hw->ph_ChkSum = ~hw->ph_Length;
+    sw->c_DataOffset = sizeof(struct Packet);
+    if (sdio->s_GlomEnabled) sw->c_DataOffset += sizeof(struct GlomHeader);
+    sw->c_FlowControl = 0;
+    sw->c_Seq = sdio->s_TXSeq++;
+
     c->c_Command = LE32(263);
     c->c_Length = LE32(varSize + setSize);
     c->c_Flags = LE16(BCDC_DCMD_SET);
     c->c_ID = LE16(++(sdio->s_CmdID));
     c->c_Status = 0;
 
-    CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
-    CopyMem((APTR)setBuffer, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd) + varSize], setSize);
-
-    //PacketDump(sdio, p, "WiFi");
+    UBYTE *param = (UBYTE*)c + sizeof(struct PacketCmd);
+    
+    CopyMem(varName, &param[0], varSize);
+    CopyMem((APTR)setBuffer, &param[varSize], setSize);
 
     // Async - fire the packet and forget
     sdio->SendPKT(pkt, totalLen, sdio);
@@ -1661,31 +1846,50 @@ int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
     ULONG error_code = 0;
 
+    if (sdio->s_GlomEnabled)
+        totalLen += 8;
+
     mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
-    pkt = (APTR)&mpkt->pm_Packet[0];
+    pkt = (APTR)&mpkt->pm_PacketHeader[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
     mpkt->pm_Message.mn_Length = totalLen;
     
-    struct Packet *p = (struct Packet *)&pkt[0];
-    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+    struct PacketHeaderHW *hw = (APTR)&pkt[0];
+    struct GlomHeader *gl = (APTR)&pkt[4];
+    struct PacketHeaderSW *sw = sdio->s_GlomEnabled ? (APTR)&pkt[12] : (APTR)&pkt[4];
+    struct PacketCmd *c = sdio->s_GlomEnabled ? (APTR)&pkt[20] : (APTR)&pkt[12];
+
+    mpkt->pm_PacketData = c;
 
     UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
     
-    p->p_Length = LE16(totLen);
-    p->c_ChkSum = ~p->p_Length;
-    p->c_DataOffset = sizeof(struct Packet);
-    p->c_FlowControl = 0;
-    p->c_Seq = sdio->s_TXSeq++;
+    if (sdio->s_GlomEnabled)
+    {
+        totLen += 8;
+        gl->gh_Length = LE16(totLen - sizeof(struct PacketHeaderHW));
+        gl->gh_ReservedB = 0;
+        gl->gh_LastItem = 1;
+        gl->gh_ReservedW = 0;
+        gl->gh_TailPad = LE16((-totLen) & 3);
+    }
+
+    hw->ph_Length = LE16(totLen);
+    hw->ph_ChkSum = ~hw->ph_Length;
+    sw->c_DataOffset = sizeof(struct Packet);
+    if (sdio->s_GlomEnabled) sw->c_DataOffset += sizeof(struct GlomHeader);
+    sw->c_FlowControl = 0;
+    sw->c_Seq = sdio->s_TXSeq++;
+
     c->c_Command = LE32(cmd);
     c->c_Length = LE32(4);
     c->c_Flags = LE16(BCDC_DCMD_SET);
     c->c_ID = LE16(++(sdio->s_CmdID));
     c->c_Status = 0;
 
-    *(ULONG*)(&pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)]) = LE32(cmdValue);
+    ULONG *param = (APTR)((UBYTE*)c + sizeof(struct PacketCmd));
 
-    //PacketDump(sdio, p, "WiFi");
+    *param = LE32(cmdValue);
 
     PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
     WaitPort(port);
@@ -1694,7 +1898,7 @@ int PacketCmdInt(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     if (c->c_Flags & LE16(BCDC_DCMD_ERROR))
     {
         error_code = LE32(c->c_Status);
-        D(bug("[WiFi] PacketCmdInt ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
+        D(bug("[WiFi] PacketCmdInt ended with error. Code: %s", (ULONG)brcmf_fil_errstr[-error_code]));
     }
 
     FreePooled(WiFiBase->w_MemPool, mpkt, totalLen);
@@ -1711,26 +1915,42 @@ void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
     ULONG error_code = 0;
 
+    if (sdio->s_GlomEnabled)
+        totalLen += 8;
+
     pkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
     
-    struct Packet *p = (struct Packet *)&pkt[0];
-    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+    struct PacketHeaderHW *hw = (APTR)&pkt[0];
+    struct GlomHeader *gl = (APTR)&pkt[4];
+    struct PacketHeaderSW *sw = sdio->s_GlomEnabled ? (APTR)&pkt[12] : (APTR)&pkt[4];
+    struct PacketCmd *c = sdio->s_GlomEnabled ? (APTR)&pkt[20] : (APTR)&pkt[12];
 
-    p->p_Length = LE16(totalLen);
-    p->c_ChkSum = ~p->p_Length;
-    p->c_DataOffset = sizeof(struct Packet);
-    p->c_FlowControl = 0;
-    p->c_Seq = sdio->s_TXSeq++;
+    if (sdio->s_GlomEnabled)
+    {
+        gl->gh_Length = LE16(totalLen - sizeof(struct PacketHeaderHW));
+        gl->gh_ReservedB = 0;
+        gl->gh_LastItem = 1;
+        gl->gh_ReservedW = 0;
+        gl->gh_TailPad = LE16((-totalLen) & 3);
+    }
+
+    hw->ph_Length = LE16(totalLen);
+    hw->ph_ChkSum = ~hw->ph_Length;
+    sw->c_DataOffset = sizeof(struct Packet);
+    if (sdio->s_GlomEnabled) sw->c_DataOffset += sizeof(struct GlomHeader);
+    sw->c_FlowControl = 0;
+    sw->c_Seq = sdio->s_TXSeq++;
+
     c->c_Command = LE32(cmd);
     c->c_Length = LE32(4);
     c->c_Flags = LE16(BCDC_DCMD_SET);
     c->c_ID = LE16(++(sdio->s_CmdID));
     c->c_Status = 0;
 
-    // Put command argument into packet
-    *(ULONG*)(&pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)]) = LE32(cmdValue);
+    ULONG *param = (APTR)((UBYTE*)c + sizeof(struct PacketCmd));
 
-    //PacketDump(sdio, p, "WiFi");
+    // Put command argument into packet
+    *param = LE32(cmdValue);
 
     // Fire packet and forget it
     sdio->SendPKT(pkt, totalLen, sdio);
@@ -1740,7 +1960,7 @@ void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
 
 int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
 {
-    ULONG error_code = 2; // BADARG
+    ULONG error_code = 2;
 
     if (cmdValue != NULL)
     {
@@ -1752,24 +1972,43 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
         ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage) + 4;
         error_code = 0;
 
+        if (sdio->s_GlomEnabled)
+            totalLen += 8;
+
         mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
-        pkt = (APTR)&mpkt->pm_Packet[0];
+        pkt = (APTR)&mpkt->pm_PacketHeader[0];
 
         mpkt->pm_Message.mn_ReplyPort = port;
         mpkt->pm_Message.mn_Length = totalLen;
         mpkt->pm_RecvBuffer = cmdValue;
         mpkt->pm_RecvSize = 4;
         
-        struct Packet *p = (struct Packet *)&pkt[0];
-        struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+        struct PacketHeaderHW *hw = (APTR)&pkt[0];
+        struct GlomHeader *gl = (APTR)&pkt[4];
+        struct PacketHeaderSW *sw = sdio->s_GlomEnabled ? (APTR)&pkt[12] : (APTR)&pkt[4];
+        struct PacketCmd *c = sdio->s_GlomEnabled ? (APTR)&pkt[20] : (APTR)&pkt[12];
+
+        mpkt->pm_PacketData = c;
 
         UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
         
-        p->p_Length = LE16(totLen - 4);
-        p->c_ChkSum = ~p->p_Length;
-        p->c_DataOffset = sizeof(struct Packet);
-        p->c_FlowControl = 0;
-        p->c_Seq = sdio->s_TXSeq++;
+        if (sdio->s_GlomEnabled)
+        {
+            totLen += 8;
+            gl->gh_Length = LE16(totLen - sizeof(struct PacketHeaderHW));
+            gl->gh_ReservedB = 0;
+            gl->gh_LastItem = 1;
+            gl->gh_ReservedW = 0;
+            gl->gh_TailPad = LE16((-totLen) & 3);
+        }
+
+        hw->ph_Length = LE16(totLen);
+        hw->ph_ChkSum = ~hw->ph_Length;
+        sw->c_DataOffset = sizeof(struct Packet);
+        if (sdio->s_GlomEnabled) sw->c_DataOffset += sizeof(struct GlomHeader);
+        sw->c_FlowControl = 0;
+        sw->c_Seq = sdio->s_TXSeq++;
+
         c->c_Command = LE32(cmd);
         c->c_Length = LE32(4);
         c->c_Flags = LE16(0);
@@ -1785,7 +2024,7 @@ int PacketCmdIntGet(struct SDIO *sdio, ULONG cmd, ULONG *cmdValue)
         if (c->c_Flags & LE16(BCDC_DCMD_ERROR))
         {
             error_code = LE32(c->c_Status);
-            D(bug("[WiFi] PacketCmdIntGet ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
+            D(bug("[WiFi] PacketCmdIntGet ended with error. Code: %s", (ULONG)brcmf_fil_errstr[-error_code]));
         }
         else
         {
@@ -1809,6 +2048,9 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + sizeof(struct PacketMessage);
     ULONG error_code = 0;
 
+    if (sdio->s_GlomEnabled)
+        totalLen += 8;
+
     int varSize = int_strlen(varName) + 1;
 
     if (varSize > getSize)
@@ -1817,34 +2059,51 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
         totalLen += getSize;
 
     mpkt = AllocPooledClear(WiFiBase->w_MemPool, totalLen);
-    pkt = (APTR)&mpkt->pm_Packet[0];
+    pkt = (APTR)&mpkt->pm_PacketHeader[0];
 
     mpkt->pm_Message.mn_ReplyPort = port;
     mpkt->pm_Message.mn_Length = totalLen;
     mpkt->pm_RecvBuffer = getBuffer;
     mpkt->pm_RecvSize = getSize;
 
-    struct Packet *p = (struct Packet *)&pkt[0];
-    struct PacketCmd *c = (struct PacketCmd *)&pkt[12];
+    struct PacketHeaderHW *hw = (APTR)&pkt[0];
+    struct GlomHeader *gl = (APTR)&pkt[4];
+    struct PacketHeaderSW *sw = sdio->s_GlomEnabled ? (APTR)&pkt[12] : (APTR)&pkt[4];
+    struct PacketCmd *c = sdio->s_GlomEnabled ? (APTR)&pkt[20] : (APTR)&pkt[12];
+
+    mpkt->pm_PacketData = c;
+
     UWORD max = varSize;
     if (getSize > max) max = getSize;
 
     UWORD totLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + max;
     
-    p->p_Length = LE16(totLen);
-    p->c_ChkSum = ~p->p_Length;
-    p->c_DataOffset = sizeof(struct Packet);
-    p->c_FlowControl = 0;
-    p->c_Seq = sdio->s_TXSeq++;
+    if (sdio->s_GlomEnabled)
+    {
+        totLen += 8;
+        gl->gh_Length = LE16(totLen - sizeof(struct PacketHeaderHW));
+        gl->gh_ReservedB = 0;
+        gl->gh_LastItem = 1;
+        gl->gh_ReservedW = 0;
+        gl->gh_TailPad = LE16((-totLen) & 3);
+    }
+
+    hw->ph_Length = LE16(totLen);
+    hw->ph_ChkSum = ~hw->ph_Length;
+    sw->c_DataOffset = sizeof(struct Packet);
+    if (sdio->s_GlomEnabled) sw->c_DataOffset += sizeof(struct GlomHeader);
+    sw->c_FlowControl = 0;
+    sw->c_Seq = sdio->s_TXSeq++;
+
     c->c_Command = LE32(262);
     c->c_Length = LE32(max);
     c->c_Flags = LE16(0);
     c->c_ID = LE16(++(sdio->s_CmdID));
     c->c_Status = 0;
 
-    CopyMem(varName, &pkt[sizeof(struct Packet) + sizeof(struct PacketCmd)], varSize);
+    UBYTE *param = (UBYTE*)c + sizeof(struct PacketCmd);
     
-    //PacketDump(sdio, p, "WiFi.OUT");
+    CopyMem(varName, &param[0], varSize);
 
     PutMsg(sdio->s_ReceiverPort, &mpkt->pm_Message);
     WaitPort(port);
@@ -1853,7 +2112,7 @@ int PacketGetVar(struct SDIO *sdio, char *varName, void *getBuffer, int getSize)
     if (c->c_Flags & LE16(BCDC_DCMD_ERROR))
     {
         error_code = LE32(c->c_Status);
-        D(bug("[WiFi] PacketGetVar ended with error. Code: %s", (ULONG)brcmf_fil_errstr[error_code]));
+        D(bug("[WiFi] PacketGetVar ended with error. Code: %s", (ULONG)brcmf_fil_errstr[-error_code]));
     }
 
     FreePooled(WiFiBase->w_MemPool, mpkt, totalLen);

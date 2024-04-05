@@ -298,6 +298,7 @@ struct SDIO {
     UBYTE               s_TXSeq;
     UBYTE               s_RXSeq;
     UWORD               s_CmdID;
+    BOOL                s_GlomEnabled;
 
     struct Core *       s_CC;       // Chipcomm core
     struct Core *       s_SDIOC;    // SDIO core
