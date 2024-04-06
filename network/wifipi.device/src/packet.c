@@ -1432,7 +1432,7 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
         unit->wu_Stats.PacketsSent++;
     }
 }
-UnknownTypesReceived
+
 int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
