@@ -492,7 +492,7 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
     PacketSetVar(sdio, "join", ext_params, sizeof(struct ExtJoinParams));
 
     FreePooled(WiFiBase->w_MemPool, ext_params, sizeof(struct ExtJoinParams));
-
+#if 1
     void delay_us(ULONG us, struct WiFiBase *WiFiBase)
 {
     (void)WiFiBase;
@@ -505,7 +505,7 @@ int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
     while (end > LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
 }
 delay_us(5000000, sdio->s_WiFiBase);
-    
+#endif
 
 //    while(1);
 
@@ -516,7 +516,7 @@ delay_us(5000000, sdio->s_WiFiBase);
 
 
 #define PACKET_RECV_STACKSIZE   (65536 / sizeof(ULONG))
-#define PACKET_RECV_PRIORITY    0
+#define PACKET_RECV_PRIORITY    5
 
 #define PACKET_WAIT_DELAY_MIN   1000
 #define PACKET_WAIT_DELAY_MAX   100000
@@ -1397,7 +1397,12 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
         }
 
         // Copy packet contents
-        opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
+        if (opener->o_TXFuncDMA)
+        {
+            ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
+            CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
+        }
+        else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
 
         // Increase total length by packet length (aligned)
         totalLength += (packetLength + 3) & ~3;
@@ -1478,7 +1483,12 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     }
 
     // Copy packet contents
-    opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
+    if (opener->o_TXFuncDMA)
+    {
+        ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
+        CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
+    }
+    else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
 
     //PacketDump(sdio, p, "WiFi.OUT");
 

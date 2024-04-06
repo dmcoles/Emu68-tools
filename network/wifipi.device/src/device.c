@@ -205,10 +205,11 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
         for(int i = 0; rx_tags[i] != 0; i++) {
             opener->o_RXFunc = (APTR)GetTagData(rx_tags[i], (ULONG)opener->o_RXFunc, tags);
         }
-            
+
         for(int i = 0; tx_tags[i] != 0; i++) {
             opener->o_TXFunc = (APTR)GetTagData(tx_tags[i], (ULONG)opener->o_TXFunc, tags);
         }
+
 /*
         opener->o_TXFuncDMA = (APTR)GetTagData(S2_DMACopyFromBuff32, 0, tags);
         opener->o_RXFuncDMA = (APTR)GetTagData(S2_DMACopyToBuff32, 0, tags);

@@ -213,6 +213,7 @@ void cmd_int(ULONG cmd, ULONG arg, ULONG timeout, struct SDIO *sdio)
 
         int cur_block = 0;
         ULONG *cur_buf_addr = (ULONG *)sdio->s_Buffer;
+
         while(cur_block < sdio->s_BlocksToTransfer)
         {
             tout = timeout / 100;
@@ -748,6 +749,30 @@ void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
 
     S_LOCK(sdio);
 
+#if 1
+    ULONG block_count = length / 512;
+    ULONG reminder = length % 512;
+
+    if (block_count)
+    {
+        // Send out the data
+        sdio->s_Buffer = pkt;
+        sdio->s_BlockSize = 512;
+        sdio->s_BlocksToTransfer = block_count;
+        cmd(IO_RW_EXTENDED | SD_DATA_WRITE | SD_CMD_MULTI_BLOCK | SD_CMD_BLKCNT_EN, 0x80000000 |
+            ((SD_FUNC_RAD & 7) << 28) | (1 << 27) | (block_count & 0x1ff) | (0 << 26), 5000000, sdio);
+        pkt += block_count * 512;
+    }
+
+    if (reminder)
+    {
+        // Send out the data
+        sdio->s_Buffer = pkt;
+        sdio->s_BlockSize = reminder;
+        sdio->s_BlocksToTransfer = 1;
+        cmd(IO_RW_EXTENDED | SD_DATA_WRITE, 0x80000000 | ((SD_FUNC_RAD & 7) << 28) | (reminder & 0x1ff) | (0 << 26), 5000000, sdio);
+    }
+#else
     do {
         ULONG size;
 
@@ -767,6 +792,7 @@ void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         //addr += size;
         pkt += size;
     } while (length > 0);
+#endif
 
     S_UNLOCK(sdio);
 }
@@ -784,7 +810,30 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
     S_LOCK(sdio);
 
     ULONG t1 = LE32(*(volatile ULONG*)0xf2003004);
+#if 1
+    ULONG block_count = length / 512;
+    ULONG reminder = length % 512;
 
+    if (block_count)
+    {
+        // Send out the data
+        sdio->s_Buffer = pkt;
+        sdio->s_BlockSize = 512;
+        sdio->s_BlocksToTransfer = block_count;
+        cmd(IO_RW_EXTENDED | SD_DATA_READ | SD_CMD_MULTI_BLOCK | SD_CMD_BLKCNT_EN,
+            ((SD_FUNC_RAD & 7) << 28) | (1 << 27) | (block_count & 0x1ff) | (0 << 26), 5000000, sdio);
+        pkt += block_count * 512;
+    }
+
+    if (reminder)
+    {
+        // Send out the data
+        sdio->s_Buffer = pkt;
+        sdio->s_BlockSize = reminder;
+        sdio->s_BlocksToTransfer = 1;
+        cmd(IO_RW_EXTENDED | SD_DATA_READ, ((SD_FUNC_RAD & 7) << 28) | (reminder & 0x1ff) | (0 << 26), 5000000, sdio);
+    }
+#else
     do {
         ULONG size;
 
@@ -798,13 +847,13 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         sdio->s_Buffer = pkt;
         sdio->s_BlockSize = size;
         sdio->s_BlocksToTransfer = 1;
-        cmd(IO_RW_EXTENDED | SD_DATA_READ, ((addr & 0x1ffff) << 9) | ((SD_FUNC_RAD & 7) << 28) | (size & 0x1ff) | (1 << 26), 5000000, sdio);
+        cmd(IO_RW_EXTENDED | SD_DATA_READ, ((SD_FUNC_RAD & 7) << 28) | (size & 0x1ff) | (0 << 26), 5000000, sdio);
 
         length -= size;
         //addr += size;
         pkt += size;
     } while (length > 0);
-
+#endif
     S_UNLOCK(sdio);
 }
 
