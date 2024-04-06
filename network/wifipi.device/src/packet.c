@@ -1427,9 +1427,12 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
 #endif
     sdio->SendPKT((UBYTE *)pktBase, totalLength, sdio);
 
-    for (UBYTE i; i < count; i++) ReplyMsg(&ioList[i]->ios2_Req.io_Message);
+    for (UBYTE i; i < count; i++) {
+        ReplyMsg(&ioList[i]->ios2_Req.io_Message);
+        unit->wu_Stats.PacketsSent++;
+    }
 }
-
+UnknownTypesReceived
 int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
@@ -1493,6 +1496,7 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     //PacketDump(sdio, p, "WiFi.OUT");
 
     sdio->SendPKT((UBYTE*)p, totLen, sdio);
+    unit->wu_Stats.PacketsSent++;
 
     return 1;
 }
