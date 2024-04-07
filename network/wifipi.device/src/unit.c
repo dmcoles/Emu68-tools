@@ -232,7 +232,6 @@ void StartUnitTask(struct WiFiUnit *unit)
 static const UWORD WiFi_SupportedCommands[] = {
     //CMD_FLUSH,
     CMD_READ,
-    //CMD_UPDATE,
     CMD_WRITE,
 
     S2_DEVICEQUERY,
@@ -240,12 +239,12 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_CONFIGINTERFACE,
     S2_ADDMULTICASTADDRESS,
     S2_DELMULTICASTADDRESS,
-    // S2_MULTICAST,
+    S2_MULTICAST,
     S2_BROADCAST,
     // S2_TRACKTYPE,
     // S2_UNTRACKTYPE,
     // S2_GETTYPESTATS,
-//    S2_GETSPECIALSTATS,
+//    S2_GETSPECIALSTATS, <-- not used yet!
     S2_GETGLOBALSTATS,
     S2_ONEVENT,
     S2_READORPHAN,
@@ -254,7 +253,7 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_ADDMULTICASTADDRESSES,
     S2_DELMULTICASTADDRESSES,
 
-    //S2_GETSIGNALQUALITY,
+    S2_GETSIGNALQUALITY,
     S2_GETNETWORKS,
     //S2_SETOPTIONS,
     //S2_SETKEY,
@@ -333,6 +332,40 @@ static int Do_S2_ONEVENT(struct IOSana2Req *io)
         PutMsg(&opener->o_EventListeners, (struct Message *)io);
     }
 }
+
+static int Do_S2_GETSIGNALQUALITY(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
+    D(bug("[WiFi.0] S2_GETSIGNALQUALITY\n"));
+
+    /* If expected flags match preset, return back (almost) immediately */
+    if ((unit->wu_Flags & IFF_ONLINE) == 0)
+    {
+        io->ios2_Req.io_Error = S2ERR_OUTOFSERVICE;
+        io->ios2_WireError = S2WERR_UNIT_OFFLINE;
+        return 1;
+    }
+    else if ((unit->wu_Flags & IFF_CONNECTED) == 0)
+    {
+        io->ios2_Req.io_Error = S2ERR_OUTOFSERVICE;
+        io->ios2_WireError = S2WERR_NOT_CONFIGURED;
+        return 1;
+    }
+    else
+    {
+        /* Remove QUICK flag and put message on event listener list */
+        struct Sana2SignalQuality *quality = io->ios2_StatData;
+        PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_RSSI, &quality->SignalLevel);
+        PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_PHY_NOISE, &quality->NoiseLevel);
+
+        D(bug("[WiFi.0] Signal: %ld, Noise: %ld\n", quality->SignalLevel, quality->NoiseLevel));
+        return 1;
+    }
+}
+
 
 static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
 {
@@ -857,9 +890,14 @@ void HandleRequest(struct IOSana2Req *io)
                 complete = Do_S2_ONEVENT(io);
                 break;
 
+            case S2_GETSIGNALQUALITY:
+                complete = Do_S2_GETSIGNALQUALITY(io);
+                break;
+
             case S2_BROADCAST: /* Fallthrough */
                 *(ULONG*)&io->ios2_DstAddr[0] = 0xffffffff;
                 *(UWORD*)&io->ios2_DstAddr[4] = 0xffff;
+            case S2_MULTICAST: /* Fallthrough */
             case CMD_WRITE:
                 complete = Do_CMD_WRITE(io);
                 break;
