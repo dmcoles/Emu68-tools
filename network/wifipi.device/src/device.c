@@ -202,6 +202,12 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
         NewList(&opener->o_ReadPort.mp_MsgList);
         opener->o_ReadPort.mp_Flags = PA_IGNORE;
 
+        NewList(&opener->o_OrphanListeners.mp_MsgList);
+        opener->o_OrphanListeners.mp_Flags = PA_IGNORE;
+
+        NewList(&opener->o_EventListeners.mp_MsgList);
+        opener->o_EventListeners.mp_Flags = PA_IGNORE;
+
         for(int i = 0; rx_tags[i] != 0; i++) {
             opener->o_RXFunc = (APTR)GetTagData(rx_tags[i], (ULONG)opener->o_RXFunc, tags);
         }

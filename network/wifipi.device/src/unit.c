@@ -247,8 +247,8 @@ static const UWORD WiFi_SupportedCommands[] = {
     // S2_GETTYPESTATS,
 //    S2_GETSPECIALSTATS,
     S2_GETGLOBALSTATS,
-    //S2_ONEVENT,
-    //S2_READORPHAN,
+    S2_ONEVENT,
+    S2_READORPHAN,
     S2_ONLINE,
     //S2_OFFLINE,
     S2_ADDMULTICASTADDRESSES,
@@ -259,14 +259,80 @@ static const UWORD WiFi_SupportedCommands[] = {
     //S2_SETOPTIONS,
     //S2_SETKEY,
     //S2_GETNETWORKINFO,
-    //S2_READMGMT,
-    //S2_WRITEMGMT,
     //S2_GETRADIOBANDS,
-    //S2_GETCRYPTTYPES,
 
     NSCMD_DEVICEQUERY,
     0
 };
+
+/* Mask of events known by the driver */
+#define EVENT_MASK (S2EVENT_CONNECT | S2EVENT_DISCONNECT | S2EVENT_ONLINE   |  \
+                    S2EVENT_OFFLINE | S2EVENT_ERROR      | S2EVENT_TX       |  \
+                    S2EVENT_RX      | S2EVENT_BUFF       | S2EVENT_HARDWARE |  \
+                    S2EVENT_SOFTWARE)
+
+/* Report events to this unit */
+void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
+{
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+    struct Opener *opener;
+
+    /* Report event to every listener of every opener accepting the mask */
+    ForeachNode(&unit->wu_Openers, opener)
+    {
+        struct IOSana2Req *io, *next;
+        
+        Disable();
+        ForeachNodeSafe(&opener->o_EventListeners, io, next)
+        {
+            /* Check if event mask in WireError fits the events occured */
+            if (io->ios2_WireError & eventSet)
+            {
+                /* We have a match. Leave only matching events in wire error */
+                io->ios2_WireError &= eventSet;
+                
+                /* Reply it */
+                Remove((struct Node *)io);
+                ReplyMsg((struct Message *)io);
+            }
+        }
+        Enable();
+    }
+}
+
+static int Do_S2_ONEVENT(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
+    ULONG preset;
+    if (unit->wu_Flags & IFF_ONLINE) preset = S2EVENT_ONLINE;
+    else preset = S2EVENT_ONLINE;
+
+    D(bug("[WiFi.0] S2_ONEVENT(%08lx)\n", io->ios2_WireError));
+
+    /* If any unsupported events are requested, report an error */
+    if (io->ios2_WireError & ~(EVENT_MASK))
+    {
+        io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+        io->ios2_WireError = S2WERR_BAD_EVENT;
+        return 1;
+    }
+
+    /* If expected flags match preset, return back (almost) immediately */
+    if (io->ios2_WireError & preset)
+    {
+        io->ios2_WireError &= preset;
+        return 1;
+    }
+    else
+    {
+        /* Remove QUICK flag and put message on event listener list */
+        struct Opener *opener = io->ios2_BufferManagement;
+        io->ios2_Req.io_Flags &= ~IOF_QUICK;
+        PutMsg(&opener->o_EventListeners, (struct Message *)io);
+    }
+}
 
 static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
 {
@@ -294,14 +360,35 @@ static int Do_CMD_READ(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
 
-    //D(bug("[WiFi.0] CMD_READ packet type %04lx\n", io->ios2_PacketType));
-
     // If interface is up, put the read request in units read queue
     if (unit->wu_Flags & IFF_UP)
     {
         struct Opener *opener = io->ios2_BufferManagement;
         io->ios2_Req.io_Flags &= ~IOF_QUICK;
         PutMsg(&opener->o_ReadPort, (struct Message *)io);
+        return 0;
+    }
+    else
+    {
+        io->ios2_WireError = S2WERR_UNIT_OFFLINE;
+        io->ios2_Req.io_Error = S2ERR_OUTOFSERVICE;
+        return 1;
+    }
+}
+
+static int Do_S2_READORPHAN(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
+    D(bug("[WiFi.0] CMD_READORPHAN\n"));
+
+    // If interface is up, put the read request in units read queue
+    if (unit->wu_Flags & IFF_UP)
+    {
+        struct Opener *opener = io->ios2_BufferManagement;
+        io->ios2_Req.io_Flags &= ~IOF_QUICK;
+        PutMsg(&opener->o_OrphanListeners, (struct Message *)io);
         return 0;
     }
     else
@@ -676,12 +763,16 @@ static int Do_S2_ONLINE(struct IOSana2Req *io)
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct SDIO *sdio = WiFiBase->w_SDIO;
 
+    D(bug("[WiFi.0] S2_ONLINE\n"));
+
     // Bring all stats to 0
     _bzero(&unit->wu_Stats, sizeof(struct Sana2DeviceStats));
 
 
 
     unit->wu_Flags |= IFF_ONLINE;
+
+    ReportEvents(unit, S2EVENT_ONLINE);
 
     return 1;
 }
@@ -758,6 +849,14 @@ void HandleRequest(struct IOSana2Req *io)
                 complete = Do_CMD_READ(io);
                 break;
             
+            case S2_READORPHAN:
+                complete = Do_S2_READORPHAN(io);
+                break;
+
+            case S2_ONEVENT:
+                complete = Do_S2_ONEVENT(io);
+                break;
+
             case S2_BROADCAST: /* Fallthrough */
                 *(ULONG*)&io->ios2_DstAddr[0] = 0xffffffff;
                 *(UWORD*)&io->ios2_DstAddr[4] = 0xffff;

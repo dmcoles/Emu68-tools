@@ -161,6 +161,8 @@ struct Opener
 {
     struct MinNode      o_Node;
     struct MsgPort      o_ReadPort;
+    struct MsgPort      o_OrphanListeners;
+    struct MsgPort      o_EventListeners;
     struct Hook *       o_FilterHook;
     BOOL              (*o_RXFunc)(REGARG(APTR, "a0"), REGARG(APTR, "a1"), REGARG(ULONG, "d0"));
     BOOL              (*o_TXFunc)(REGARG(APTR, "a0"), REGARG(APTR, "a1"), REGARG(ULONG, "d0"));
@@ -194,6 +196,7 @@ struct Opener
 #define IFF_CONFIGURED  0x20000         /* interface already configured */
 #define IFF_STARTED     0x40000         /* interface already started */
 #define IFF_ONLINE      0x40000         /* interface online */
+#define IFF_CONNECTED   0x40000         /* interface connected to network */
 
 static inline __attribute__((always_inline)) void putch(REGARG(UBYTE data, "d0"), REGARG(APTR ignore, "a3"))
 {
@@ -264,5 +267,6 @@ APTR AllocVecPooled(APTR pool, ULONG byteSize);
 void FreeVecPooled(APTR pool, APTR buf);
 void ProcessDataPacket(struct SDIO *, UBYTE *, ULONG);
 void ParseConfig(struct WiFiBase *WiFiBase);
+void ReportEvents(struct WiFiUnit *unit, ULONG eventSet);
 
 #endif

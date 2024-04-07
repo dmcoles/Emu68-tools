@@ -1293,6 +1293,20 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
         if (orphan)
         {
             unit->wu_Stats.UnknownTypesReceived++;
+
+            /* Go through all openers and offer orphan packet to anyone asking */
+            ForeachNode(&unit->wu_Openers, opener)
+            {
+                struct IOSana2Req *io = (APTR)opener->o_OrphanListeners.mp_MsgList.lh_Head;
+                /* 
+                    If this is a real node, ln_Succ will be not NULL, otherwise it is just 
+                    protector node of empty list
+                */
+                if (io->ios2_Req.io_Message.mn_Node.ln_Succ)
+                {
+                    CopyPacket(io, packet, packetLength);
+                }
+            }
         }
     }
 }
