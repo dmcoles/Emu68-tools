@@ -13,6 +13,7 @@
 #include <proto/dos.h>
 #endif
 
+#include "findtoken.h"
 #include "wifipi.h"
 #include "sdio.h"
 #include "mbox.h"
@@ -841,8 +842,19 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
         set_extgpio_state(1, 0, WiFiBase);
         set_extgpio_state(1, 1, WiFiBase);
 
-        set_extgpio_state(7, 1, WiFiBase);
-        //set_extgpio_state(3, 1, WiFiBase);
+        const char *cmdline = DT_GetPropValue(DT_FindProperty(DT_OpenKey("/chosen"), "bootargs"));
+        
+        if (FindToken(cmdline, "cm4.extant"))
+        {
+            set_extgpio_state(7, 1, WiFiBase);
+            set_extgpio_state(3, 0, WiFiBase);
+        }
+        else
+        {
+            set_extgpio_state(7, 0, WiFiBase);
+            set_extgpio_state(3, 0, WiFiBase);
+        }
+        
         
         D(bug("[WiFi] EXT GPIO:"));
         for (int i=0; i < 8; i++)
