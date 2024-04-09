@@ -167,4 +167,18 @@ int PacketUploadCLM(struct SDIO *sdio);
 int Connect(struct SDIO *sdio, struct WiFiNetwork *network);
 int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io);
 
+enum JoinPrefTypes {
+    JOIN_PREF_RSSI = 1,
+    JOIN_PREF_WPA,
+    JOIN_PREF_BAND,
+    JOIN_PREF_RSSI_DELTA
+};
+
+struct JoinPrefParams {
+    UBYTE jp_Type;
+    UBYTE jp_Len;
+    UBYTE jp_RSSIGain;
+    UBYTE jp_Band;
+};
+
 #endif /* _PACKET_H */

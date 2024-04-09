@@ -96,10 +96,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
                 WaitIO(&tr->tr_node);
             }
 
-
-
-
-            // Restart timer request
+                        // Restart timer request
             tr->tr_node.io_Command = TR_ADDREQUEST;
             tr->tr_time.tv_sec = 1;
             tr->tr_time.tv_micro = 0;
@@ -230,7 +227,7 @@ void StartUnitTask(struct WiFiUnit *unit)
 }
 
 static const UWORD WiFi_SupportedCommands[] = {
-    //CMD_FLUSH,
+    CMD_FLUSH,
     CMD_READ,
     CMD_WRITE,
 
@@ -249,7 +246,7 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_ONEVENT,
     S2_READORPHAN,
     S2_ONLINE,
-    //S2_OFFLINE,
+    S2_OFFLINE,
     S2_ADDMULTICASTADDRESSES,
     S2_DELMULTICASTADDRESSES,
 
@@ -366,6 +363,43 @@ static int Do_S2_GETSIGNALQUALITY(struct IOSana2Req *io)
     }
 }
 
+static int Do_CMD_FLUSH(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+    struct IOSana2Req *req;
+    struct Opener *opener;
+
+    D(bug("[WiFi.0] CMD_FLUSH\n"));
+
+    /* Flush and cancel all write requests */
+    while ((req = (struct IOSana2Req *)GetMsg(unit->wu_WriteQueue)))
+    {
+        req->ios2_Req.io_Error = IOERR_ABORTED;
+        req->ios2_WireError = 0;
+        ReplyMsg((struct Message *)req);
+    }
+
+    /* For every opener, flush orphan and even queues */
+    ForeachNode(&unit->wu_Openers, opener)
+    {
+        while ((req = (struct IOSana2Req *)GetMsg(&opener->o_OrphanListeners)))
+        {
+            req->ios2_Req.io_Error = IOERR_ABORTED;
+            req->ios2_WireError = 0;
+            ReplyMsg((struct Message *)req);
+        }
+
+        while ((req = (struct IOSana2Req *)GetMsg(&opener->o_EventListeners)))
+        {
+            req->ios2_Req.io_Error = IOERR_ABORTED;
+            req->ios2_WireError = 0;
+            ReplyMsg((struct Message *)req);
+        }
+    }
+
+    return 1;
+}
 
 static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
 {
@@ -709,6 +743,19 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
 
         PacketSetVarInt(sdio, "assoc_listen", 10);
 
+        struct JoinPrefParams jpp[2];
+        jpp[0].jp_Type = JOIN_PREF_RSSI_DELTA;
+        jpp[0].jp_Len = 2;
+        jpp[0].jp_RSSIGain = 8;
+        jpp[0].jp_Band = 1; // 1 - 5GHz, 2 - 2.4GHz, 3 - all, 0 - Auto select
+
+        jpp[1].jp_Type = JOIN_PREF_RSSI;
+        jpp[1].jp_Len = 0;
+        jpp[1].jp_RSSIGain = 0;
+        jpp[1].jp_Band = 0;
+
+        PacketSetVar(sdio, "join_pref", jpp, sizeof(jpp));
+
         if (sdio->s_Chip->c_ChipID == BRCM_CC_43430_CHIP_ID || sdio->s_Chip->c_ChipID == BRCM_CC_4345_CHIP_ID)
         {
             PacketCmdInt(sdio, 0x56, 0);
@@ -801,11 +848,34 @@ static int Do_S2_ONLINE(struct IOSana2Req *io)
     // Bring all stats to 0
     _bzero(&unit->wu_Stats, sizeof(struct Sana2DeviceStats));
 
-
-
     unit->wu_Flags |= IFF_ONLINE;
 
     ReportEvents(unit, S2EVENT_ONLINE);
+
+    return 1;
+}
+
+static int Do_S2_OFFLINE(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct SDIO *sdio = WiFiBase->w_SDIO;
+    struct IOSana2Req *req;
+
+    D(bug("[WiFi.0] S2_OFFLINE\n"));
+
+    unit->wu_Flags &= ~IFF_ONLINE;
+
+    /* Flush and cancel all write requests */
+    while ((req = (struct IOSana2Req *)GetMsg(unit->wu_WriteQueue)))
+    {
+        req->ios2_Req.io_Error = S2ERR_OUTOFSERVICE;
+        req->ios2_WireError = S2WERR_UNIT_OFFLINE;
+        ReplyMsg((struct Message *)req);
+    }
+
+    ReportEvents(unit, S2EVENT_OFFLINE);
 
     return 1;
 }
@@ -878,8 +948,16 @@ void HandleRequest(struct IOSana2Req *io)
                 complete = Do_S2_ONLINE(io);
                 break;
 
+            case S2_OFFLINE:
+                complete = Do_S2_OFFLINE(io);
+                break;
+
             case CMD_READ:
                 complete = Do_CMD_READ(io);
+                break;
+
+            case CMD_FLUSH:
+                complete = Do_CMD_FLUSH(io);
                 break;
             
             case S2_READORPHAN:
