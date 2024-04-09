@@ -347,7 +347,7 @@ static int Do_S2_ONEVENT(struct IOSana2Req *io)
 
     ULONG preset;
     if (unit->wu_Flags & IFF_ONLINE) preset = S2EVENT_ONLINE;
-    else preset = S2EVENT_ONLINE;
+    else preset = S2EVENT_OFFLINE;
 
     D(bug("[WiFi.0] S2_ONEVENT(%08lx)\n", io->ios2_WireError));
 
@@ -371,6 +371,7 @@ static int Do_S2_ONEVENT(struct IOSana2Req *io)
         struct Opener *opener = io->ios2_BufferManagement;
         io->ios2_Req.io_Flags &= ~IOF_QUICK;
         PutMsg(&opener->o_EventListeners, (struct Message *)io);
+        return 0;
     }
 }
 
