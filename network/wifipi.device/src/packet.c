@@ -2249,7 +2249,7 @@ void StartNetworkScan(struct SDIO *sdio)
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     };
     sdio->s_WiFiBase->w_NetworkScanInProgress = 1;
-    PacketCmdIntAsync(sdio, 49, 0);
+    PacketCmdIntAsync(sdio, BRCMF_C_SET_PASSIVE_SCAN, 0);
     PacketSetVarAsync(sdio, "escan", params, sizeof(params));
 }
 

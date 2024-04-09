@@ -37,7 +37,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct MsgPort *port;
     struct timerequest *tr;
-    ULONG scanDelay = 10;
+    ULONG scanDelay = 2;
     ULONG sigset;
 
     D(bug("[WiFi.0] Unit task starting\n"));
@@ -45,13 +45,13 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     port = CreateMsgPort();
     tr = (struct timerequest *)CreateIORequest(port, sizeof(struct timerequest));
     unit->wu_CmdQueue = CreateMsgPort();
-    unit->wu_WriteQueue = CreateMsgPort();
+    //unit->wu_WriteQueue = CreateMsgPort();
 
-    if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL || unit->wu_WriteQueue == NULL)
+    if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL) // || unit->wu_WriteQueue == NULL)
     {
         D(bug("[WiFi.0] Failed to create requested MsgPorts\n"));
         
-        DeleteMsgPort(unit->wu_WriteQueue);
+        //DeleteMsgPort(unit->wu_WriteQueue);
         DeleteMsgPort(unit->wu_CmdQueue);
         DeleteIORequest((struct IORequest *)tr);
         DeleteMsgPort(port);
@@ -96,7 +96,51 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
                 WaitIO(&tr->tr_node);
             }
 
-                        // Restart timer request
+            // No network is in progress, decrease delay and start scanner
+            if (!WiFiBase->w_NetworkScanInProgress)
+            {
+                if (scanDelay == 20)
+                {
+                    struct WiFiNetwork *network, *next;
+                    ObtainSemaphore(&WiFiBase->w_NetworkListLock);
+                    ForeachNodeSafe(&WiFiBase->w_NetworkList, network, next)
+                    {
+                        // If network wasn't available for more than 60 seconds after scan, remove it
+                        if (network->wn_LastUpdated++ > 6) {
+                            Remove((struct Node*)network);
+                            if (network->wn_IE)
+                                FreePooled(WiFiBase->w_MemPool, network->wn_IE, network->wn_IELength);
+                            FreePooled(WiFiBase->w_MemPool, network, sizeof(struct WiFiNetwork));
+                        }
+                        #if 0
+                        else
+                        {
+                            D(bug("[WiFi.0]   SSID: '%-32s', BSID: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx, Type: %s, Channel %ld, Spec:%04lx, RSSI: %ld\n",
+                                (ULONG)network->wn_SSID, network->wn_BSID[0], network->wn_BSID[1], network->wn_BSID[2],
+                                network->wn_BSID[3], network->wn_BSID[4], network->wn_BSID[5], 
+                                network->wn_ChannelInfo.ci_Band == BRCMU_CHAN_BAND_2G ? (ULONG)"2.4GHz" : (ULONG)"5GHz",
+                                network->wn_ChannelInfo.ci_CHNum, network->wn_ChannelInfo.ci_CHSpec,
+                                network->wn_RSSI
+                            ));
+                        }
+                        #endif
+                    }
+                    ReleaseSemaphore(&WiFiBase->w_NetworkListLock);
+                }
+
+                if (scanDelay) scanDelay--;
+
+                if (scanDelay == 0)
+                {
+                    StartNetworkScan(WiFiBase->w_SDIO);
+                }
+            }
+            else
+            {
+                scanDelay = 20;
+            }
+
+            // Restart timer request
             tr->tr_node.io_Command = TR_ADDREQUEST;
             tr->tr_time.tv_sec = 1;
             tr->tr_time.tv_micro = 0;
@@ -117,7 +161,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
                 ReleaseSemaphore(&unit->wu_Lock);
             }
         }
-
+#if 0
         if (sigset & (1 << unit->wu_WriteQueue->mp_SigBit))
         {
             struct IOSana2Req *io;
@@ -128,7 +172,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
                 /* ... */
             }
         }
-
+#endif
         // If CtrlC is sent, abort timer request
         if (sigset & SIGBREAKF_CTRL_C)
         {
@@ -367,13 +411,14 @@ static int Do_CMD_FLUSH(struct IOSana2Req *io)
 {
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+    struct SDIO *sdio = unit->wu_Base->w_SDIO;
     struct IOSana2Req *req;
     struct Opener *opener;
 
     D(bug("[WiFi.0] CMD_FLUSH\n"));
 
     /* Flush and cancel all write requests */
-    while ((req = (struct IOSana2Req *)GetMsg(unit->wu_WriteQueue)))
+    while ((req = (struct IOSana2Req *)GetMsg(sdio->s_SenderPort)))
     {
         req->ios2_Req.io_Error = IOERR_ABORTED;
         req->ios2_WireError = 0;
@@ -926,7 +971,7 @@ static int Do_S2_OFFLINE(struct IOSana2Req *io)
     unit->wu_Flags &= ~IFF_ONLINE;
 
     /* Flush and cancel all write requests */
-    while ((req = (struct IOSana2Req *)GetMsg(unit->wu_WriteQueue)))
+    while ((req = (struct IOSana2Req *)GetMsg(sdio->s_SenderPort)))
     {
         req->ios2_Req.io_Error = S2ERR_OUTOFSERVICE;
         req->ios2_WireError = S2WERR_UNIT_OFFLINE;

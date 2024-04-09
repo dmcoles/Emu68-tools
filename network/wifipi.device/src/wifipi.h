@@ -143,7 +143,6 @@ struct WiFiUnit
     struct Task *           wu_Task;
     struct SignalSemaphore  wu_Lock;
     struct MsgPort *        wu_CmdQueue;
-    struct MsgPort *        wu_WriteQueue;
     struct Sana2DeviceStats wu_Stats;
     ULONG                   wu_Flags;
     UBYTE                   wu_OrigEtherAddr[6];
