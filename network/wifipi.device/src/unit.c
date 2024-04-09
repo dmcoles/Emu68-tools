@@ -485,6 +485,51 @@ static int Do_CMD_WRITE(struct IOSana2Req *io)
     }
 }
 
+static void UpdateMCastList(struct WiFiUnit *unit)
+{
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct SDIO *sdio = WiFiBase->w_SDIO;
+
+    ULONG totalCount = 0;
+    struct MulticastRange *range;
+
+    /* Count number of multicast addresses */
+    ForeachNode(&unit->wu_MulticastRanges, range)
+    {
+        LONG cnt = range->mr_UpperBound - range->mr_LowerBound;
+        if (cnt < 0) cnt = -cnt;
+
+        totalCount += cnt + 1;
+    }
+
+    UBYTE *list = AllocVecPooled(WiFiBase->w_MemPool, totalCount * 6 + 4);
+    UBYTE *dst = list + 4;
+
+    /* Put number of entries in the list first */
+    *(ULONG*)list = LE32(totalCount);
+
+    ForeachNode(&unit->wu_MulticastRanges, range)
+    {
+        union {
+            uint64_t    u64;
+            uint8_t     u8[8];
+            uint16_t    u16[4];
+            uint32_t    u32[2];
+        } u;
+
+        for (u.u64 = range->mr_LowerBound; u.u64 <= range->mr_UpperBound; u.u64++)
+        {
+            *(UWORD*)dst = u.u16[1]; dst+=2;
+            *(ULONG*)dst = u.u32[1]; dst+=4;
+        }
+    }
+
+    PacketSetVar(sdio, "mcast_list", list, totalCount * 6 + 4);
+
+    FreeVecPooled(WiFiBase->w_MemPool, list);
+}
+
 static int Do_S2_ADDMULTICASTADDRESSES(struct IOSana2Req *io)
 {
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
@@ -495,14 +540,27 @@ static int Do_S2_ADDMULTICASTADDRESSES(struct IOSana2Req *io)
 
     struct MulticastRange *range;
     uint64_t lower_bound, upper_bound;
-    lower_bound = (uint64_t)*(UWORD*)io->ios2_SrcAddr << 32 | *(ULONG*)&io->ios2_SrcAddr[2];
+    lower_bound = (uint64_t)(*(UWORD*)&(io->ios2_SrcAddr)) << 32 | *(ULONG*)&io->ios2_SrcAddr[2];
     if (io->ios2_Req.io_Command == S2_ADDMULTICASTADDRESS)
     {
         upper_bound = lower_bound;
     }
     else
     {
-        upper_bound = (uint64_t)*(UWORD*)io->ios2_DstAddr << 32 | *(ULONG*)&io->ios2_DstAddr[2];
+        upper_bound = (uint64_t)(*(UWORD*)&io->ios2_DstAddr) << 32 | *(ULONG*)&io->ios2_DstAddr[2];
+    }
+
+    for (uint64_t mac = lower_bound; mac <= upper_bound; mac++)
+    {
+        union {
+            uint64_t u64;
+            uint8_t u8[8];
+        } u;
+        u.u64 = mac;
+
+        D(bug("[WiFi.0] * "));
+        D(bug("%02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n", 
+                u.u8[2], u.u8[3], u.u8[4], u.u8[5], u.u8[6], u.u8[7]));
     }
 
     /* Go through already registered multicast ranges. If one is found, increase use count and return */
@@ -523,7 +581,7 @@ static int Do_S2_ADDMULTICASTADDRESSES(struct IOSana2Req *io)
     AddHead((struct List *)&unit->wu_MulticastRanges, (struct Node *)range);
 
     /* Add range on WiFi now */
-    // ...
+    UpdateMCastList(unit);
 
     return 1;
 }
@@ -562,7 +620,7 @@ static int Do_S2_DELMULTICASTADDRESSES(struct IOSana2Req *io)
                 FreePooled(WiFiBase->w_MemPool, range, sizeof(struct MulticastRange));
 
                 /* Remove the range on WiFi now... */
-                // ...
+                UpdateMCastList(unit);
             }
             return 1;
         }
