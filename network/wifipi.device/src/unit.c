@@ -37,7 +37,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct MsgPort *port;
     struct timerequest *tr;
-    ULONG scanDelay = 2;
+    ULONG scanDelay = 20;
     ULONG sigset;
 
     D(bug("[WiFi.0] Unit task starting\n"));
@@ -45,13 +45,13 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     port = CreateMsgPort();
     tr = (struct timerequest *)CreateIORequest(port, sizeof(struct timerequest));
     unit->wu_CmdQueue = CreateMsgPort();
-    //unit->wu_WriteQueue = CreateMsgPort();
+    unit->wu_ScanQueue = CreateMsgPort();
 
     if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL) // || unit->wu_WriteQueue == NULL)
     {
         D(bug("[WiFi.0] Failed to create requested MsgPorts\n"));
         
-        //DeleteMsgPort(unit->wu_WriteQueue);
+        DeleteMsgPort(unit->wu_ScanQueue);
         DeleteMsgPort(unit->wu_CmdQueue);
         DeleteIORequest((struct IORequest *)tr);
         DeleteMsgPort(port);
@@ -65,6 +65,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
         DeleteIORequest(&tr->tr_node);
         DeleteMsgPort(port);
         DeleteMsgPort(unit->wu_CmdQueue);
+        DeleteMsgPort(unit->wu_ScanQueue);
         unit->wu_CmdQueue = NULL;
         return;
     }
@@ -95,7 +96,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
             {
                 WaitIO(&tr->tr_node);
             }
-
+#if 0
             // No network is in progress, decrease delay and start scanner
             if (!WiFiBase->w_NetworkScanInProgress)
             {
@@ -112,7 +113,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
                                 FreePooled(WiFiBase->w_MemPool, network->wn_IE, network->wn_IELength);
                             FreePooled(WiFiBase->w_MemPool, network, sizeof(struct WiFiNetwork));
                         }
-                        #if 0
+                        #if  0
                         else
                         {
                             D(bug("[WiFi.0]   SSID: '%-32s', BSID: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx, Type: %s, Channel %ld, Spec:%04lx, RSSI: %ld\n",
@@ -139,7 +140,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
             {
                 scanDelay = 20;
             }
-
+#endif
             // Restart timer request
             tr->tr_node.io_Command = TR_ADDREQUEST;
             tr->tr_time.tv_sec = 1;
@@ -296,8 +297,8 @@ static const UWORD WiFi_SupportedCommands[] = {
 
     S2_GETSIGNALQUALITY,
     S2_GETNETWORKS,
-    //S2_SETOPTIONS,
-    //S2_SETKEY,
+    S2_SETOPTIONS,
+    S2_SETKEY,
     //S2_GETNETWORKINFO,
     //S2_GETRADIOBANDS,
 
@@ -406,6 +407,62 @@ static int Do_S2_GETSIGNALQUALITY(struct IOSana2Req *io)
         D(bug("[WiFi.0] Signal: %ld, Noise: %ld\n", quality->SignalLevel, quality->NoiseLevel));
         return 1;
     }
+}
+
+static int Do_S2_SETKEY(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
+    D(bug("[WiFi.0] S2_SETKEY\n"));
+
+    D(bug("[WiFi.0]   Index: %ld\n", io->ios2_WireError));
+    D(bug("[WiFi.0]   Enc.Type: %ld\n", io->ios2_PacketType));
+    D(bug("[WiFi.0]   KeyLength: %ld\n", io->ios2_DataLength));
+
+    D(bug("[WiFi.0]   Key: %08lx", (ULONG)io->ios2_Data));
+    if (io->ios2_Data && io->ios2_DataLength)
+    {
+        for (int i=0; i < io->ios2_DataLength; i++) {
+            if (i == 0)
+                bug(" (%02lx, ", ((UBYTE*)io->ios2_Data)[i]);
+            if (i == io->ios2_DataLength - 1)
+                bug("%02lx)\n", ((UBYTE*)io->ios2_Data)[i]);
+            else
+                bug("%02lx, ", ((UBYTE*)io->ios2_Data)[i]);
+        }
+    }
+    else { D(bug("\n")); }
+    D(bug("[WiFi.0]   RX cnt: %ld\n", (ULONG)io->ios2_StatData));
+
+/* TODO: Not done yet!!! */
+
+    return 1;
+}
+
+static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
+    D(bug("[WiFi.0] S2_SETOPTIONS\n"));
+
+    struct TagItem *ti = io->ios2_Data;
+
+    if (ti)
+    {
+        while (ti->ti_Tag != TAG_DONE)
+        {
+            D(bug("[WiFi.0]   Tag: %08lx, Data: %08lx\n", ti->ti_Tag, ti->ti_Data));
+            ti++;
+        }
+    }
+
+/* TODO: Not done yet!!! */
+
+    return 1;
 }
 
 static int Do_CMD_FLUSH(struct IOSana2Req *io)
@@ -688,15 +745,17 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
     struct TagItem **replyList = NULL;
     ULONG networkCount = 0;
 
+    /* GetNetworks is never quick */
+    io->ios2_Req.io_Flags &= ~IOF_QUICK;
+    
     D(bug("[WiFi.0] S2_GETNETWORKS\n"));
+    D(bug("[WiFi.0]   ScanRequest = %08lx\n", (ULONG)unit->wu_ScanRequest));
 
-    ObtainSemaphore(&WiFiBase->w_NetworkListLock);
+    /* Put it into scan queue */
+    PutMsg(unit->wu_ScanQueue, (struct Message *)io);
 
-    ForeachNode(&WiFiBase->w_NetworkList, network)
-    {
-        networkCount++;
-    }
-
+    return 0;
+#if 0
     replyList = (struct TagItem **)AllocPooled(pool, networkCount * sizeof(APTR));
 
     if (replyList == NULL)
@@ -716,6 +775,7 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
 
         if (only_this_ssid && 0 != _strcmp(only_this_ssid, network->wn_SSID))
         {
+            D(bug("[WiFi.0]   No match: %s:%s\n", (ULONG)only_this_ssid, (ULONG)network->wn_SSID));
             continue;
         }
 
@@ -781,6 +841,7 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
     io->ios2_WireError = 0;
 
     return 1;
+#endif
 }
 
 int Do_S2_DEVICEQUERY(struct IOSana2Req *io)
@@ -1074,6 +1135,14 @@ void HandleRequest(struct IOSana2Req *io)
 
             case S2_GETSIGNALQUALITY:
                 complete = Do_S2_GETSIGNALQUALITY(io);
+                break;
+            
+            case S2_SETKEY:
+                complete = Do_S2_SETKEY(io);
+                break;
+
+            case S2_SETOPTIONS:
+                complete = Do_S2_SETOPTIONS(io);
                 break;
 
             case S2_BROADCAST: /* Fallthrough */

@@ -271,6 +271,7 @@ struct SDIO {
     struct MsgPort *    s_ReceiverPort;
     struct MsgPort *    s_SenderPort;
     struct MinList *    s_CtrlWaitList;
+    struct IOSana2Req * s_ScanRequest;
 
     struct SignalSemaphore s_Lock;
     APTR                s_SDIO;

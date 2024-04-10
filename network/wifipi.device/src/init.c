@@ -634,9 +634,6 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
     WiFiBase->w_DeviceTreeBase = DeviceTreeBase = OpenResource("devicetree.resource");
 
-    NewMinList(&WiFiBase->w_NetworkList);
-    InitSemaphore(&WiFiBase->w_NetworkListLock);
-
     if (DeviceTreeBase)
     {
         APTR key;

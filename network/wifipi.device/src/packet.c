@@ -2,7 +2,9 @@
 #include <exec/memory.h>
 #include <exec/ports.h>
 #include <exec/io.h>
+#include <exec/alerts.h>
 #include <devices/timer.h>
+#include <devices/sana2wireless.h>
 
 #if defined(__INTELLISENSE__)
 #include <clib/exec_protos.h>
@@ -525,111 +527,158 @@ delay_us(5000000, sdio->s_WiFiBase);
 
 void PacketDump(struct SDIO *sdio, APTR data, char *src);
 
-void UpdateNetwork(struct SDIO *sdio, struct BSSInfo *info)
+void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
 {
-    struct ExecBase *SysBase = sdio->s_SysBase;
-    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
-    struct MinList *networkList = &sdio->s_WiFiBase->w_NetworkList;
-    struct SignalSemaphore *networkListLock = &sdio->s_WiFiBase->w_NetworkListLock;
-    UBYTE found = 0;
-    struct WiFiNetwork *network;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct SDIO *sdio = WiFiBase->w_SDIO;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct IOSana2Req *io = unit->wu_ScanRequest;
 
-    // Traverse the list and update network if found
-    ObtainSemaphore(networkListLock);
-    ForeachNode(networkList, network)
+    /* Ignore event if no scan request is active */
+    if (io == NULL)
+        return;
+
+    APTR memPool = io->ios2_Data;
+    struct TagItem **networks = NULL;
+    struct TagItem *tags;
+
+    /* Increase tag list counter */
+    io->ios2_DataLength++;
+
+    /* Get memory for tag list's list */
+    networks = AllocVecPooled(memPool, 4 * io->ios2_DataLength);
+    if (networks == NULL)
     {
-        // If network SSID length doesn't match then these are different networks
-        if (network->wn_SSIDLength != info->bssi_SSIDLength)
-            continue;
-            
-
-        // If chanspec does not match, this is different network
-        if (network->wn_ChannelInfo.ci_CHSpec != LE16(info->bssi_ChanSpec))
-            continue;
-
-        // If BSID does not match, this is different network
-        if (network->wn_BSID[0] != info->bssi_ID[0] ||
-            network->wn_BSID[1] != info->bssi_ID[1] ||
-            network->wn_BSID[2] != info->bssi_ID[2] ||
-            network->wn_BSID[3] != info->bssi_ID[3] ||
-            network->wn_BSID[4] != info->bssi_ID[4] ||
-            network->wn_BSID[5] != info->bssi_ID[5])
-        {
-            continue;
-        }
-
-        // Check if name matches
-        for (int i=0; i < network->wn_SSIDLength; i++)
-        {
-            if (network->wn_SSID[i] != info->bssi_SSID[i])
-                continue;
-        }
-
-        // Same SSID, same BSID, same ChanSpec - update network data
-        network->wn_LastUpdated = 0;
-        network->wn_RSSI = LE16(info->bssi_RSSI);
-#if 0
-        D(bug("[WiFi] Upd network: SSID: '%-32s', BSID: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx, ChanSpec: %04lx, RSSI: %ld\n",
-            (ULONG)network->wn_SSID, network->wn_BSID[0], network->wn_BSID[1], network->wn_BSID[2],
-            network->wn_BSID[3], network->wn_BSID[4], network->wn_BSID[5], 
-            (ULONG)(UWORD)network->wn_ChanSpec, network->wn_RSSI
-        ));
-#endif
-
-        found = 1;
-        break;
+        io->ios2_WireError = S2WERR_BUFF_ERROR;
+        io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+        unit->wu_ScanRequest = NULL;
+        ReplyMsg((struct Message *)io);
+        return;
     }
-    ReleaseSemaphore(networkListLock);
 
-    // Network entry not found. Insert new network
-    if (!found)
+    /* 
+        If StatData is not null, copy it now and free. After copy networks[1..] will contain
+        previous data, current network can be stored at networks[0]
+    */
+    if (io->ios2_StatData != NULL)
     {
-        network = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct WiFiNetwork));
-        network->wn_ChannelInfo.ci_CHSpec = LE16(info->bssi_ChanSpec);
-        network->wn_LastUpdated = 0;
-        network->wn_BSID[0] = info->bssi_ID[0];
-        network->wn_BSID[1] = info->bssi_ID[1];
-        network->wn_BSID[2] = info->bssi_ID[2];
-        network->wn_BSID[3] = info->bssi_ID[3];
-        network->wn_BSID[4] = info->bssi_ID[4];
-        network->wn_BSID[5] = info->bssi_ID[5];
-        network->wn_RSSI = LE16(info->bssi_RSSI);
-        network->wn_SSIDLength = info->bssi_SSIDLength;
-        network->wn_BeaconPeriod = LE16(info->bssi_BeaconPeriod);
-
-        network->wn_IELength = LE32(info->bssi_IELength);
-        if (network->wn_IELength)
+        struct TagItem **src = io->ios2_StatData;
+        for (int i=0; i < io->ios2_DataLength - 1; i++)
         {
-            network->wn_IE = AllocPooled(WiFiBase->w_MemPool, network->wn_IELength);
-            CopyMem(&((UBYTE*)info)[LE16(info->bssi_IEOffset)], network->wn_IE, network->wn_IELength);
+            networks[i+1] = src[i];
         }
-
-        DecodeChanSpec(&network->wn_ChannelInfo, sdio->s_Chip->c_D11Type);
-
-        for (int i=0; i < network->wn_SSIDLength; i++)
-        {
-            network->wn_SSID[i] = info->bssi_SSID[i];
-        }
-        // Terminate SSID with zero
-        network->wn_SSID[network->wn_SSIDLength] = 0;
-
-#if 0
-        D(bug("[WiFi] New network: SSID: '%-32s', BSID: %02lx:%02lx:%02lx:%02lx:%02lx:%02lx, ChanSpec: %04lx, RSSI: %ld\n",
-            (ULONG)network->wn_SSID, network->wn_BSID[0], network->wn_BSID[1], network->wn_BSID[2],
-            network->wn_BSID[3], network->wn_BSID[4], network->wn_BSID[5],  
-            (ULONG)(UWORD)network->wn_ChanSpec, network->wn_RSSI
-        ));
-#endif
-
-        ObtainSemaphore(networkListLock);
-        AddHead((struct List *)networkList, (struct Node *)network);
-        ReleaseSemaphore(networkListLock);
+        /* Get rid of old taglist */
+        FreeVecPooled(memPool, src);
     }
+
+    io->ios2_StatData = networks;
+    
+    /* Get memory for TagList, maximal number is number of S2INFO_TAGS plus one */
+    tags = AllocPooled(memPool, sizeof(struct TagItem) * 16);
+    
+    if (tags == NULL)
+    {
+        io->ios2_WireError = S2WERR_BUFF_ERROR;
+        io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+        unit->wu_ScanRequest = NULL;
+        ReplyMsg((struct Message *)io);
+        return;
+    }
+
+    /* Ignore all tags for now */
+    for (int i=0; i < 15; i++) tags[i].ti_Tag = TAG_IGNORE;
+    
+    /* Finish with DONE tag*/
+    tags[15].ti_Tag = TAG_DONE;
+    tags[15].ti_Data = 0;
+
+    /* Put the taglist in place */
+    networks[0] = tags;
+
+    /* All is prepared to fill the necessary info */
+    tags->ti_Tag = S2INFO_SSID;
+    tags->ti_Data = (ULONG)AllocPooledClear(memPool, info->bssi_SSIDLength + 1);
+    if (tags->ti_Data == 0)
+    {
+        io->ios2_WireError = S2WERR_BUFF_ERROR;
+        io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+        unit->wu_ScanRequest = NULL;
+        ReplyMsg((struct Message *)io);
+        return;
+    }
+    CopyMem(info->bssi_SSID, (APTR)tags->ti_Data, info->bssi_SSIDLength);
+    D(bug("[WiFi] SSID=%s\n", tags->ti_Data));
+    tags++;
+
+    tags->ti_Tag = S2INFO_BSSID;
+    tags->ti_Data = (ULONG)AllocPooled(memPool, 6);
+    if (tags->ti_Data == 0)
+    {
+        io->ios2_WireError = S2WERR_BUFF_ERROR;
+        io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+        unit->wu_ScanRequest = NULL;
+        ReplyMsg((struct Message *)io);
+        return;
+    }
+    CopyMem(info->bssi_ID, (APTR)tags->ti_Data, 6);
+    tags++;
+
+    tags->ti_Tag = S2INFO_BeaconInterval;
+    tags->ti_Data = LE16(info->bssi_BeaconPeriod);
+    tags++;
+
+    tags->ti_Tag = S2INFO_Signal;
+    tags->ti_Data = (WORD)LE16(info->bssi_RSSI);
+    D(bug("[WiFi]   RSSI=%ld\n", tags->ti_Data));
+    tags++;
+
+    if (info->bssi_PHYNoise != 0)
+    {
+        tags->ti_Tag = S2INFO_Noise;
+        tags->ti_Data = (BYTE)info->bssi_PHYNoise;
+        D(bug("[WiFi]   PhyNoise=%ld\n", tags->ti_Data));
+        tags++;
+    }
+
+    if (info->bssi_IELength)
+    {
+        UWORD length = LE32(info->bssi_IELength);
+        UWORD *data = AllocPooled(memPool, length + 2);
+        if (data == NULL)
+        {
+            io->ios2_WireError = S2WERR_BUFF_ERROR;
+            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+            unit->wu_ScanRequest = NULL;
+            ReplyMsg((struct Message *)io);
+            return;
+        }
+
+        *data = length;
+        CopyMem(&((UBYTE*)info)[LE16(info->bssi_IEOffset)], data + 1, length);
+        
+        tags->ti_Tag = S2INFO_InfoElements;
+        tags->ti_Data = (ULONG)data;
+        tags++;
+    }
+
+    struct ChannelInfo ci;
+    ci.ci_CHSpec = LE16(info->bssi_ChanSpec);
+    DecodeChanSpec(&ci, sdio->s_Chip->c_D11Type);
+
+    tags->ti_Tag = S2INFO_Channel;
+    tags->ti_Data = ci.ci_CHNum;
+    tags++;
+
+    tags->ti_Tag = S2INFO_Band;
+    tags->ti_Data = ci.ci_Band == BRCMU_CHAN_BAND_2G ? S2BAND_G : S2BAND_A;
+    tags++;
 }
 
 void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
 {
-    struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+    struct WiFiBase *base = sdio->s_WiFiBase;
+    struct WiFiUnit *unit = base->w_Unit;
+    struct ExecBase *SysBase = base->w_SysBase;
 
     // pe is in network (BigEndian) order!
     // BUT! pe data is native (LittleEndian) order!
@@ -643,13 +692,17 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
             if (escan->esr_BSSCount == LE16(0))
             {
                 // Scan complete
-                sdio->s_WiFiBase->w_NetworkScanInProgress = 0;
+                if (unit->wu_ScanRequest)
+                {
+                    ReplyMsg((struct Message *)unit->wu_ScanRequest);
+                    unit->wu_ScanRequest = NULL;
+                }
                 //D(bug("[WiFi] EScan complete\n"));
             }
 
             for (int i=0; i < LE16(escan->esr_BSSCount); i++)
             {
-                UpdateNetwork(sdio, &escan->esr_BSSInfo[i]);
+                UpdateNetwork(unit, &escan->esr_BSSInfo[i]);
 #if 0
                 struct BSSInfo *info = &escan->esr_BSSInfo[i];
 
@@ -809,6 +862,8 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     ULONG waitDelay = PACKET_WAIT_DELAY_MAX;
     struct MsgPort *ctrl = CreateMsgPort();
     struct MsgPort *sender = CreateMsgPort();
+    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
+
     struct MinList ctrlWaitList;
     ULONG waitDelayTimeout = PACKET_WAIT_DELAY_MAX / waitDelay;
 
@@ -963,6 +1018,16 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                     }
                     */
                 }
+            }
+        }
+
+        /* If no scan request is in progress start another one (if needed) */
+        if (WiFiBase->w_Unit && WiFiBase->w_Unit->wu_ScanRequest == NULL)
+        {
+            struct IOSana2Req *io = (struct IOSana2Req *)GetMsg(WiFiBase->w_Unit->wu_ScanQueue);
+            if (io)
+            {
+                StartNetworkScan(io);
             }
         }
 
@@ -1514,7 +1579,7 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
 
     return 1;
 }
-
+#if 0
 void NetworkScanner(struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
@@ -1611,7 +1676,7 @@ void NetworkScanner(struct SDIO *sdio)
     DeleteIORequest(&tr->tr_node);
     DeleteMsgPort(port);
 }
-
+#endif
 static const char * const brcmf_fil_errstr[] = {
     "BCME_OK",
     "BCME_ERROR",
@@ -2227,8 +2292,18 @@ int PacketUploadCLM(struct SDIO *sdio)
     return 1;
 }
 
-void StartNetworkScan(struct SDIO *sdio)
+void StartNetworkScan(struct IOSana2Req *io)
 {
+    struct WiFiUnit *unit = (APTR)io->ios2_Req.io_Unit;
+    struct WiFiBase *base = unit->wu_Base;
+    struct ExecBase *SysBase = base->w_SysBase;
+    struct Library *UtilityBase = base->w_UtilityBase;
+    struct SDIO *sdio = base->w_SDIO;
+    UBYTE *networkName = NULL;
+    struct TagItem *tags = io->ios2_StatData;
+    APTR memPool = io->ios2_Data;
+
+    /* THis needs to be gone! The paramsv2 layout is known... */
     static const UBYTE params[4+2+2+4+32+6+1+1+4*4+2+2+14*2+32+4] = {
         1,0,0,0,
         1,0,
@@ -2243,16 +2318,51 @@ void StartNetworkScan(struct SDIO *sdio)
         0xff,0xff,0xff,0xff,
         0xff,0xff,0xff,0xff,
         14,0,
-        1,0,
+        0,0,
         0x01,0x2b,0x02,0x2b,0x03,0x2b,0x04,0x2b,0x05,0x2e,0x06,0x2e,0x07,0x2e,
         0x08,0x2b,0x09,0x2b,0x0a,0x2b,0x0b,0x2b,0x0c,0x2b,0x0d,0x2b,0x0e,0x2b,
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     };
-    sdio->s_WiFiBase->w_NetworkScanInProgress = 1;
+    UBYTE *data = (UBYTE*)params;
+    
+    D(bug("[WiFi] StartNetworkScan("));
+
+    /* If tags were passed check if S2INFO_SSID was set */
+    if (tags != NULL) {
+        networkName = (UBYTE*)GetTagData(S2INFO_SSID, 0, tags);
+    }
+
+    if (networkName) D(bug(networkName));
+    
+    D(bug(")\n"));
+
+    if (networkName)
+    {
+        ULONG len = _strlen(networkName);
+        data = AllocVecPooled(base->w_MemPool, sizeof(params));
+
+        if (len > 32) len = 32;
+
+        CopyMem(params, data, sizeof(params));
+        
+        data[8] = len;
+        for (int i=0; i < data[8]; i++)
+            data[12 + i] = networkName[i];
+    }
+
+    io->ios2_DataLength = 0;
+    io->ios2_StatData = NULL;
+
+    unit->wu_ScanRequest = io;
+
     PacketCmdIntAsync(sdio, BRCMF_C_SET_PASSIVE_SCAN, 0);
-    PacketSetVarAsync(sdio, "escan", params, sizeof(params));
+    PacketSetVarAsync(sdio, "escan", data, sizeof(params));
+    
+    if(networkName)
+        FreeVecPooled(base->w_MemPool, data);
 }
 
+#if 0
 static void StartScannerTask(struct SDIO *sdio)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
@@ -2301,7 +2411,7 @@ static void StartScannerTask(struct SDIO *sdio)
 
     sdio->s_ScannerTask = AddTask(task, entry, NULL);
 }
-
+#endif
 void StartPacketReceiver(struct SDIO *sdio)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;

@@ -48,9 +48,6 @@ struct WiFiBase
     ULONG *             w_Request;
     ULONG               w_SDIOClock;
     struct SDIO *       w_SDIO;
-    struct SignalSemaphore  w_NetworkListLock;
-    struct MinList      w_NetworkList;
-    UBYTE               w_NetworkScanInProgress;
     UBYTE *             w_NetworkConfigVar;
     ULONG               w_NetworkConfigLength;
     struct NetworkConfig    w_NetworkConfig;
@@ -143,6 +140,8 @@ struct WiFiUnit
     struct Task *           wu_Task;
     struct SignalSemaphore  wu_Lock;
     struct MsgPort *        wu_CmdQueue;
+    struct MsgPort *        wu_ScanQueue;
+    struct IOSana2Req *     wu_ScanRequest;
     struct Sana2DeviceStats wu_Stats;
     ULONG                   wu_Flags;
     UBYTE                   wu_OrigEtherAddr[6];
