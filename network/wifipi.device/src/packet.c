@@ -212,40 +212,6 @@ struct PacketMessage {
     struct Packet   pm_PacketHeader[];
 };
 
-/* scan params for extended join */
-struct JoinScanParams {
-    UBYTE js_ScanYype;          /* 0 use default, active or passive scan */
-    UBYTE PAD[3];
-    ULONG js_NProbes;           /* -1 use default, nr of probes per channel */
-    ULONG js_ActiveTime;        /* -1 use default, dwell time per channel for active scanning */
-    ULONG js_PassiveTime;       /* -1 use default, dwell time per channel for passive scanning */
-    ULONG js_HomeTime;          /* -1 use default, dwell time for the home channel between channel scans */
-};
-
-/* used for association with a specific BSSID and chanspec list */
-struct AssocParams {
-    UBYTE ap_BSSID[6];          /* 00:00:00:00:00:00: broadcast scan */
-    ULONG ap_ChanspecNum;       /* 0: all available channels, otherwise count of chanspecs in chanspec_list */
-    UWORD ap_ChanSpecList[1];   /* list of chanspecs */
-};
-
-struct SSID {
-    ULONG   ssid_Length;
-    UBYTE   ssid_Value[32];
-};
-
-/* extended join params */
-struct ExtJoinParams {
-    struct SSID             ej_SSID;   /* {0, ""}: wildcard scan */
-    struct JoinScanParams   ej_Scan;
-    struct AssocParams      ej_Assoc;
-};
-
-/* join params */
-struct JoinParams {
-    struct SSID             j_SSID;
-    struct AssocParams      j_Assoc;
-};
 
 #define D(x) x
 
@@ -621,6 +587,10 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
     if (FindNetwork(unit, info))
         return;
 
+    /* Ignore networks with empty ssid */
+    if (info->bssi_SSIDLength == 0)
+        return;
+
     APTR memPool = io->ios2_Data;
     struct TagItem **networks = NULL;
     struct TagItem *tags;
@@ -786,35 +756,30 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
             for (int i=0; i < LE16(escan->esr_BSSCount); i++)
             {
                 UpdateNetwork(unit, &escan->esr_BSSInfo[i]);
-#if 0
-                struct BSSInfo *info = &escan->esr_BSSInfo[i];
-
-                D(bug("[WiFi]   SSID='%s', Channel=%ld, RSSI=%ld, SNR=%ld\n", (ULONG)info->bssi_SSID, LE16(info->bssi_ChanSpec) & 15, (LONG)(WORD)LE16(info->bssi_RSSI), LE16(info->bssi_SNR)));
-                D(bug("[WiFi]   BeaconPeriod=%ld, ChannelSpec=%04lx, NRates=%ld:", 
-                    LE16(info->bssi_BeaconPeriod), LE16(info->bssi_ChanSpec),
-                    LE32(info->bssi_NRates)));
-                for (int j=0; j < LE32(info->bssi_NRates); j++)
-                {
-                    D(bug(" %02lx", info->bssi_Rates[j]));
-                }
-                D(bug("\n"));
-#endif
             }
-#if 0
-            UBYTE *p = (APTR)escan;
-            for (int i=0; i < LE32(escan->esr_Length); i++)
-            {
-                if (i % 16 == 0)
-                bug("[WiFI]  ");
-                bug(" %02lx", p[i]);
-                if (i % 16 == 15)
-                    bug("\n");
-            }
-            if (LE32(escan->esr_Length) % 16)
-                bug("\n");
-#endif
             break;
         }
+
+        case BRCMF_E_ASSOC:
+            D(bug("[WiFi] E_ASSOC\n"));
+            break;
+
+        case BRCMF_E_DISASSOC:
+            D(bug("[WiFi] E_DISASSOC\n"));
+            break;
+
+        case BRCMF_E_LINK:
+            if (pe->e_Reason)
+            {
+                D(bug("[WiFi] E_LINK down\n"));
+                ReportEvents(unit, S2EVENT_DISCONNECT);
+            }
+            else
+            {
+                D(bug("[WiFi] E_LINK up\n"));
+                ReportEvents(unit, S2EVENT_CONNECT);
+            }
+            break;
 
         default:
             D(bug("[WiFi] Unhandled event type %ld\n", pe->e_EventType));

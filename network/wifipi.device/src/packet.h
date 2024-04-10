@@ -2,7 +2,7 @@
 #define _PACKET_H
 
 #include "sdio.h"
-#include "wifipi.h"
+//#include "wifipi.h"
 
 /*******************************************************************************
  * Dongle command codes that are interpreted by firmware
@@ -152,6 +152,8 @@
 #define BRCMF_E_BCMC_CREDIT_SUPPORT             127
 #define BRCMF_E_LAST                            139
 
+struct WiFiNetwork;
+
 void StartPacketReceiver(struct SDIO *sdio);
 int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int setSize);
 int PacketSetVarInt(struct SDIO *sdio, char *varName, ULONG varValue);
@@ -167,6 +169,12 @@ int PacketUploadCLM(struct SDIO *sdio);
 int Connect(struct SDIO *sdio, struct WiFiNetwork *network);
 int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io);
 
+#ifndef	PAD
+#define	_PADLINE(line)	pad ## line
+#define	_XSTR(line)	_PADLINE(line)
+#define	PAD		_XSTR(__LINE__)
+#endif
+
 enum JoinPrefTypes {
     JOIN_PREF_RSSI = 1,
     JOIN_PREF_WPA,
@@ -179,6 +187,41 @@ struct JoinPrefParams {
     UBYTE jp_Len;
     UBYTE jp_RSSIGain;
     UBYTE jp_Band;
+};
+
+/* scan params for extended join */
+struct JoinScanParams {
+    UBYTE js_ScanYype;          /* 0 use default, active or passive scan */
+    UBYTE PAD[3];
+    ULONG js_NProbes;           /* -1 use default, nr of probes per channel */
+    ULONG js_ActiveTime;        /* -1 use default, dwell time per channel for active scanning */
+    ULONG js_PassiveTime;       /* -1 use default, dwell time per channel for passive scanning */
+    ULONG js_HomeTime;          /* -1 use default, dwell time for the home channel between channel scans */
+};
+
+/* used for association with a specific BSSID and chanspec list */
+struct AssocParams {
+    UBYTE ap_BSSID[6];          /* 00:00:00:00:00:00: broadcast scan */
+    ULONG ap_ChanspecNum;       /* 0: all available channels, otherwise count of chanspecs in chanspec_list */
+    UWORD ap_ChanSpecList[1];   /* list of chanspecs */
+};
+
+struct SSID {
+    ULONG   ssid_Length;
+    UBYTE   ssid_Value[32];
+};
+
+/* extended join params */
+struct ExtJoinParams {
+    struct SSID             ej_SSID;   /* {0, ""}: wildcard scan */
+    struct JoinScanParams   ej_Scan;
+    struct AssocParams      ej_Assoc;
+};
+
+/* join params */
+struct JoinParams {
+    struct SSID             j_SSID;
+    struct AssocParams      j_Assoc;
 };
 
 #endif /* _PACKET_H */

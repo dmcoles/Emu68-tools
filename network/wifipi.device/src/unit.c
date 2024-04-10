@@ -15,10 +15,12 @@
 #include <clib/exec_protos.h>
 #include <clib/utility_protos.h>
 #include <clib/dos_protos.h>
+#include <clib/timer_protos.h>
 #else
 #include <proto/exec.h>
 #include <proto/utility.h>
 #include <proto/dos.h>
+#include <proto/timer.h>
 #endif
 
 #include <stdint.h>
@@ -26,6 +28,7 @@
 #include "wifipi.h"
 #include "packet.h"
 #include "brcm.h"
+#include "brcm_wifi.h"
 
 #define D(x) x
 #define UNIT_STACK_SIZE (32768 / sizeof(ULONG))
@@ -70,6 +73,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
         return;
     }
 
+    unit->wu_TimerBase = (struct TimerBase *)tr->tr_node.io_Device;
     unit->wu_Unit.unit_MsgPort.mp_SigTask = FindTask(NULL);
     unit->wu_Unit.unit_flags = PA_IGNORE;
     NewList(&unit->wu_Unit.unit_MsgPort.mp_MsgList);
@@ -299,7 +303,7 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_GETNETWORKS,
     S2_SETOPTIONS,
     S2_SETKEY,
-    //S2_GETNETWORKINFO,
+    S2_GETNETWORKINFO,
     //S2_GETRADIOBANDS,
 
     NSCMD_DEVICEQUERY,
@@ -318,20 +322,29 @@ void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
     struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
     struct Opener *opener;
 
+    D(bug("[WiFi.0] ReportEvents(%08lx)\n", eventSet));
+
     /* Report event to every listener of every opener accepting the mask */
     ForeachNode(&unit->wu_Openers, opener)
     {
         struct IOSana2Req *io, *next;
         
+        D(bug("[WiFi] Checking opener %08lx\n", (ULONG)opener));
+
         Disable();
-        ForeachNodeSafe(&opener->o_EventListeners, io, next)
+        ForeachNodeSafe(&opener->o_EventListeners.mp_MsgList, io, next)
         {
+            D(bug("[WiFi]   Events wanted: %08lx\n", io->ios2_WireError));
+
             /* Check if event mask in WireError fits the events occured */
             if (io->ios2_WireError & eventSet)
             {
                 /* We have a match. Leave only matching events in wire error */
                 io->ios2_WireError &= eventSet;
                 
+                D(bug("[WiFi] Sending event set %08lx, masked %08lx\n", eventSet, io->ios2_WireError));
+                D(bug("%08lx\n", io->ios2_Req.io_Error));
+                io->ios2_Req.io_Error = 0;
                 /* Reply it */
                 Remove((struct Node *)io);
                 ReplyMsg((struct Message *)io);
@@ -368,6 +381,7 @@ static int Do_S2_ONEVENT(struct IOSana2Req *io)
     }
     else
     {
+        D(bug("[WiFi] Event listener moved into list\n"));
         /* Remove QUICK flag and put message on event listener list */
         struct Opener *opener = io->ios2_BufferManagement;
         io->ios2_Req.io_Flags &= ~IOF_QUICK;
@@ -415,6 +429,8 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
 
+    ULONG idx = io->ios2_WireError & 3;
+
     D(bug("[WiFi.0] S2_SETKEY\n"));
 
     D(bug("[WiFi.0]   Index: %ld\n", io->ios2_WireError));
@@ -436,7 +452,28 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     else { D(bug("\n")); }
     D(bug("[WiFi.0]   RX cnt: %ld\n", (ULONG)io->ios2_StatData));
 
-/* TODO: Not done yet!!! */
+    if (unit->wu_Keys[idx].k_Key)
+        FreeVecPooled(WiFiBase->w_MemPool, unit->wu_Keys[idx].k_Key);
+    
+    unit->wu_Keys[idx].k_Type = io->ios2_PacketType;
+    unit->wu_Keys[idx].k_Length = io->ios2_DataLength;
+    unit->wu_Keys[idx].k_RXCount = (ULONG)io->ios2_StatData;
+    if (io->ios2_DataLength != 0)
+    {
+        unit->wu_Keys[idx].k_Key = AllocVecPooled(WiFiBase->w_MemPool, io->ios2_DataLength);
+        if (unit->wu_Keys[idx].k_Key == NULL)
+        {
+            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+            
+            return 1;
+        }
+        CopyMem(io->ios2_Data, unit->wu_Keys[idx].k_Key, io->ios2_DataLength);
+    }
+    else
+    {
+        unit->wu_Keys[idx].k_Key = NULL;
+    }
 
     return 1;
 }
@@ -445,7 +482,8 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
 {
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
-    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct Library *UtilityBase = WiFiBase->w_UtilityBase;
 
     D(bug("[WiFi.0] S2_SETOPTIONS\n"));
 
@@ -460,7 +498,51 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
         }
     }
 
-/* TODO: Not done yet!!! */
+    /* Set ExtJoinParams now */
+    _bzero(&unit->wu_JoinParams, sizeof(struct ExtJoinParams));
+    
+    /* Get SSID */
+    if ((ti = FindTagItem(S2INFO_SSID, io->ios2_Data)))
+    {
+        char *ssid = (char*)ti->ti_Data;
+        ULONG len = _strlen(ssid);
+        unit->wu_JoinParams.ej_SSID.ssid_Length = LE32(len);
+        CopyMem(ssid, &unit->wu_JoinParams.ej_SSID.ssid_Value, len);
+    }
+
+    /* Get BSSID or put broadcast BSSID */
+    if ((ti = FindTagItem(S2INFO_BSSID, io->ios2_Data)))
+    {
+        CopyMem((APTR)ti->ti_Data, &unit->wu_JoinParams.ej_Assoc.ap_BSSID, 6);
+    }
+    else
+    {
+        unit->wu_JoinParams.ej_Assoc.ap_BSSID[0] = 0xff;
+        unit->wu_JoinParams.ej_Assoc.ap_BSSID[1] = 0xff;
+        unit->wu_JoinParams.ej_Assoc.ap_BSSID[2] = 0xff;
+        unit->wu_JoinParams.ej_Assoc.ap_BSSID[3] = 0xff;
+        unit->wu_JoinParams.ej_Assoc.ap_BSSID[4] = 0xff;
+        unit->wu_JoinParams.ej_Assoc.ap_BSSID[5] = 0xff;
+    }
+
+    /* TODO: Fill chan spec! */
+    unit->wu_JoinParams.ej_Assoc.ap_ChanspecNum = 0;
+    unit->wu_JoinParams.ej_Assoc.ap_ChanSpecList[0] = 0;
+
+    unit->wu_JoinParams.ej_Scan.js_ScanYype = -1;
+    unit->wu_JoinParams.ej_Scan.js_HomeTime = LE32(-1);
+    unit->wu_JoinParams.ej_Scan.js_ActiveTime = LE32(-1);
+    unit->wu_JoinParams.ej_Scan.js_PassiveTime = LE32(-1);
+    unit->wu_JoinParams.ej_Scan.js_NProbes = LE32(-1);
+
+    PacketSetVarInt(WiFiBase->w_SDIO, "wpa_auth", WPA_AUTH_DISABLED);
+    PacketSetVarInt(WiFiBase->w_SDIO, "wsec", 0);
+
+    // TODO: brcmf_set_auth_type
+    PacketSetVarInt(WiFiBase->w_SDIO, "auth", 0);
+    PacketSetVarInt(WiFiBase->w_SDIO, "mfp", 0);
+
+    PacketSetVar(WiFiBase->w_SDIO, "join", &unit->wu_JoinParams, sizeof(struct ExtJoinParams));
 
     return 1;
 }
@@ -737,13 +819,6 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    struct Library *UtilityBase = WiFiBase->w_UtilityBase;
-    APTR pool = io->ios2_Data;
-    struct TagItem *tags = io->ios2_StatData;
-    struct WiFiNetwork *network;
-    CONST_STRPTR only_this_ssid = (CONST_STRPTR)GetTagData(S2INFO_SSID, 0, tags);
-    struct TagItem **replyList = NULL;
-    ULONG networkCount = 0;
 
     /* GetNetworks is never quick */
     io->ios2_Req.io_Flags &= ~IOF_QUICK;
@@ -755,93 +830,6 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
     PutMsg(unit->wu_ScanQueue, (struct Message *)io);
 
     return 0;
-#if 0
-    replyList = (struct TagItem **)AllocPooled(pool, networkCount * sizeof(APTR));
-
-    if (replyList == NULL)
-    {
-        io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
-        io->ios2_WireError = S2WERR_GENERIC_ERROR;
-        
-        ReleaseSemaphore(&WiFiBase->w_NetworkListLock);
-        return 1;
-    }
-
-    networkCount = 0;
-
-    ForeachNode(&WiFiBase->w_NetworkList, network)
-    {
-        struct TagItem *tags = NULL;
-
-        if (only_this_ssid && 0 != _strcmp(only_this_ssid, network->wn_SSID))
-        {
-            D(bug("[WiFi.0]   No match: %s:%s\n", (ULONG)only_this_ssid, (ULONG)network->wn_SSID));
-            continue;
-        }
-
-        tags = AllocPooled(pool, sizeof(struct TagItem) * 10);
-        
-        if (tags == NULL)
-        {
-            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
-            io->ios2_WireError = S2WERR_GENERIC_ERROR;
-            
-            ReleaseSemaphore(&WiFiBase->w_NetworkListLock);
-            return 1;
-        }
-        replyList[networkCount++] = tags;
-
-        tags->ti_Tag = S2INFO_SSID;
-        tags->ti_Data = (ULONG)AllocPooled(pool, network->wn_SSIDLength + 1);
-        if (tags->ti_Data == NULL)
-        {
-            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
-            io->ios2_WireError = S2WERR_GENERIC_ERROR;
-            
-            ReleaseSemaphore(&WiFiBase->w_NetworkListLock);
-            return 1;
-        }
-        CopyMem(network->wn_SSID, (APTR)tags->ti_Data, network->wn_SSIDLength + 1);
-        tags++;
-
-        tags->ti_Tag = S2INFO_BSSID;
-        tags->ti_Data = (ULONG)AllocPooled(pool, 6);
-        if (tags->ti_Data == NULL)
-        {
-            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
-            io->ios2_WireError = S2WERR_GENERIC_ERROR;
-            
-            ReleaseSemaphore(&WiFiBase->w_NetworkListLock);
-            return 1;
-        }
-        CopyMem(network->wn_BSID, (APTR)tags->ti_Data, 6);
-        tags++;
-
-        tags->ti_Tag = S2INFO_BeaconInterval;
-        tags->ti_Data = network->wn_BeaconPeriod;
-        tags++;
-
-        tags->ti_Tag = S2INFO_Channel;
-        tags->ti_Data = network->wn_ChannelInfo.ci_CHNum;
-        tags++;
-
-        tags->ti_Tag = S2INFO_Signal;
-        tags->ti_Data = network->wn_RSSI;
-        tags++;
-
-        tags->ti_Tag = TAG_DONE;
-        tags->ti_Data = 0;
-    }
-
-    ReleaseSemaphore(&WiFiBase->w_NetworkListLock);
-
-    io->ios2_DataLength = networkCount;
-    io->ios2_StatData = replyList;
-    io->ios2_Req.io_Error = 0;
-    io->ios2_WireError = 0;
-
-    return 1;
-#endif
 }
 
 int Do_S2_DEVICEQUERY(struct IOSana2Req *io)
@@ -949,6 +937,7 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
         EVENT_BIT(ev_mask, BRCMF_E_ASSOC);
         EVENT_BIT(ev_mask, BRCMF_E_DEAUTH);
         EVENT_BIT(ev_mask, BRCMF_E_DISASSOC);
+        EVENT_BIT(ev_mask, BRCMF_E_REASSOC);
         EVENT_BIT(ev_mask, BRCMF_E_ESCAN_RESULT);
         EVENT_BIT_CLEAR(ev_mask, 124);
 #undef EVENT_BIT
@@ -984,7 +973,7 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
             CopyMem(WiFiBase->w_NetworkConfig.nc_SSID, network->wn_SSID, network->wn_SSIDLength);
             for (int i=0; i < 6; i++) network->wn_BSID[i] = 0xff;
             
-            Connect(sdio, network);
+            //Connect(sdio, network);
 
             FreeVecPooled(WiFiBase->w_MemPool, network);
         }
@@ -1007,11 +996,15 @@ static int Do_S2_ONLINE(struct IOSana2Req *io)
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct SDIO *sdio = WiFiBase->w_SDIO;
+    struct TimerBase *TimerBase = unit->wu_TimerBase;
 
     D(bug("[WiFi.0] S2_ONLINE\n"));
 
     // Bring all stats to 0
     _bzero(&unit->wu_Stats, sizeof(struct Sana2DeviceStats));
+    
+    // Get last start time
+    GetSysTime(&unit->wu_Stats.LastStart);
 
     unit->wu_Flags |= IFF_ONLINE;
 
@@ -1066,6 +1059,8 @@ void HandleRequest(struct IOSana2Req *io)
     }
     else
     {
+        io->ios2_Req.io_Error = 0;
+        
         switch (io->ios2_Req.io_Command)
         {
             case NSCMD_DEVICEQUERY:
@@ -1143,6 +1138,11 @@ void HandleRequest(struct IOSana2Req *io)
 
             case S2_SETOPTIONS:
                 complete = Do_S2_SETOPTIONS(io);
+                break;
+
+            case S2_GETNETWORKINFO:
+                D(bug("[WiFi] S2_GETNETWORKINFO"));
+                complete = 1;
                 break;
 
             case S2_BROADCAST: /* Fallthrough */

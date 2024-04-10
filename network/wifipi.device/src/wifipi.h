@@ -15,6 +15,7 @@
 
 #include "sdio.h"
 #include "d11.h"
+#include "packet.h"
 
 #define STR(s) #s
 #define XSTR(s) STR(s)
@@ -130,6 +131,14 @@ for                                                       \
     *(void **)&node = (void *)next                                \
 )
 
+struct Key
+{
+    ULONG k_Type;
+    ULONG k_Length;
+    APTR  k_Key;
+    ULONG k_RXCount;
+};
+
 struct WiFiUnit
 {
     struct Unit             wu_Unit;
@@ -143,9 +152,13 @@ struct WiFiUnit
     struct MsgPort *        wu_ScanQueue;
     struct IOSana2Req *     wu_ScanRequest;
     struct Sana2DeviceStats wu_Stats;
+    struct TimerBase *      wu_TimerBase;
     ULONG                   wu_Flags;
     UBYTE                   wu_OrigEtherAddr[6];
     UBYTE                   wu_EtherAddr[6];
+
+    struct Key              wu_Keys[4];
+    struct ExtJoinParams    wu_JoinParams;
 };
 
 struct MulticastRange {

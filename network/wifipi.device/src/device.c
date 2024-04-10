@@ -294,6 +294,7 @@ void WiFi_BeginIO(REGARG(struct IOSana2Req * io, "a1"))
     else
     {
         /* Unit was busy, remove QUICK flag so that Exec will wait for completion properly */
+        io->ios2_Req.io_Error = 0;
         io->ios2_Req.io_Flags &= ~IOF_QUICK;
         PutMsg(unit->wu_CmdQueue, (struct Message *)io);
     }
