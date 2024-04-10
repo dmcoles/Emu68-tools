@@ -527,6 +527,85 @@ delay_us(5000000, sdio->s_WiFiBase);
 
 void PacketDump(struct SDIO *sdio, APTR data, char *src);
 
+struct TagItem * FindNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
+{
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct SDIO *sdio = WiFiBase->w_SDIO;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct Library *UtilityBase = WiFiBase->w_UtilityBase;
+    struct IOSana2Req *io = unit->wu_ScanRequest;
+    struct TagItem *found = NULL;
+    struct TagItem **list = (struct TagItem **)io->ios2_StatData;
+    
+    if (list != NULL)
+    {
+        for (int i=0; i < io->ios2_DataLength; i++)
+        {
+            struct TagItem *tags = list[i];
+            UBYTE *bssid;
+            char *ssid;
+            /*
+                Two networks are considered the same if:
+                - SSID is same
+                - BSSID is same
+                - Channel and band are the same
+            */
+
+            /* Check SSID */
+            ssid = (char*)GetTagData(S2INFO_SSID, 0, tags);
+            
+            /* Must not be null! */
+            if (ssid == NULL)
+                continue;
+
+            /* SSID length must match */
+            if (_strlen(ssid) != info->bssi_SSIDLength)
+                continue;
+
+            /* SSID must match */
+            if (_strncmp(ssid, info->bssi_SSID, info->bssi_SSIDLength) != 0)
+                continue;
+
+            /* Check BSSID */
+            bssid = (UBYTE*)GetTagData(S2INFO_BSSID, 0, tags);
+
+            /* Must not be null */
+            if (bssid == NULL)
+                continue;
+            
+            /* Must be the same */
+            if (bssid[0] != info->bssi_ID[0] ||
+                bssid[1] != info->bssi_ID[1] ||
+                bssid[2] != info->bssi_ID[2] ||
+                bssid[3] != info->bssi_ID[3] ||
+                bssid[4] != info->bssi_ID[4] ||
+                bssid[5] != info->bssi_ID[5])
+                continue;
+            
+            /* Finally, check channel */
+            struct ChannelInfo ci;
+            ci.ci_CHSpec = LE16(info->bssi_ChanSpec);
+            DecodeChanSpec(&ci, sdio->s_Chip->c_D11Type);
+
+            ULONG band = GetTagData(S2INFO_Band, -1, tags);
+            if ((ci.ci_Band == BRCMU_CHAN_BAND_2G && band != S2BAND_B) ||
+                (ci.ci_Band != BRCMU_CHAN_BAND_2G && band != S2BAND_A))
+                continue;
+
+            ULONG channel = GetTagData(S2INFO_Channel, 0, tags);
+            if (channel != ci.ci_CHNum)
+                continue;
+
+            D(bug("[WiFi] found network desc duplicate\n"));
+
+            found = tags;
+            break;
+        }
+    }
+
+    return found;
+}
+
 void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
 {
     struct WiFiBase *WiFiBase = unit->wu_Base;
@@ -536,6 +615,10 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
 
     /* Ignore event if no scan request is active */
     if (io == NULL)
+        return;
+
+    /* Ignore network duplicates, later maybe update them */
+    if (FindNetwork(unit, info))
         return;
 
     APTR memPool = io->ios2_Data;
@@ -670,7 +753,7 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
     tags++;
 
     tags->ti_Tag = S2INFO_Band;
-    tags->ti_Data = ci.ci_Band == BRCMU_CHAN_BAND_2G ? S2BAND_G : S2BAND_A;
+    tags->ti_Data = ci.ci_Band == BRCMU_CHAN_BAND_2G ? S2BAND_B : S2BAND_A;
     tags++;
 }
 
