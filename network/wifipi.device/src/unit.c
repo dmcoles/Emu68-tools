@@ -495,7 +495,7 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     /* Get SSID */
     if ((ti = FindTagItem(S2INFO_SSID, io->ios2_Data)))
     {
-        CONST_STRPTR ssid = (CONST_STRPTR)ti->ti_Data;
+        STRPTR ssid = (STRPTR)ti->ti_Data;
         ULONG len = _strlen(ssid);
         unit->wu_JoinParams.ej_SSID.ssid_Length = LE32(len);
         CopyMem(ssid, &unit->wu_JoinParams.ej_SSID.ssid_Value, len);

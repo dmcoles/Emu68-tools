@@ -2292,7 +2292,7 @@ void StartNetworkScan(struct IOSana2Req *io)
 
         if (len > 32) len = 32;
 
-        CopyMem(params, data, sizeof(params));
+        CopyMem((const APTR)params, data, sizeof(params));
         
         data[8] = len;
         for (int i=0; i < data[8]; i++)
