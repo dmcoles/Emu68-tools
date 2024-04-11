@@ -149,6 +149,11 @@ APTR AllocVecPooled(APTR pool, ULONG byteSize)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4UL;
     ULONG *buffer = AllocPooled(pool, byteSize + 8);
+
+    /* Do not continue on failure! */
+    if (buffer == NULL)
+        return NULL;
+
     *buffer = byteSize + 8;
     return &buffer[2];
 }
@@ -157,6 +162,11 @@ APTR AllocVecPooledClear(APTR pool, ULONG byteSize)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4UL;
     ULONG *buffer = AllocPooled(pool, byteSize + 8);
+    
+    /* Do not continue on failure! */
+    if (buffer == NULL)
+        return NULL;
+
     *buffer = byteSize + 8;
     ULONG *clrL = buffer + 2;
     while(byteSize >= 4) { *clrL++ = 0; byteSize -= 4; }
@@ -169,6 +179,11 @@ APTR AllocPooledClear(APTR pool, ULONG byteSize)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4UL;
     ULONG *buffer = AllocPooled(pool, byteSize);
+
+    /* Do not continue on failure! */
+    if (buffer == NULL)
+        return NULL;
+
     ULONG *clrL = buffer;
     while(byteSize >= 4) { *clrL++ = 0; byteSize -= 4; }
     UBYTE *clrB = (APTR)clrL;
@@ -179,6 +194,9 @@ APTR AllocPooledClear(APTR pool, ULONG byteSize)
 void FreeVecPooled(APTR pool, APTR buf)
 {
     struct ExecBase *SysBase = *(struct ExecBase **)4UL;
+    
+    if (!buf) return;
+
     ULONG *buffer = (APTR)((ULONG)buf - 8);
     ULONG length = *buffer;
     FreePooled(pool, buffer, length);
@@ -190,6 +208,30 @@ BOOL LoadFirmware(struct Chip *chip)
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     APTR DeviceTreeBase = WiFiBase->w_DeviceTreeBase;
     struct Library *DOSBase = WiFiBase->w_DosBase;
+
+
+    BPTR file = Open((CONST_STRPTR)"T:wifipi.txt", MODE_NEWFILE);
+    UBYTE buf[4];
+    UWORD data = chip->c_ChipID;
+    for (int i=0; i < 4; i++)
+    {
+        UBYTE b = data & 15;
+        if (b < 10) buf[3 - i] = '0' + b;
+        else buf[3 - i] = 'a' + b - 10;
+        data >>= 4;
+    }
+    Write(file, buf, 4);
+    Write(file, ":", 1);
+    data = chip->c_ChipREV;
+    for (int i=0; i < 4; i++)
+    {
+        UBYTE b = data & 15;
+        if (b < 10) buf[3 - i] = '0' + b;
+        else buf[3 - i] = 'a' + b - 10;
+        data >>= 4;
+    }
+    Write(file, buf, 4);
+    Close(file);
 
     /* Firmware name shall never exceed total size of 256 bytes */
     STRPTR path = AllocVecPooled(WiFiBase->w_MemPool, 256);
