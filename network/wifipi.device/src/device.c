@@ -121,7 +121,6 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
     struct WiFiUnit *unit = WiFiBase->w_Unit;
     struct Opener *opener;
     BYTE error=0;
-    int i;
 
     D(bug("[WiFi] WiFi_Open(%08lx, %ld, %lx)\n", (ULONG)io, unitNumber, flags));
 
@@ -282,7 +281,6 @@ void WiFi_BeginIO(REGARG(struct IOSana2Req * io, "a1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    struct SDIO *sdio = WiFiBase->w_SDIO;
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
 
     // Try to do the request directly by obtaining the lock, otherwise put in unit's CMD queue
