@@ -562,8 +562,6 @@ struct TagItem * FindNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
             if (channel != ci.ci_CHNum)
                 continue;
 
-            D(bug("[WiFi] found network desc duplicate\n"));
-
             found = tags;
             break;
         }
@@ -577,15 +575,21 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct SDIO *sdio = WiFiBase->w_SDIO;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct Library *UtilityBase = WiFiBase->w_UtilityBase;
     struct IOSana2Req *io = unit->wu_ScanRequest;
+    struct TagItem *net;
 
     /* Ignore event if no scan request is active */
     if (io == NULL)
+    {
         return;
+    }
 
     /* Ignore network duplicates, later maybe update them */
-    if (FindNetwork(unit, info))
+    if ((net = FindNetwork(unit, info)))
+    {
         return;
+    }
 
     /* Ignore networks with empty ssid */
     if (info->bssi_SSIDLength == 0)
@@ -660,7 +664,6 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
         return;
     }
     CopyMem(info->bssi_SSID, (APTR)tags->ti_Data, info->bssi_SSIDLength);
-    D(bug("[WiFi] SSID=%s\n", tags->ti_Data));
     tags++;
 
     tags->ti_Tag = S2INFO_BSSID;
@@ -682,14 +685,12 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
 
     tags->ti_Tag = S2INFO_Signal;
     tags->ti_Data = (WORD)LE16(info->bssi_RSSI);
-    D(bug("[WiFi]   RSSI=%ld\n", tags->ti_Data));
     tags++;
 
     if (info->bssi_PHYNoise != 0)
     {
         tags->ti_Tag = S2INFO_Noise;
         tags->ti_Data = (BYTE)info->bssi_PHYNoise;
-        D(bug("[WiFi]   PhyNoise=%ld\n", tags->ti_Data));
         tags++;
     }
 
@@ -762,21 +763,112 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
 
         case BRCMF_E_ASSOC:
             D(bug("[WiFi] E_ASSOC\n"));
+            if (unit->wu_AssocIE) FreeVecPooled(base->w_MemPool, unit->wu_AssocIE);
+            unit->wu_AssocIE = AllocVecPooled(base->w_MemPool, pe->e_DataLen);
+            unit->wu_AssocIELength = pe->e_DataLen;
+            if (unit->wu_AssocIE != NULL)
+            {
+                CopyMem(((UBYTE*)pe) + sizeof(struct PacketEvent), unit->wu_AssocIE, pe->e_DataLen);
+            }
+            CopyMem(&pe->e_Address, unit->wu_JoinParams.ej_Assoc.ap_BSSID, 6);
+            break;
+
+        case BRCMF_E_ASSOC_IND:
+            D(bug("[WiFi] E_ASSOC_IND\n"));
+            {
+                UBYTE *p = (APTR)pe;
+                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+                {
+                    if (i % 16 == 0)
+                    bug("[WiFI]  ");
+                    bug(" %02lx", p[i]);
+                    if (i % 16 == 15)
+                        bug("\n");
+                }
+                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
+                    bug("\n");
+            }
             break;
 
         case BRCMF_E_DISASSOC:
             D(bug("[WiFi] E_DISASSOC\n"));
+            {
+                UBYTE *p = (APTR)pe;
+                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+                {
+                    if (i % 16 == 0)
+                    bug("[WiFI]  ");
+                    bug(" %02lx", p[i]);
+                    if (i % 16 == 15)
+                        bug("\n");
+                }
+                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
+                    bug("\n");
+            }
+            break;
+
+        case BRCMF_E_DISASSOC_IND:
+            D(bug("[WiFi] E_DISASSOC_IND\n"));
+            {
+                UBYTE *p = (APTR)pe;
+                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+                {
+                    if (i % 16 == 0)
+                    bug("[WiFI]  ");
+                    bug(" %02lx", p[i]);
+                    if (i % 16 == 15)
+                        bug("\n");
+                }
+                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
+                    bug("\n");
+            }
+            break;
+        
+        case BRCMF_E_REASSOC:
+            D(bug("[WiFi] E_DISASSOC\n"));
+            {
+                UBYTE *p = (APTR)pe;
+                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+                {
+                    if (i % 16 == 0)
+                    bug("[WiFI]  ");
+                    bug(" %02lx", p[i]);
+                    if (i % 16 == 15)
+                        bug("\n");
+                }
+                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
+                    bug("\n");
+            }
+            break;
+
+        case BRCMF_E_REASSOC_IND:
+            D(bug("[WiFi] E_DISASSOC_IND\n"));
+            {
+                UBYTE *p = (APTR)pe;
+                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+                {
+                    if (i % 16 == 0)
+                    bug("[WiFI]  ");
+                    bug(" %02lx", p[i]);
+                    if (i % 16 == 15)
+                        bug("\n");
+                }
+                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
+                    bug("\n");
+            }
             break;
 
         case BRCMF_E_LINK:
             if (pe->e_Reason)
             {
                 D(bug("[WiFi] E_LINK down\n"));
+                unit->wu_Flags &= ~IFF_CONNECTED;
                 ReportEvents(unit, S2EVENT_DISCONNECT);
             }
             else
             {
                 D(bug("[WiFi] E_LINK up\n"));
+                unit->wu_Flags |= IFF_CONNECTED;
                 ReportEvents(unit, S2EVENT_CONNECT);
             }
             break;
