@@ -40,7 +40,6 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct MsgPort *port;
     struct timerequest *tr;
-    ULONG scanDelay = 20;
     ULONG sigset;
 
     D(bug("[WiFi.0] Unit task starting\n"));
@@ -62,7 +61,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
         return;
     }
 
-    if (OpenDevice("timer.device", UNIT_VBLANK, &tr->tr_node, 0))
+    if (OpenDevice((CONST_STRPTR)"timer.device", UNIT_VBLANK, &tr->tr_node, 0))
     {
         D(bug("[WiFi.0] Failed to open timer.device\n"));
         DeleteIORequest(&tr->tr_node);
@@ -195,11 +194,11 @@ void StartUnit(struct WiFiUnit *unit)
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
 
+#if 0
     if (WiFiBase->w_DosBase)
     {
         struct Library *DOSBase = (struct Library *)WiFiBase->w_DosBase;
 
-        LONG confLen = 4;
         UBYTE buffer[4];
 
         /* Get the variable into a too small buffer. Required length will be returned in IoErr() */
@@ -213,6 +212,7 @@ void StartUnit(struct WiFiUnit *unit)
             ParseConfig(WiFiBase);
         }
     }
+#endif
 
     PacketGetVar(WiFiBase->w_SDIO, "cur_etheraddr", unit->wu_OrigEtherAddr, 6);
 
@@ -322,29 +322,20 @@ void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
     struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
     struct Opener *opener;
 
-    D(bug("[WiFi.0] ReportEvents(%08lx)\n", eventSet));
-
     /* Report event to every listener of every opener accepting the mask */
     ForeachNode(&unit->wu_Openers, opener)
     {
         struct IOSana2Req *io, *next;
         
-        D(bug("[WiFi] Checking opener %08lx\n", (ULONG)opener));
-
         Disable();
         ForeachNodeSafe(&opener->o_EventListeners.mp_MsgList, io, next)
         {
-            D(bug("[WiFi]   Events wanted: %08lx\n", io->ios2_WireError));
-
             /* Check if event mask in WireError fits the events occured */
             if (io->ios2_WireError & eventSet)
             {
                 /* We have a match. Leave only matching events in wire error */
                 io->ios2_WireError &= eventSet;
                 
-                D(bug("[WiFi] Sending event set %08lx, masked %08lx\n", eventSet, io->ios2_WireError));
-                D(bug("%08lx\n", io->ios2_Req.io_Error));
-                io->ios2_Req.io_Error = 0;
                 /* Reply it */
                 Remove((struct Node *)io);
                 ReplyMsg((struct Message *)io);
@@ -415,8 +406,8 @@ static int Do_S2_GETSIGNALQUALITY(struct IOSana2Req *io)
     {
         /* Remove QUICK flag and put message on event listener list */
         struct Sana2SignalQuality *quality = io->ios2_StatData;
-        PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_RSSI, &quality->SignalLevel);
-        PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_PHY_NOISE, &quality->NoiseLevel);
+        PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_RSSI, (APTR)&quality->SignalLevel);
+        PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_PHY_NOISE, (APTR)&quality->NoiseLevel);
 
         D(bug("[WiFi.0] Signal: %ld, Noise: %ld\n", quality->SignalLevel, quality->NoiseLevel));
         return 1;
@@ -440,7 +431,7 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     D(bug("[WiFi.0]   Key: %08lx", (ULONG)io->ios2_Data));
     if (io->ios2_Data && io->ios2_DataLength)
     {
-        for (int i=0; i < io->ios2_DataLength; i++) {
+        for (ULONG i=0; i < io->ios2_DataLength; i++) {
             if (i == 0)
                 bug(" (%02lx, ", ((UBYTE*)io->ios2_Data)[i]);
             if (i == io->ios2_DataLength - 1)
@@ -504,7 +495,7 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     /* Get SSID */
     if ((ti = FindTagItem(S2INFO_SSID, io->ios2_Data)))
     {
-        char *ssid = (char*)ti->ti_Data;
+        CONST_STRPTR ssid = (CONST_STRPTR)ti->ti_Data;
         ULONG len = _strlen(ssid);
         unit->wu_JoinParams.ej_SSID.ssid_Length = LE32(len);
         CopyMem(ssid, &unit->wu_JoinParams.ej_SSID.ssid_Value, len);
@@ -554,7 +545,6 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    struct Library *UtilityBase = WiFiBase->w_UtilityBase;
     APTR memPool = io->ios2_Data;
     struct TagItem *tags;
 
@@ -573,7 +563,7 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
         return 1;
     }
 
-    io->ios2_StatData = tags = AllocPooled(memPool, sizeof(struct TagItem) * 16);
+    io->ios2_StatData = tags = AllocPooled(memPool, sizeof(struct TagItem) * 4);
     if (io->ios2_StatData == NULL)
     {
         io->ios2_WireError = S2WERR_BUFF_ERROR;
@@ -582,18 +572,18 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
     }
     
     tags->ti_Tag = S2INFO_SSID;
-    tags->ti_Data = (ULONG)AllocVecPooledClear(memPool, unit->wu_JoinParams.ej_SSID.ssid_Length + 1);
+    tags->ti_Data = (ULONG)AllocVecPooledClear(memPool, LE32(unit->wu_JoinParams.ej_SSID.ssid_Length) + 1);
     if (tags->ti_Data == 0)
     {
         io->ios2_WireError = S2WERR_BUFF_ERROR;
         io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
         return 1;
     }
-    CopyMem(unit->wu_JoinParams.ej_SSID.ssid_Value, (APTR)tags->ti_Data, unit->wu_JoinParams.ej_SSID.ssid_Length);
+    CopyMem(unit->wu_JoinParams.ej_SSID.ssid_Value, (APTR)tags->ti_Data, LE32(unit->wu_JoinParams.ej_SSID.ssid_Length));
     tags++;
 
     tags->ti_Tag = S2INFO_BSSID;
-    tags->ti_Data = (ULONG)AllocVecPooledClear(memPool, 6);
+    tags->ti_Data = (ULONG)AllocVecPooled(memPool, 6);
     if (tags->ti_Data == 0)
     {
         io->ios2_WireError = S2WERR_BUFF_ERROR;
@@ -603,20 +593,24 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
     CopyMem(unit->wu_JoinParams.ej_Assoc.ap_BSSID, (APTR)tags->ti_Data, 6);
     tags++;
 
-    tags->ti_Tag = S2INFO_WPAInfo;
-    tags->ti_Data = (ULONG)AllocVecPooledClear(memPool, unit->wu_AssocIELength + 2);
-    if (tags->ti_Data == 0)
+    if (unit->wu_AssocIELength != 0)
     {
-        io->ios2_WireError = S2WERR_BUFF_ERROR;
-        io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
-        return 1;
+        tags->ti_Tag = S2INFO_WPAInfo;
+        tags->ti_Data = (ULONG)AllocVecPooled(memPool, unit->wu_AssocIELength + 2);
+        if (tags->ti_Data == 0)
+        {
+            io->ios2_WireError = S2WERR_BUFF_ERROR;
+            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+            return 1;
+        }
+        CopyMem(unit->wu_AssocIE, (APTR)(tags->ti_Data + 2), unit->wu_AssocIELength);
+        *(UWORD*)(tags->ti_Data) = unit->wu_AssocIELength + 2;
+        tags++;
     }
-    CopyMem(unit->wu_AssocIE, (APTR)(tags->ti_Data + 2), unit->wu_AssocIELength);
-    *(UWORD*)(tags->ti_Data) = unit->wu_AssocIELength + 2;
-    tags++;
 
     tags->ti_Tag = TAG_DONE;
     tags->ti_Data = 0;
+    io->ios2_Req.io_Error = 0;
 
     return 1;
 }
@@ -747,7 +741,6 @@ static int Do_CMD_WRITE(struct IOSana2Req *io)
 static void UpdateMCastList(struct WiFiUnit *unit)
 {
     struct WiFiBase *WiFiBase = unit->wu_Base;
-    struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct SDIO *sdio = WiFiBase->w_SDIO;
 
     ULONG totalCount = 0;
@@ -798,15 +791,33 @@ static int Do_S2_ADDMULTICASTADDRESSES(struct IOSana2Req *io)
     D(bug("[WiFi.0] S2_ADDMULTICASTADDRESS%s\n", (ULONG)(io->ios2_Req.io_Command == S2_ADDMULTICASTADDRESSES ? "ES":"")));
 
     struct MulticastRange *range;
+    union {
+        uint64_t u64;
+        uint8_t u8[8];
+    } u;
+
+    u.u8[0] = u.u8[1] = 0;
     uint64_t lower_bound, upper_bound;
-    lower_bound = (uint64_t)(*(UWORD*)&(io->ios2_SrcAddr)) << 32 | *(ULONG*)&io->ios2_SrcAddr[2];
+    u.u8[2] = io->ios2_SrcAddr[0];
+    u.u8[3] = io->ios2_SrcAddr[1];
+    u.u8[4] = io->ios2_SrcAddr[2];
+    u.u8[5] = io->ios2_SrcAddr[3];
+    u.u8[6] = io->ios2_SrcAddr[4];
+    u.u8[7] = io->ios2_SrcAddr[5];
+    lower_bound = u.u64;
     if (io->ios2_Req.io_Command == S2_ADDMULTICASTADDRESS)
     {
         upper_bound = lower_bound;
     }
     else
     {
-        upper_bound = (uint64_t)(*(UWORD*)&io->ios2_DstAddr) << 32 | *(ULONG*)&io->ios2_DstAddr[2];
+        u.u8[2] = io->ios2_DstAddr[0];
+        u.u8[3] = io->ios2_DstAddr[1];
+        u.u8[4] = io->ios2_DstAddr[2];
+        u.u8[5] = io->ios2_DstAddr[3];
+        u.u8[6] = io->ios2_DstAddr[4];
+        u.u8[7] = io->ios2_DstAddr[5];
+        upper_bound = u.u64;
     }
 
     for (uint64_t mac = lower_bound; mac <= upper_bound; mac++)
@@ -853,16 +864,35 @@ static int Do_S2_DELMULTICASTADDRESSES(struct IOSana2Req *io)
 
     D(bug("[WiFi.0] S2_DELMULTICASTADDRESS%s\n", (ULONG)(io->ios2_Req.io_Command == S2_DELMULTICASTADDRESSES ? "ES":"")));
 
+    union {
+        uint64_t u64;
+        uint8_t u8[8];
+    } u;
+
+    u.u8[0] = u.u8[1] = 0;
+
     struct MulticastRange *range;
     uint64_t lower_bound, upper_bound;
-    lower_bound = (uint64_t)*(UWORD*)io->ios2_SrcAddr << 32 | *(ULONG*)&io->ios2_SrcAddr[2];
+    u.u8[2] = io->ios2_SrcAddr[0];
+    u.u8[3] = io->ios2_SrcAddr[1];
+    u.u8[4] = io->ios2_SrcAddr[2];
+    u.u8[5] = io->ios2_SrcAddr[3];
+    u.u8[6] = io->ios2_SrcAddr[4];
+    u.u8[7] = io->ios2_SrcAddr[5];
+    lower_bound = u.u64;
     if (io->ios2_Req.io_Command == S2_ADDMULTICASTADDRESS)
     {
         upper_bound = lower_bound;
     }
     else
     {
-        upper_bound = (uint64_t)*(UWORD*)io->ios2_DstAddr << 32 | *(ULONG*)&io->ios2_DstAddr[2];
+        u.u8[2] = io->ios2_DstAddr[0];
+        u.u8[3] = io->ios2_DstAddr[1];
+        u.u8[4] = io->ios2_DstAddr[2];
+        u.u8[5] = io->ios2_DstAddr[3];
+        u.u8[6] = io->ios2_DstAddr[4];
+        u.u8[7] = io->ios2_DstAddr[5];
+        upper_bound = u.u64;
     }
 
     /* Go through already registered multicast ranges. Once found, decrease use count */
@@ -898,7 +928,6 @@ static int Do_S2_GETNETWORKS(struct IOSana2Req *io)
     io->ios2_Req.io_Flags &= ~IOF_QUICK;
     
     D(bug("[WiFi.0] S2_GETNETWORKS\n"));
-    D(bug("[WiFi.0]   ScanRequest = %08lx\n", (ULONG)unit->wu_ScanRequest));
 
     /* Put it into scan queue */
     PutMsg(unit->wu_ScanQueue, (struct Message *)io);
@@ -1069,7 +1098,6 @@ static int Do_S2_ONLINE(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    struct SDIO *sdio = WiFiBase->w_SDIO;
     struct TimerBase *TimerBase = unit->wu_TimerBase;
 
     D(bug("[WiFi.0] S2_ONLINE\n"));
@@ -1117,7 +1145,6 @@ void HandleRequest(struct IOSana2Req *io)
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    struct SDIO *sdio = WiFiBase->w_SDIO;
 
     ULONG complete = 0;
 
@@ -1219,8 +1246,12 @@ void HandleRequest(struct IOSana2Req *io)
                 break;
 
             case S2_BROADCAST: /* Fallthrough */
-                *(ULONG*)&io->ios2_DstAddr[0] = 0xffffffff;
-                *(UWORD*)&io->ios2_DstAddr[4] = 0xffff;
+                io->ios2_DstAddr[0] = 0xff;
+                io->ios2_DstAddr[1] = 0xff;
+                io->ios2_DstAddr[2] = 0xff;
+                io->ios2_DstAddr[3] = 0xff;
+                io->ios2_DstAddr[4] = 0xff;
+                io->ios2_DstAddr[5] = 0xff;
             case S2_MULTICAST: /* Fallthrough */
             case CMD_WRITE:
                 complete = Do_CMD_WRITE(io);
