@@ -772,43 +772,20 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
             }
             CopyMem(&pe->e_Address, unit->wu_JoinParams.ej_Assoc.ap_BSSID, 6);
             break;
-
-        case BRCMF_E_ASSOC_IND:
-            D(bug("[WiFi] E_ASSOC_IND\n"));
+        
+        case BRCMF_E_AUTH:
+            D(bug("[WiFi] E_AUTH "));
+            if (pe->e_Status == 0) {
+                D(bug("OK\n"));
+            }
+            else
             {
-                UBYTE *p = (APTR)pe;
-                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
-                {
-                    if (i % 16 == 0)
-                    bug("[WiFI]  ");
-                    bug(" %02lx", p[i]);
-                    if (i % 16 == 15)
-                        bug("\n");
-                }
-                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
-                    bug("\n");
+                D(bug("Failed with reason %08lx\n", pe->e_Reason));
             }
             break;
 
         case BRCMF_E_DISASSOC:
             D(bug("[WiFi] E_DISASSOC\n"));
-            {
-                UBYTE *p = (APTR)pe;
-                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
-                {
-                    if (i % 16 == 0)
-                    bug("[WiFI]  ");
-                    bug(" %02lx", p[i]);
-                    if (i % 16 == 15)
-                        bug("\n");
-                }
-                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
-                    bug("\n");
-            }
-            break;
-
-        case BRCMF_E_DISASSOC_IND:
-            D(bug("[WiFi] E_DISASSOC_IND\n"));
             {
                 UBYTE *p = (APTR)pe;
                 for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
@@ -841,23 +818,6 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
             }
             break;
 
-        case BRCMF_E_REASSOC_IND:
-            D(bug("[WiFi] E_DISASSOC_IND\n"));
-            {
-                UBYTE *p = (APTR)pe;
-                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
-                {
-                    if (i % 16 == 0)
-                    bug("[WiFI]  ");
-                    bug(" %02lx", p[i]);
-                    if (i % 16 == 15)
-                        bug("\n");
-                }
-                if ((sizeof(struct PacketEvent) + pe->e_DataLen) % 16)
-                    bug("\n");
-            }
-            break;
-
         case BRCMF_E_LINK:
             if (pe->e_Reason)
             {
@@ -874,7 +834,7 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
             break;
 
         default:
-            D(bug("[WiFi] Unhandled event type %ld\n", pe->e_EventType));
+            D(bug("[WiFi] Unhandled event type %ld, status %08lx, reason %08lx\n", pe->e_EventType, pe->e_Status, pe->e_Reason));
             UBYTE *p = (APTR)pe;
             for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
             {

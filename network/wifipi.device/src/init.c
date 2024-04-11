@@ -793,12 +793,12 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 #if 0
         D(bug("[WiFi] Enable GPCLK2, 32kHz on GPIO43 and output on GPIO41\n"));
 
-        tmp = rd32(WiFiBase->w_GPIO, 0x10);
+        tmp = rd32(WiFiBase->w_GPIOBase, 0x10);
         tmp &= ~(7 << 9);   // Clear ALT-config for GPIO43
         tmp |= 4 << 9;      // GPIO43 to ALT0 == low speed clock
         tmp &= ~(7 << 3);   // Clear ALT-config for GPIO41
         tmp |= 1 << 3;      // Set GPIO41 as output
-        wr32(WiFiBase->w_GPIO, 0x10, tmp);
+        wr32(WiFiBase->w_GPIOBase, 0x10, tmp);
 
         D(bug("[WiFi] GP2CTL = %08lx\n", rd32((void*)0xf2101000, 0x80)));
         D(bug("[WiFi] GP2DIV = %08lx\n", rd32((void*)0xf2101000, 0x84)));

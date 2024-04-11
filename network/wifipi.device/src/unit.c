@@ -529,6 +529,8 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     unit->wu_JoinParams.ej_Assoc.ap_ChanspecNum = 0;
     unit->wu_JoinParams.ej_Assoc.ap_ChanSpecList[0] = 0;
 
+
+
     unit->wu_JoinParams.ej_Scan.js_ScanYype = -1;
     unit->wu_JoinParams.ej_Scan.js_HomeTime = LE32(-1);
     unit->wu_JoinParams.ej_Scan.js_ActiveTime = LE32(-1);
@@ -1007,12 +1009,9 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
         EVENT_BIT(ev_mask, BRCMF_E_LINK);
         EVENT_BIT(ev_mask, BRCMF_E_AUTH);
         EVENT_BIT(ev_mask, BRCMF_E_ASSOC);
-        EVENT_BIT(ev_mask, BRCMF_E_ASSOC_IND);
         EVENT_BIT(ev_mask, BRCMF_E_DEAUTH);
         EVENT_BIT(ev_mask, BRCMF_E_DISASSOC);
-        EVENT_BIT(ev_mask, BRCMF_E_DISASSOC_IND);
         EVENT_BIT(ev_mask, BRCMF_E_REASSOC);
-        EVENT_BIT(ev_mask, BRCMF_E_REASSOC_IND);
         EVENT_BIT(ev_mask, BRCMF_E_ESCAN_RESULT);
         EVENT_BIT_CLEAR(ev_mask, 124);
 #undef EVENT_BIT
