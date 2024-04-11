@@ -218,9 +218,9 @@ struct PacketMessage {
 #define VENDOR_SPECIFIC_IE  221
 #define WLAN_EID_RSN 48
 
-#define WPA_OUI				"\x00\x50\xF2"	/* WPA OUI */
+#define WPA_OUI				(CONST_STRPTR)"\x00\x50\xF2"	/* WPA OUI */
 #define WPA_OUI_TYPE			1
-#define RSN_OUI				"\x00\x0F\xAC"	/* RSN OUI */
+#define RSN_OUI				(CONST_STRPTR)"\x00\x0F\xAC"	/* RSN OUI */
 #define	WME_OUI_TYPE			2
 #define WPS_OUI_TYPE			4
 
@@ -284,7 +284,7 @@ static struct TLV * brcmf_parse_tlvs(void *buf, ULONG buflen, UBYTE key)
 
 int my_memcmp(const UBYTE *s1, const UBYTE *s2, ULONG len)
 {
-    for (int i=0; i < len; i++)
+    for (ULONG i=0; i < len; i++)
     {
         if (s1[i] > s2[i]) return 1;
         else if (s1[i] < s2[i]) return -1;
@@ -335,6 +335,8 @@ struct VsTLV * FindWPAIE(UBYTE *data, ULONG len)
 int SetWPAVersion(struct SDIO *sdio, struct WiFiNetwork *network, ULONG wpa_versions)
 {
     ULONG val = 0;
+    (void)network;
+    (void)wpa_versions;
 
     if (wpa_versions & WPA_VERSION_1)
         val = WPA_AUTH_PSK | WPA_AUTH_UNSPECIFIED;
@@ -346,137 +348,6 @@ int SetWPAVersion(struct SDIO *sdio, struct WiFiNetwork *network, ULONG wpa_vers
         val = WPA_AUTH_DISABLED;
 
     return PacketSetVarInt(sdio, "wpa_auth", val);
-}
-
-int Connect(struct SDIO *sdio, struct WiFiNetwork *network)
-{
-    struct ExecBase *SysBase = sdio->s_SysBase;
-    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
-    struct JoinParams params;
-    struct ExtJoinParams *ext_params;
-    struct VsTLV *wpa_ie;
-    struct TLV *rsn_ie;
-    ULONG ie_len = 0;
-    APTR ie = NULL;
-
-    if (network)
-    {
-        D(bug("[WiFi] Connecting to '%s'\n", (ULONG)network->wn_SSID));
-
-        /* TODO: Get channel hint... */
-        /* TODO: Get BSSID hint... */
-
-        /* Perform WPA IE setup */
-        D(bug("[WiFi] Looking for WPA IE\n"));
-        wpa_ie = FindWPAIE(network->wn_IE, network->wn_IELength);
-        if (wpa_ie)
-        {
-            D(bug("[WiFi] WPA IE = %08lx\n", (ULONG)wpa_ie));
-
-            ie = wpa_ie;
-            ie_len = wpa_ie->len + TLV_HDR_LEN;
-        }
-        else
-        {
-            D(bug("[WiFi] WPA IE not found, looking for RSN\n"));
-
-            rsn_ie = brcmf_parse_tlvs(network->wn_IE, network->wn_IELength, WLAN_EID_RSN);
-            if (rsn_ie)
-            {
-                D(bug("[WiFi] RSN IE = %08lx\n", (ULONG)rsn_ie));
-                ie = rsn_ie;
-                ie_len = rsn_ie->len + TLV_HDR_LEN;
-            }
-        }
-    }
-    else
-    {
-        D(bug("[WiFi] Connecting to open network 'pistorm'\n"));
-    }
-    //PacketSetVar(sdio, "wpaie", ie, ie_len);
-    //PacketSetVarInt(sdio, "wpaie", 0);
-    
-    // TODO: brcmf_vif_set_mgmt_ie
-
-    //SetWPAVersion(sdio, network, WPA_VERSION_2);
-
-    PacketSetVarInt(sdio, "wpa_auth", WPA_AUTH_DISABLED);
-    PacketSetVarInt(sdio, "wsec", 0);
-
-    // TODO: brcmf_set_auth_type
-    PacketSetVarInt(sdio, "auth", 0);
-    PacketSetVarInt(sdio, "mfp", 0);
-
-    // TODO: brcmf_set_wsec_mode
-    
-
-    // TODO: brcmf_set_key_mgmt
-
-    // TODO: brcmf_set_sharedkey
-
-    //PacketSetVarInt(sdio, "sup_wpa", 1);
-
-    // if PSK: TODO:  brcmf_set_pmk
-    // else PacketSetVarInt(sdio, "wpaie", 0);
-    //       brcmf_set_sae_password
-    //      if PSK:  brcmf_set_pmk
-
-    ext_params = AllocPooledClear(WiFiBase->w_MemPool, sizeof(struct ExtJoinParams));
-
-
-    if (network)
-    {
-        CopyMem(network->wn_SSID, ext_params->ej_SSID.ssid_Value, 32);
-        ext_params->ej_SSID.ssid_Length = LE32(network->wn_SSIDLength);
-        ext_params->ej_Assoc.ap_ChanspecNum = 0;//1;
-        ext_params->ej_Assoc.ap_ChanSpecList[0] = 0;//LE16(network->wn_ChannelInfo.ci_CHSpec);
-        CopyMem(network->wn_BSID, &ext_params->ej_Assoc.ap_BSSID, 6);
-
-        struct ChannelInfo ci = network->wn_ChannelInfo;
-        D(bug("[WiFi] Chanspec encoded from %04lx to %04lx\n", network->wn_ChannelInfo.ci_CHSpec, ci.ci_CHSpec));
-    }
-    else
-    {
-        CONST_STRPTR ssid = "pistorm";
-        ULONG ssidLen = _strlen(ssid);
-
-        CopyMem((APTR)ssid, ext_params->ej_SSID.ssid_Value, ssidLen);
-        ext_params->ej_SSID.ssid_Length = LE32(ssidLen);
-        ext_params->ej_Assoc.ap_ChanspecNum = 0;
-        ext_params->ej_Assoc.ap_ChanSpecList[0] = 0;
-        ext_params->ej_Assoc.ap_BSSID[0] = 0xff;
-        ext_params->ej_Assoc.ap_BSSID[1] = 0xff;
-        ext_params->ej_Assoc.ap_BSSID[2] = 0xff;
-        ext_params->ej_Assoc.ap_BSSID[3] = 0xff;
-        ext_params->ej_Assoc.ap_BSSID[4] = 0xff;
-        ext_params->ej_Assoc.ap_BSSID[5] = 0xff;
-    }
-    ext_params->ej_Scan.js_ScanYype = -1;
-    ext_params->ej_Scan.js_HomeTime = LE32(-1);
-    ext_params->ej_Scan.js_ActiveTime = LE32(-1);
-    ext_params->ej_Scan.js_PassiveTime = LE32(-1);
-    ext_params->ej_Scan.js_NProbes = LE32(-1);
-
-    PacketSetVar(sdio, "join", ext_params, sizeof(struct ExtJoinParams));
-
-    FreePooled(WiFiBase->w_MemPool, ext_params, sizeof(struct ExtJoinParams));
-#if 1
-    void delay_us(ULONG us, struct WiFiBase *WiFiBase)
-{
-    (void)WiFiBase;
-    ULONG timer = LE32(*(volatile ULONG*)0xf2003004);
-    ULONG end = timer + us;
-
-    if (end < timer) {
-        while (end < LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
-    }
-    while (end > LE32(*(volatile ULONG*)0xf2003004)) asm volatile("nop");
-}
-delay_us(5000000, sdio->s_WiFiBase);
-#endif
-
-//    while(1);
-
 }
 
 #define SCANNER_STACKSIZE       (16384 / sizeof(ULONG))
@@ -497,7 +368,6 @@ struct TagItem * FindNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
 {
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct SDIO *sdio = WiFiBase->w_SDIO;
-    struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct Library *UtilityBase = WiFiBase->w_UtilityBase;
     struct IOSana2Req *io = unit->wu_ScanRequest;
     struct TagItem *found = NULL;
@@ -505,11 +375,11 @@ struct TagItem * FindNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
     
     if (list != NULL)
     {
-        for (int i=0; i < io->ios2_DataLength; i++)
+        for (ULONG i=0; i < io->ios2_DataLength; i++)
         {
             struct TagItem *tags = list[i];
             UBYTE *bssid;
-            char *ssid;
+            UBYTE *ssid;
             /*
                 Two networks are considered the same if:
                 - SSID is same
@@ -518,7 +388,7 @@ struct TagItem * FindNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
             */
 
             /* Check SSID */
-            ssid = (char*)GetTagData(S2INFO_SSID, 0, tags);
+            ssid = (UBYTE*)GetTagData(S2INFO_SSID, 0, tags);
             
             /* Must not be null! */
             if (ssid == NULL)
@@ -575,7 +445,6 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
     struct WiFiBase *WiFiBase = unit->wu_Base;
     struct SDIO *sdio = WiFiBase->w_SDIO;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    struct Library *UtilityBase = WiFiBase->w_UtilityBase;
     struct IOSana2Req *io = unit->wu_ScanRequest;
     struct TagItem *net;
 
@@ -620,7 +489,7 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
     if (io->ios2_StatData != NULL)
     {
         struct TagItem **src = io->ios2_StatData;
-        for (int i=0; i < io->ios2_DataLength - 1; i++)
+        for (ULONG i=0; i < io->ios2_DataLength - 1; i++)
         {
             networks[i+1] = src[i];
         }
@@ -764,11 +633,15 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
         case BRCMF_E_ASSOC:
             D(bug("[WiFi] E_ASSOC\n"));
             if (unit->wu_AssocIE) FreeVecPooled(base->w_MemPool, unit->wu_AssocIE);
-            unit->wu_AssocIE = AllocVecPooled(base->w_MemPool, pe->e_DataLen);
+            unit->wu_AssocIE = NULL;
             unit->wu_AssocIELength = pe->e_DataLen;
-            if (unit->wu_AssocIE != NULL)
+            if (unit->wu_AssocIELength)
             {
-                CopyMem(((UBYTE*)pe) + sizeof(struct PacketEvent), unit->wu_AssocIE, pe->e_DataLen);
+                unit->wu_AssocIE = AllocVecPooled(base->w_MemPool, pe->e_DataLen);
+                if (unit->wu_AssocIE != NULL)
+                {
+                    CopyMem(((UBYTE*)pe) + sizeof(struct PacketEvent), unit->wu_AssocIE, pe->e_DataLen);
+                }
             }
             CopyMem(&pe->e_Address, unit->wu_JoinParams.ej_Assoc.ap_BSSID, 6);
             break;
@@ -788,7 +661,7 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
             D(bug("[WiFi] E_DISASSOC\n"));
             {
                 UBYTE *p = (APTR)pe;
-                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+                for (ULONG i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
                 {
                     if (i % 16 == 0)
                     bug("[WiFI]  ");
@@ -805,7 +678,7 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
             D(bug("[WiFi] E_DISASSOC\n"));
             {
                 UBYTE *p = (APTR)pe;
-                for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+                for (ULONG i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
                 {
                     if (i % 16 == 0)
                     bug("[WiFI]  ");
@@ -836,7 +709,7 @@ void ProcessEvent(struct SDIO *sdio, struct PacketEvent *pe)
         default:
             D(bug("[WiFi] Unhandled event type %ld, status %08lx, reason %08lx\n", pe->e_EventType, pe->e_Status, pe->e_Reason));
             UBYTE *p = (APTR)pe;
-            for (int i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
+            for (ULONG i=0; i < sizeof(struct PacketEvent) + pe->e_DataLen; i++)
             {
                 if (i % 16 == 0)
                 bug("[WiFI]  ");
@@ -862,7 +735,7 @@ ULONG ProcessPacket(struct SDIO *sdio, struct Packet *pkt)
     if (pktLen == 0 && pktChk == 0) return 0;
 
     /* Length and checksum not matching - error */
-    if ((UWORD)pktLen != (UWORD)~pktChk) return 0xffffffff;
+    if (pktLen != (~pktChk & 0xffff)) return 0xffffffff;
 
     /* Update max sequence number at transfer */
     sdio->s_MaxTXSeq = pkt->c_MaxSeq;
@@ -924,7 +797,7 @@ ULONG ProcessPacket(struct SDIO *sdio, struct Packet *pkt)
         {
             struct PacketEvent *pe = (APTR)&buffer[pkt->c_DataOffset + 4];
 
-            if ((pkt->p_Length - pkt->c_DataOffset) >= sizeof(struct PacketEvent))
+            if ((ULONG)(pkt->p_Length - pkt->c_DataOffset) >= sizeof(struct PacketEvent))
             {
                 if (pe->e_EthHeader.eh_Type == ETHERHDR_TYPE_LINK_CTL && 
                     pe->e_Header.beh_OUI[0] == 0x00 && 
@@ -994,7 +867,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
         return;
     }
 
-    if (OpenDevice("timer.device", UNIT_MICROHZ, &tr->tr_node, 0))
+    if (OpenDevice((CONST_STRPTR)"timer.device", UNIT_MICROHZ, &tr->tr_node, 0))
     {
         D(bug("[WiFi.RECV] Failed to open timer.device\n"));
         DeleteIORequest(&tr->tr_node);
@@ -1135,19 +1008,13 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
         // Both are great occasions to test if some data is pending
         if (sigSet & ((1 << port->mp_SigBit) | (1 << ctrl->mp_SigBit)))
         {
-            UBYTE EOL = 0;
-
             if (sigSet & (1 << ctrl->mp_SigBit))
             {
                 AbortIO(&tr->tr_node);
                 WaitIO(&tr->tr_node);
             }
 
-            ULONG t0 = LE32(*(volatile ULONG*)0xf2003004);
-
             sdio->RecvPKT(buffer, PACKET_INITIAL_FETCH_SIZE, sdio);
-
-            ULONG t1 = LE32(*(volatile ULONG*)0xf2003004);
 
             /* Update gotTransfer flag if it wasn't set already */
             gotTransfer = LE16(pkt->p_Length) != 0;
@@ -1172,7 +1039,6 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                     } 
                     else if (waitDelay < PACKET_WAIT_DELAY_MAX)
                     {
-                        ULONG oldwait = waitDelay;
                         waitDelay <<= 2;
                         if (waitDelay > PACKET_WAIT_DELAY_MAX) waitDelay = PACKET_WAIT_DELAY_MAX;
                         waitDelayTimeout = PACKET_WAIT_DELAY_MAX / waitDelay;
@@ -1193,15 +1059,12 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                 
                 if ((pktChk | pktLen) == 0xffff)
                 {
-                    ULONG t2 = LE32(*(volatile ULONG*)0xf2003004);
                     // Until now we have fetched PACKET_INITIAL_FETCH_SIZE bytes only. If packet length is larger, fetch 
                     // the rest now
                     if (pktLen > PACKET_INITIAL_FETCH_SIZE)
                     {
                         sdio->RecvPKT(&buffer[PACKET_INITIAL_FETCH_SIZE], pktLen - PACKET_INITIAL_FETCH_SIZE, sdio);
                     }
-                    
-                    ULONG t3 = LE32(*(volatile ULONG*)0xf2003004);
 
                     if ((pkt->c_ChannelFlag & 15) == SDPCM_GLOM_CHANNEL)
                     {
@@ -1234,13 +1097,6 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                                     pos += processed;
                                     pos = (pos + 3) & ~3;
                                 }
-                            }
-
-                            ULONG t4 = LE32(*(volatile ULONG*)0xf2003004);
-                            if (pos > 0x1000)
-                            {
-                                //D(bug("[WiFi] Time delta: %ld, %ld, %ld, %ld, Size: %ld\n",
-                                //    t1 - t0, t2 - t1, t3 - t2, t4 - t3, pos));
                             }
                         }
                     }
@@ -1303,10 +1159,8 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
     io->ios2_Req.io_Flags &= ~(SANA2IOF_BCAST | SANA2IOF_MCAST);
 
     /* Copy source and dest addresses */
-    *(ULONG*)&io->ios2_DstAddr[0] = *(ULONG*)&packet[0];
-    *(UWORD*)&io->ios2_DstAddr[4] = *(UWORD*)&packet[4];
-    *(ULONG*)&io->ios2_SrcAddr[0] = *(ULONG*)&packet[6];
-    *(UWORD*)&io->ios2_SrcAddr[4] = *(UWORD*)&packet[10];
+    for (int i=0; i < 6; i++) io->ios2_DstAddr[i] = packet[i];
+    for (int i=0; i < 6; i++) io->ios2_SrcAddr[i] = packet[6 + i];
 
     //CopyMem(packet, io->ios2_DstAddr, 6);
     //CopyMem(&packet[6], io->ios2_SrcAddr, 6);
@@ -1400,7 +1254,6 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
 void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
-    struct ExecBase *SysBase = sdio->s_SysBase;
     struct WiFiUnit *unit = WiFiBase->w_Unit;
     int accept = TRUE;
     UWORD packetType = *(UWORD*)&packet[12];
@@ -1514,7 +1367,7 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
     struct PacketHeaderHW *pktBase = sdio->s_TXBuffer;
     UBYTE *byteBuffer = sdio->s_TXBuffer;
 
-    for (UBYTE i; i < count; i++)
+    for (UBYTE i = 0; i < count; i++)
     {
         struct IOSana2Req *io = ioList[i];
         struct Opener *opener = io->ios2_BufferManagement;
@@ -1563,12 +1416,10 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
         if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
         {
             // Copy destination
-            *(ULONG*)&ptr[0] = *(ULONG*)&io->ios2_DstAddr[0];
-            *(UWORD*)&ptr[4] = *(UWORD*)&io->ios2_DstAddr[4];
+            for (int i=0; i < 6; i++) ptr[i] = io->ios2_DstAddr[i];
 
             // Copy source
-            *(ULONG*)&ptr[6] = *(ULONG*)&io->ios2_SrcAddr[0];
-            *(UWORD*)&ptr[10] = *(UWORD*)&io->ios2_SrcAddr[4];
+            for (int i=0; i < 6; i++) ptr[6 + i] = io->ios2_SrcAddr[i];
 
             // Copy packet type
             *(UWORD*)&ptr[12] = io->ios2_PacketType;
@@ -1606,10 +1457,12 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
 #endif
     sdio->SendPKT((UBYTE *)pktBase, totalLength, sdio);
 
-    for (UBYTE i; i < count; i++) {
+    for (UBYTE i = 0; i < count; i++) {
         ReplyMsg(&ioList[i]->ios2_Req.io_Message);
         unit->wu_Stats.PacketsSent++;
     }
+
+    return 1;
 }
 
 int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
@@ -1652,12 +1505,10 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
     {
         // Copy destination
-        *(ULONG*)&ptr[0] = *(ULONG*)&io->ios2_DstAddr[0];
-        *(UWORD*)&ptr[4] = *(UWORD*)&io->ios2_DstAddr[4];
-
+        for (int i=0; i < 6; i++) ptr[i] = io->ios2_DstAddr[i];
+        
         // Copy source
-        *(ULONG*)&ptr[6] = *(ULONG*)&io->ios2_SrcAddr[0];
-        *(UWORD*)&ptr[10] = *(UWORD*)&io->ios2_SrcAddr[4];
+        for (int i=0; i < 6; i++) ptr[6 + i] = io->ios2_SrcAddr[i];
 
         // Copy packet type
         *(UWORD*)&ptr[12] = io->ios2_PacketType;
@@ -1867,7 +1718,7 @@ void PacketDump(struct SDIO *sdio, APTR data, char *src)
     if (pkt->c_ChannelFlag != 3)
         if (dataLength > 64) dataLength = 64;
 
-    for (int i=0; i < dataLength; i++)
+    for (ULONG i=0; i < dataLength; i++)
     {
         if (i % 16 == 0)
             bug("[%s]  ", (ULONG)src);
@@ -2106,7 +1957,6 @@ void PacketCmdIntAsync(struct SDIO *sdio, ULONG cmd, ULONG cmdValue)
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     UBYTE *pkt;
     ULONG totalLen = sizeof(struct Packet) + sizeof(struct PacketCmd) + 4;
-    ULONG error_code = 0;
 
     if (sdio->s_GlomEnabled)
         totalLen += 8;
@@ -2401,7 +2251,6 @@ void StartNetworkScan(struct IOSana2Req *io)
     struct SDIO *sdio = base->w_SDIO;
     UBYTE *networkName = NULL;
     struct TagItem *tags = io->ios2_StatData;
-    APTR memPool = io->ios2_Data;
 
     /* THis needs to be gone! The paramsv2 layout is known... */
     static const UBYTE params[4+2+2+4+32+6+1+1+4*4+2+2+14*2+32+4] = {
@@ -2514,7 +2363,6 @@ static void StartScannerTask(struct SDIO *sdio)
 #endif
 void StartPacketReceiver(struct SDIO *sdio)
 {
-    struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
     struct ExecBase *SysBase = sdio->s_SysBase;
     APTR entry = (APTR)PacketReceiver;
     struct Task *task;

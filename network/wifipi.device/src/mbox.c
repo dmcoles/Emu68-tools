@@ -99,7 +99,7 @@ uint32_t get_clock_rate(uint32_t clock_id, struct WiFiBase * WiFiBase)
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG resp = mbox_recv(8, WiFiBase); 
+    mbox_recv(8, WiFiBase); 
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);
@@ -124,7 +124,7 @@ uint32_t set_clock_rate(uint32_t clock_id, uint32_t speed, struct WiFiBase * WiF
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG reply = mbox_recv(8, WiFiBase);
+    mbox_recv(8, WiFiBase);
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);
@@ -148,7 +148,7 @@ uint32_t get_clock_state(uint32_t id, struct WiFiBase * WiFiBase)
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG reply = mbox_recv(8, WiFiBase);
+    mbox_recv(8, WiFiBase);
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);
@@ -172,7 +172,7 @@ uint32_t set_clock_state(uint32_t id, uint32_t state, struct WiFiBase * WiFiBase
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG reply = mbox_recv(8, WiFiBase);
+    mbox_recv(8, WiFiBase);
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);
@@ -196,7 +196,7 @@ uint32_t get_power_state(uint32_t id, struct WiFiBase * WiFiBase)
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG reply = mbox_recv(8, WiFiBase);
+    mbox_recv(8, WiFiBase);
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);
@@ -221,7 +221,7 @@ uint32_t set_power_state(uint32_t id, uint32_t state, struct WiFiBase * WiFiBase
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG reply = mbox_recv(8, WiFiBase);
+    mbox_recv(8, WiFiBase);
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);
@@ -245,7 +245,7 @@ uint32_t get_extgpio_state(uint32_t id, struct WiFiBase * WiFiBase)
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG reply = mbox_recv(8, WiFiBase);
+    mbox_recv(8, WiFiBase);
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);
@@ -269,7 +269,7 @@ uint32_t set_extgpio_state(uint32_t id, uint32_t state, struct WiFiBase * WiFiBa
 
     CachePreDMA(FBReq, &len, 0);
     mbox_send(8, (ULONG)FBReq, WiFiBase);
-    ULONG reply = mbox_recv(8, WiFiBase);
+    mbox_recv(8, WiFiBase);
     CachePostDMA(FBReq, &len, 0);
 
     return LE32(FBReq[6]);

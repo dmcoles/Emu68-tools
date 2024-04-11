@@ -126,7 +126,6 @@ void cmd_int(ULONG cmd, ULONG arg, ULONG timeout, struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
 
-    ULONG tout = 0;
     sdio->s_LastCMDSuccess = 0;
 
     // Check Command Inhibit
@@ -211,12 +210,11 @@ void cmd_int(ULONG cmd, ULONG arg, ULONG timeout, struct SDIO *sdio)
             wr_irpt = (1 << 4);     // write
         }
 
-        int cur_block = 0;
+        ULONG cur_block = 0;
         ULONG *cur_buf_addr = (ULONG *)sdio->s_Buffer;
 
         while(cur_block < sdio->s_BlocksToTransfer)
         {
-            tout = timeout / 100;
             TIMEOUT_WAIT((rd32(sdio->s_SDIO, EMMC_INTERRUPT) & (wr_irpt | 0x8000)), timeout);
             irpts = rd32(sdio->s_SDIO, EMMC_INTERRUPT);
             wr32(sdio->s_SDIO, EMMC_INTERRUPT, 0xffff0000 | wr_irpt);
@@ -332,8 +330,6 @@ static int reset_dat(struct SDIO *sdio)
 
 static void handle_card_interrupt(struct SDIO *sdio)
 {
-    struct ExecBase *SysBase = sdio->s_SysBase;
-
     // Handle a card interrupt
 
     // Get the card status
@@ -507,19 +503,6 @@ static void sdio_read_bytes(UBYTE function, ULONG address, void *data, ULONG len
     S_UNLOCK(sdio);
 }
 
-static UBYTE sdio_write_and_read_byte(UBYTE function, ULONG address, UBYTE value, struct SDIO *sdio)
-{
-    struct ExecBase *SysBase = sdio->s_SysBase;
-    UBYTE res;
-
-    S_LOCK(sdio);
-    cmd(IO_RW_DIRECT, value | 0x88000000 |  ((address & 0x1ffff) << 9) | ((function & 7) << 28), 500000, sdio);
-    res =  sdio->s_Res0;
-    S_UNLOCK(sdio);
-
-    return res;
-}
-
 static void sdio_backplane_window(ULONG addr, struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
@@ -583,7 +566,7 @@ static int is_error(struct SDIO *sdio)
 static int brcmf_sdio_htclk(struct SDIO *sdio, UBYTE on, UBYTE pendingOK)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
-    int err;
+    
     UBYTE clkctl, clkreq, devctl;
     unsigned long timeout;
 
@@ -609,11 +592,7 @@ static int brcmf_sdio_htclk(struct SDIO *sdio, UBYTE on, UBYTE pendingOK)
 
         /* Check current status */
         clkctl = sdio->ReadByte(SD_FUNC_BAK, SBSDIO_FUNC1_CHIPCLKCSR, sdio);
-        if (err) {
-            bug("[WiFi] HT Avail read error\n");
-            return 0;
-        }
-
+        
         /* Go to pending and await interrupt if appropriate */
         if (!SBSDIO_CLKAV(clkctl, sdio->s_ALPOnly) && pendingOK)
         {
@@ -737,19 +716,19 @@ static int sdio_clkctrl(UBYTE target, UBYTE pendingOK, struct SDIO *sdio)
             brcmf_sdio_sdclk(sdio, FALSE);
             break;
     }
+
+    return 1;
 }
 
 void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
-    ULONG addr = sdio->s_CC->c_BaseAddress;
 
     // Round up length to next 4 byte boundary
     length = (length + 3) & ~3;
 
     S_LOCK(sdio);
 
-#if 1
     ULONG block_count = length / 512;
     ULONG reminder = length % 512;
 
@@ -772,27 +751,6 @@ void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         sdio->s_BlocksToTransfer = 1;
         cmd(IO_RW_EXTENDED | SD_DATA_WRITE, 0x80000000 | ((SD_FUNC_RAD & 7) << 28) | (reminder & 0x1ff) | (0 << 26), 5000000, sdio);
     }
-#else
-    do {
-        ULONG size;
-
-        if (length > 512) size = 512;
-        else size = length;
-
-        // 32-bit window
-        addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
-
-        // Send out the data
-        sdio->s_Buffer = pkt;
-        sdio->s_BlockSize = size;
-        sdio->s_BlocksToTransfer = 1;
-        cmd(IO_RW_EXTENDED | SD_DATA_WRITE, 0x80000000 | ((addr & 0x1ffff) << 9) | ((SD_FUNC_RAD & 7) << 28) | (size & 0x1ff) | (1 << 26), 500000, sdio);
-
-        length -= size;
-        //addr += size;
-        pkt += size;
-    } while (length > 0);
-#endif
 
     S_UNLOCK(sdio);
 }
@@ -800,17 +758,12 @@ void sdio_sendpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
 void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
 {
     struct ExecBase *SysBase = sdio->s_SysBase;
-    ULONG addr = sdio->s_CC->c_BaseAddress;
 
     // Round up length to next 4 byte boundary
     length = (length + 3) & ~3;
 
-    ULONG orig_len = length;
-
     S_LOCK(sdio);
 
-    ULONG t1 = LE32(*(volatile ULONG*)0xf2003004);
-#if 1
     ULONG block_count = length / 512;
     ULONG reminder = length % 512;
 
@@ -833,27 +786,6 @@ void sdio_recvpkt(UBYTE *pkt, ULONG length, struct SDIO *sdio)
         sdio->s_BlocksToTransfer = 1;
         cmd(IO_RW_EXTENDED | SD_DATA_READ, ((SD_FUNC_RAD & 7) << 28) | (reminder & 0x1ff) | (0 << 26), 5000000, sdio);
     }
-#else
-    do {
-        ULONG size;
-
-        if (length > 512) size = 512;
-        else size = length;
-
-        // 32-bit window
-        addr |= SBSDIO_SB_ACCESS_2_4B_FLAG;
-
-        // Send out the data
-        sdio->s_Buffer = pkt;
-        sdio->s_BlockSize = size;
-        sdio->s_BlocksToTransfer = 1;
-        cmd(IO_RW_EXTENDED | SD_DATA_READ, ((SD_FUNC_RAD & 7) << 28) | (size & 0x1ff) | (0 << 26), 5000000, sdio);
-
-        length -= size;
-        //addr += size;
-        pkt += size;
-    } while (length > 0);
-#endif
     S_UNLOCK(sdio);
 }
 
@@ -881,7 +813,6 @@ ULONG sdio_getintstatus(struct SDIO * sdio)
 
 struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
 {
-    ULONG tout;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct SDIO *sdio = NULL;
 
@@ -1019,10 +950,7 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
 
     cmd(SEND_IF_COND, 0x1aa, 500000, sdio);
 
-    int v2_later = 0;
-    if(TIMEOUT(sdio))
-        v2_later = 0;
-    else if(CMD_TIMEOUT(sdio))
+    if(CMD_TIMEOUT(sdio))
     {
         if(reset_cmd(sdio) == -1)
         {
@@ -1031,7 +959,6 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
         }
 
         wr32(WiFiBase->w_SDIOBase, EMMC_INTERRUPT, SD_ERR_MASK_CMD_TIMEOUT);
-        v2_later = 0;
     }
     else if(FAIL(sdio))
     {
@@ -1048,8 +975,6 @@ struct SDIO *sdio_init(struct WiFiBase *WiFiBase)
             FreePooled(WiFiBase->w_MemPool, sdio, sizeof(struct SDIO));
             return NULL;
         }
-        else
-            v2_later = 1;
     }
 
     // Here we are supposed to check the response to CMD5 (HCSS 3.6)

@@ -36,47 +36,47 @@ struct ModelDesc {
 };
 
 const struct FirmwareDesc zero2Desc[] = {
-    /* 43430   */ { 0x0000, 0, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
-    /* 43430b0 */ { 0x0000, 0, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
-    /* 43436   */ { 0x0000, 0, "brcmfmac43436-sdio.bin", "brcmfmac43436-sdio.clm_blob", "brcmfmac43436-sdio.txt" },
-    /* 43436s  */ { 0x0000, 0, "brcmfmac43436s-sdio.bin", NULL, "brcmfmac43436s-sdio.txt" },
+    /* 43430   */ { 43430, 0x0003, (CONST_STRPTR)"brcmfmac43436s-sdio.bin", NULL, (CONST_STRPTR)"brcmfmac43436s-sdio.txt" },
+    /* 43430b0 */ { 43430, 0xfffc, (CONST_STRPTR)"brcmfmac43436-sdio.bin", (CONST_STRPTR)"brcmfmac43436-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43436-sdio.txt" },
+    /* 43436   */ { 0x0000, 0, (CONST_STRPTR)"brcmfmac43436-sdio.bin", (CONST_STRPTR)"brcmfmac43436-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43436-sdio.txt" },
+    /* 43436s  */ { 0x0000, 0, (CONST_STRPTR)"brcmfmac43436s-sdio.bin", NULL, (CONST_STRPTR)"brcmfmac43436s-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3bDesc[] = {
-    /* 43430   */ {  43430, 0x0002, "cyfmac43430-sdio.bin", "cyfmac43430-sdio.clm_blob", "brcmfmac43430-sdio.txt" },
+    /* 43430   */ {  43430, 0x0002, (CONST_STRPTR)"cyfmac43430-sdio.bin", (CONST_STRPTR)"cyfmac43430-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43430-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3aplusDesc[] = {
-    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43455   */ { 0x4345, 0x0040, (CONST_STRPTR)"cyfmac43455-sdio.bin", (CONST_STRPTR)"cyfmac43455-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43455-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model3bplusDesc[] = {
-    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43455   */ { 0x4345, 0x0040, (CONST_STRPTR)"cyfmac43455-sdio.bin", (CONST_STRPTR)"cyfmac43455-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43455-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc model4bDesc[] = {
-    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
+    /* 43455   */ { 0x4345, 0x0040, (CONST_STRPTR)"cyfmac43455-sdio.bin", (CONST_STRPTR)"cyfmac43455-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43455-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct FirmwareDesc modelCM4Desc[] = {
-    /* 43455   */ { 0x4345, 0x0040, "cyfmac43455-sdio.bin", "cyfmac43455-sdio.clm_blob", "brcmfmac43455-sdio.txt" },
-    /* 43456   */ { 0x4345, 0xffb0, "brcmfmac43456-sdio.bin", "brcmfmac43456-sdio.clm_blob", "brcmfmac43456-sdio.txt" },
-                  { 0x00000000, NULL, NULL, NULL }
+    /* 43455   */ { 0x4345, 0x0040, (CONST_STRPTR)"cyfmac43455-sdio.bin", (CONST_STRPTR)"cyfmac43455-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43455-sdio.txt" },
+    /* 43456   */ { 0x4345, 0xffb0, (CONST_STRPTR)"brcmfmac43456-sdio.bin", (CONST_STRPTR)"brcmfmac43456-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43456-sdio.txt" },
+                  { 0x0000, 0, NULL, NULL, NULL }
 };
 
 const struct ModelDesc FirmwareMatrix[] = 
 {
-    { "raspberrypi,3-model-zero-2-w", zero2Desc },
-    { "raspberrypi,3-model-b", model3bDesc },
-    { "raspberrypi,3-model-a-plus", model3aplusDesc },
-    { "raspberrypi,3-model-b-plus", model3bplusDesc },
-    { "raspberrypi,4-model-b", model4bDesc },
-    { "raspberrypi,4-compute-module", modelCM4Desc },
+    { (CONST_STRPTR)"raspberrypi,model-zero-2-w", zero2Desc },
+    { (CONST_STRPTR)"raspberrypi,3-model-b", model3bDesc },
+    { (CONST_STRPTR)"raspberrypi,3-model-a-plus", model3aplusDesc },
+    { (CONST_STRPTR)"raspberrypi,3-model-b-plus", model3bplusDesc },
+    { (CONST_STRPTR)"raspberrypi,4-model-b", model4bDesc },
+    { (CONST_STRPTR)"raspberrypi,4-compute-module", modelCM4Desc },
     { NULL, NULL }
 };
 
@@ -190,7 +190,6 @@ BOOL LoadFirmware(struct Chip *chip)
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     APTR DeviceTreeBase = WiFiBase->w_DeviceTreeBase;
     struct Library *DOSBase = WiFiBase->w_DosBase;
-    APTR buffer = NULL;
 
     /* Firmware name shall never exceed total size of 256 bytes */
     STRPTR path = AllocVecPooled(WiFiBase->w_MemPool, 256);
@@ -201,7 +200,7 @@ BOOL LoadFirmware(struct Chip *chip)
     if (path != NULL)
     {
         const struct ModelDesc *matrix = FirmwareMatrix;
-        CONST_STRPTR model = DT_GetPropValue(DT_FindProperty(DT_OpenKey("/"), "compatible"));
+        CONST_STRPTR model = DT_GetPropValue(DT_FindProperty(DT_OpenKey((CONST_STRPTR)"/"), (CONST_STRPTR)"compatible"));
 
         /* Go through table of Pi models and find the matching one */
         while (matrix->modelID != NULL)
@@ -238,7 +237,7 @@ BOOL LoadFirmware(struct Chip *chip)
                     D(bug("[WiFi] ChipID match\n"));
 
                     /* Reset path */
-                    AddPart(path, "DEVS:Firmware", 255);
+                    AddPart(path, (CONST_STRPTR)"DEVS:Firmware", 255);
                     /* Add bin file to the path */
                     AddPart(path, fw->binFile, 255);
 
@@ -279,7 +278,7 @@ BOOL LoadFirmware(struct Chip *chip)
                     if (fw->clmFile != NULL)
                     {
                         /* Reset path */
-                        AddPart(path, "DEVS:Firmware", 255);
+                        AddPart(path, (CONST_STRPTR)"DEVS:Firmware", 255);
                         /* Add bin file to the path */
                         AddPart(path, fw->clmFile, 255);
 
@@ -324,7 +323,7 @@ BOOL LoadFirmware(struct Chip *chip)
 
                     /* Load NVRAM file */
                     /* Reset path */
-                    AddPart(path, "DEVS:Firmware", 255);
+                    AddPart(path, (CONST_STRPTR)"DEVS:Firmware", 255);
                     /* Add bin file to the path */
                     AddPart(path, fw->txtFile, 255);
 
@@ -444,7 +443,7 @@ BOOL LoadFirmware(struct Chip *chip)
 
     return FALSE;
 }
-
+#if 0
 void ParseConfig(struct WiFiBase *WiFiBase)
 {
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
@@ -588,7 +587,7 @@ void ParseConfig(struct WiFiBase *WiFiBase)
         D(bug("[WiFi]   Open network=%s\n", (ULONG)(WiFiBase->w_NetworkConfig.nc_Open ? "YES" : "NO")));
     }
 }
-
+#endif
 /*
     Some properties, like e.g. #size-cells, are not always available in a key, but in that case the properties
     should be searched for in the parent. The process repeats recursively until either root key is found
@@ -626,23 +625,23 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
     WiFiBase->w_SegList = seglist;
     WiFiBase->w_SysBase = SysBase;
-    WiFiBase->w_UtilityBase = OpenLibrary("utility.library", 0);
+    WiFiBase->w_UtilityBase = OpenLibrary((CONST_STRPTR)"utility.library", 0);
     WiFiBase->w_Device.dd_Library.lib_Revision = WIFIPI_REVISION;
     
     WiFiBase->w_RequestOrig = AllocPooled(WiFiBase->w_MemPool, 512);
     WiFiBase->w_Request = (APTR)(((ULONG)WiFiBase->w_RequestOrig + 31) & ~31);
 
-    WiFiBase->w_DeviceTreeBase = DeviceTreeBase = OpenResource("devicetree.resource");
+    WiFiBase->w_DeviceTreeBase = DeviceTreeBase = OpenResource((CONST_STRPTR)"devicetree.resource");
 
     if (DeviceTreeBase)
     {
         APTR key;
 
         /* Get VC4 physical address of mailbox interface. Subsequently it will be translated to m68k physical address */
-        key = DT_OpenKey("/aliases");
+        key = DT_OpenKey((CONST_STRPTR)"/aliases");
         if (key)
         {
-            CONST_STRPTR mbox_alias = DT_GetPropValue(DT_FindProperty(key, "mailbox"));
+            CONST_STRPTR mbox_alias = DT_GetPropValue(DT_FindProperty(key, (CONST_STRPTR)"mailbox"));
 
             DT_CloseKey(key);
             
@@ -652,19 +651,14 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
                 if (key)
                 {
-                    int size_cells = 1;
                     int address_cells = 1;
 
-                    const ULONG * siz = GetPropValueRecursive(key, "#size_cells", DeviceTreeBase);
-                    const ULONG * addr = GetPropValueRecursive(key, "#address-cells", DeviceTreeBase);
-
-                    if (siz != NULL)
-                        size_cells = *siz;
-                    
+                    const ULONG * addr = GetPropValueRecursive(key, (CONST_STRPTR)"#address-cells", DeviceTreeBase);
+                   
                     if (addr != NULL)
                         address_cells = *addr;
 
-                    const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "reg"));
+                    const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, (CONST_STRPTR)"reg"));
 
                     WiFiBase->w_MailBox = (APTR)reg[address_cells - 1];
 
@@ -675,10 +669,10 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
         }
 
         /* Open /aliases and find out the "link" to the emmc */
-        key = DT_OpenKey("/aliases");
+        key = DT_OpenKey((CONST_STRPTR)"/aliases");
         if (key)
         {
-            CONST_STRPTR mmc_alias = DT_GetPropValue(DT_FindProperty(key, "mmc"));
+            CONST_STRPTR mmc_alias = DT_GetPropValue(DT_FindProperty(key, (CONST_STRPTR)"mmc"));
 
             DT_CloseKey(key);
                
@@ -687,19 +681,14 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
                 /* Open the alias and find out the MMIO VC4 physical base address */
                 key = DT_OpenKey(mmc_alias);
                 if (key) {
-                    int size_cells = 1;
                     int address_cells = 1;
 
-                    const ULONG * siz = GetPropValueRecursive(key, "#size_cells", DeviceTreeBase);
-                    const ULONG * addr = GetPropValueRecursive(key, "#address-cells", DeviceTreeBase);
+                    const ULONG * addr = GetPropValueRecursive(key, (CONST_STRPTR)"#address-cells", DeviceTreeBase);
 
-                    if (siz != NULL)
-                        size_cells = *siz;
-                        
                     if (addr != NULL)
                         address_cells = *addr;
 
-                    const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "reg"));
+                    const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, (CONST_STRPTR)"reg"));
                     WiFiBase->w_SDIOBase = (APTR)reg[address_cells - 1];
                     DT_CloseKey(key);
                 }
@@ -708,10 +697,10 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
         }
 
         /* Open /aliases and find out the "link" to the emmc */
-        key = DT_OpenKey("/aliases");
+        key = DT_OpenKey((CONST_STRPTR)"/aliases");
         if (key)
         {
-            CONST_STRPTR gpio_alias = DT_GetPropValue(DT_FindProperty(key, "gpio"));
+            CONST_STRPTR gpio_alias = DT_GetPropValue(DT_FindProperty(key, (CONST_STRPTR)"gpio"));
 
             DT_CloseKey(key);
                
@@ -720,19 +709,14 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
                 /* Open the alias and find out the MMIO VC4 physical base address */
                 key = DT_OpenKey(gpio_alias);
                 if (key) {
-                    int size_cells = 1;
                     int address_cells = 1;
 
-                    const ULONG * siz = GetPropValueRecursive(key, "#size_cells", DeviceTreeBase);
-                    const ULONG * addr = GetPropValueRecursive(key, "#address-cells", DeviceTreeBase);
+                    const ULONG * addr = GetPropValueRecursive(key, (CONST_STRPTR)"#address-cells", DeviceTreeBase);
 
-                    if (siz != NULL)
-                        size_cells = *siz;
-                        
                     if (addr != NULL)
                         address_cells = *addr;
 
-                    const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "reg"));
+                    const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, (CONST_STRPTR)"reg"));
                     WiFiBase->w_GPIOBase = (APTR)reg[address_cells - 1];
                     DT_CloseKey(key);
                 }
@@ -741,19 +725,14 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
         }
 
         /* Open /soc key and learn about VC4 to CPU mapping. Use it to adjust the addresses obtained above */
-        key = DT_OpenKey("/soc");
+        key = DT_OpenKey((CONST_STRPTR)"/soc");
         if (key)
         {
-            int size_cells = 1;
             int address_cells = 1;
             int cpu_address_cells = 1;
 
-            const ULONG * siz = GetPropValueRecursive(key, "#size_cells", DeviceTreeBase);
-            const ULONG * addr = GetPropValueRecursive(key, "#address-cells", DeviceTreeBase);
-            const ULONG * cpu_addr = DT_GetPropValue(DT_FindProperty(DT_OpenKey("/"), "#address-cells"));
-
-            if (siz != NULL)
-                size_cells = *siz;
+            const ULONG * addr = GetPropValueRecursive(key, (CONST_STRPTR)"#address-cells", DeviceTreeBase);
+            const ULONG * cpu_addr = DT_GetPropValue(DT_FindProperty(DT_OpenKey((CONST_STRPTR)"/"), (CONST_STRPTR)"#address-cells"));
             
             if (addr != NULL)
                 address_cells = *addr;
@@ -761,10 +740,10 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
             if (cpu_addr != NULL)
                 cpu_address_cells = *cpu_addr;
 
-            const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, "ranges"));
+            const ULONG *reg = DT_GetPropValue(DT_FindProperty(key, (CONST_STRPTR)"ranges"));
 
-                ULONG phys_vc4 = reg[address_cells - 1];
-                ULONG phys_cpu = reg[address_cells + cpu_address_cells - 1];
+            ULONG phys_vc4 = reg[address_cells - 1];
+            ULONG phys_cpu = reg[address_cells + cpu_address_cells - 1];
 
             WiFiBase->w_MailBox = (APTR)((ULONG)WiFiBase->w_MailBox - phys_vc4 + phys_cpu);
             WiFiBase->w_SDIOBase = (APTR)((ULONG)WiFiBase->w_SDIOBase - phys_vc4 + phys_cpu);
@@ -838,14 +817,12 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
         set_extgpio_state(1, 0, WiFiBase);
         set_extgpio_state(1, 1, WiFiBase);
-
-        const char *cmdline = DT_GetPropValue(DT_FindProperty(DT_OpenKey("/chosen"), "bootargs"));
-        
-        APTR ant2_key = DT_OpenKey("/soc/firmware/gpio/ant2");
+       
+        APTR ant2_key = DT_OpenKey((CONST_STRPTR)"/soc/firmware/gpio/ant2");
         if (ant2_key)
         {
-            const ULONG * ext_gpio = DT_GetPropValue(DT_FindProperty(ant2_key, "gpios"));
-            if (DT_FindProperty(ant2_key, "output-high"))
+            const ULONG * ext_gpio = DT_GetPropValue(DT_FindProperty(ant2_key, (CONST_STRPTR)"gpios"));
+            if (DT_FindProperty(ant2_key, (CONST_STRPTR)"output-high"))
             {
                 D(bug("[WiFI] Setting ext GPIO %ld to 1\n", *ext_gpio));
                 set_extgpio_state(*ext_gpio, 1, WiFiBase);
@@ -857,11 +834,11 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
             }
         }
 
-        APTR ant1_key = DT_OpenKey("/soc/firmware/gpio/ant1");
+        APTR ant1_key = DT_OpenKey((CONST_STRPTR)"/soc/firmware/gpio/ant1");
         if (ant1_key)
         {
-            const ULONG * ext_gpio = DT_GetPropValue(DT_FindProperty(ant1_key, "gpios"));
-            if (DT_FindProperty(ant1_key, "output-high"))
+            const ULONG * ext_gpio = DT_GetPropValue(DT_FindProperty(ant1_key, (CONST_STRPTR)"gpios"));
+            if (DT_FindProperty(ant1_key, (CONST_STRPTR)"output-high"))
             {
                 D(bug("[WiFI] Setting ext GPIO %ld to 1\n", *ext_gpio));
                 set_extgpio_state(*ext_gpio, 1, WiFiBase);
@@ -882,20 +859,10 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
 
         if (FindTask(NULL)->tc_Node.ln_Type == NT_PROCESS)
         {
-            UBYTE *src_conf;
-            UBYTE *dst_conf;
-            BPTR file;
-            LONG size;
-            WiFiBase->w_DosBase = OpenLibrary("dos.library", 0);
-            struct Library *DOSBase = (struct Library *)WiFiBase->w_DosBase;
-
-            D(bug("[WiFi] I'm a process, DosBase=%08lx\n", (ULONG)WiFiBase->w_DosBase));
+            WiFiBase->w_DosBase = OpenLibrary((CONST_STRPTR)"dos.library", 0);
         }
         else
             D(bug("[WiFi] I'm a task\n"));
-
-        //D(bug("[WiFi] Setting GPIO41 to 1\n"));
-        //wr32(WiFiBase->w_GPIO, 0x20, 1 << (41 - 32));
 
         struct SDIO * sdio = sdio_init(WiFiBase);
         if (sdio)

@@ -471,7 +471,6 @@ static int sdio_buscoreprep(struct SDIO *sdio)
 
 static ULONG brcm_chip_dmp_get_desc(struct SDIO *sdio, ULONG *eromaddr, UBYTE *type)
 {
-    struct ExecBase * SysBase = sdio->s_SysBase;
     ULONG val;
 
     /* read next descriptor */
@@ -490,9 +489,8 @@ static ULONG brcm_chip_dmp_get_desc(struct SDIO *sdio, ULONG *eromaddr, UBYTE *t
 }
 
 
-static int brcm_chip_dmp_get_regaddr(struct SDIO *sdio, ULONG *eromaddr, LONG *regbase, LONG *wrapbase)
+static int brcm_chip_dmp_get_regaddr(struct SDIO *sdio, ULONG *eromaddr, ULONG *regbase, ULONG *wrapbase)
 {
-    struct ExecBase * SysBase = sdio->s_SysBase;
     UBYTE desc;
     ULONG val, szdesc;
     UBYTE stype, sztype, wraptype;
@@ -750,7 +748,7 @@ static void brcmf_chip_socram_ramsize(struct Core *sr, ULONG *ramsize, ULONG *sr
     ULONG coreinfo;
     ULONG nb, banksize, lss;
     int retent;
-    int i;
+    ULONG i;
 
     *ramsize = 0;
     *srsize = 0;
@@ -912,6 +910,8 @@ int get_memory(struct Chip *chip)
     }
 
     D(bug("[WiFi] RAM Base: %08lx, Size: %08lx, SR: %08lx\n", chip->c_RAMBase, chip->c_RAMSize, chip->c_SRSize));
+    
+    return 1;
 }
 
 

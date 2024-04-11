@@ -257,7 +257,7 @@ struct WiFiBase * WiFi_Init(REGARG(struct WiFiBase *base, "d0"), REGARG(BPTR seg
                             REGARG(struct ExecBase *SysBase, "a6"));
 
 #define bug(string, ...) \
-    do { ULONG args[] = {0, __VA_ARGS__}; RawDoFmt(string, &args[1], (APTR)putch, NULL); } while(0)
+    do { ULONG args[] = {0, __VA_ARGS__}; RawDoFmt((CONST_STRPTR)string, &args[1], (APTR)putch, NULL); } while(0)
 
 
 BOOL LoadFirmware(struct Chip *chip);
