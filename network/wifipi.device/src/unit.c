@@ -353,7 +353,7 @@ static int Do_S2_GETCRYPTTYPES(struct IOSana2Req *io)
 
     if (io->ios2_Data)
     {
-        UBYTE *types = AllocPooled(io->ios2_Data, 4);
+        UBYTE *types = AllocPooled(io->ios2_Data, 3);
         if (types == NULL)
         {
             io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
@@ -364,8 +364,8 @@ static int Do_S2_GETCRYPTTYPES(struct IOSana2Req *io)
             types[0] = S2ENC_CCMP;
             types[1] = S2ENC_TKIP;
             types[2] = S2ENC_WEP;
-            types[3] = S2ENC_NONE;
-            io->ios2_DataLength = 4;
+            io->ios2_StatData = types;
+            io->ios2_DataLength = 3;
             io->ios2_Req.io_Error = 0;
         }
     }
@@ -556,7 +556,7 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     {
         UBYTE *info = (UBYTE*)ti->ti_Data;
         D(bug("[WiFi.0] WPAInfo provided:"));
-        for (int i=0; i < 16; i++)
+        for (int i=0; i < info[1] + 2; i++)
         {
             D(bug(" %02lx", info[i]));
         }
