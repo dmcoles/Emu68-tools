@@ -44,7 +44,8 @@ const struct FirmwareDesc zero2Desc[] = {
 };
 
 const struct FirmwareDesc model3bDesc[] = {
-    /* 43430   */ {  43430, 0x0002, (CONST_STRPTR)"cyfmac43430-sdio.bin", (CONST_STRPTR)"cyfmac43430-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43430-sdio.txt" },
+    /* 43430   */ //{  43430, 0x0002, (CONST_STRPTR)"cyfmac43430-sdio.bin", (CONST_STRPTR)"cyfmac43430-sdio.clm_blob", (CONST_STRPTR)"brcmfmac43430-sdio.txt" },
+                  { 43430, 0x0003, (CONST_STRPTR)"brcmfmac43436s-sdio.bin", NULL, (CONST_STRPTR)"brcmfmac43436s-sdio.txt" },
                   { 0x0000, 0, NULL, NULL, NULL }
 };
 
