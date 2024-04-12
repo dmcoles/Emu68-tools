@@ -501,6 +501,15 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     return 1;
 }
 
+static int brcmf_valid_wpa_oui(UBYTE *oui, int is_rsn_ie)
+{
+    CONST_STRPTR o = is_rsn_ie ? RSN_OUI : WPA_OUI;
+
+    for (int i=0; i < TLV_OUI_LEN; i++) if (oui[i] != o[i]) return 0;
+
+    return 1;
+}
+
 static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
 {
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
@@ -511,6 +520,9 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     D(bug("[WiFi.0] S2_SETOPTIONS\n"));
 
     struct TagItem *ti = io->ios2_Data;
+    struct TLV *ie = NULL;
+    UBYTE *ie_b = NULL;
+    ULONG off = 0;
 
     if (ti)
     {
@@ -561,6 +573,10 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
             D(bug(" %02lx", info[i]));
         }
         D(bug("\n"));
+
+        ie_b = info;
+        off = TLV_HDR_LEN;
+        ie = (struct TLV *)info;
     }
 
     unit->wu_JoinParams.ej_Scan.js_ScanYype = -1;
@@ -569,12 +585,220 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     unit->wu_JoinParams.ej_Scan.js_PassiveTime = LE32(-1);
     unit->wu_JoinParams.ej_Scan.js_NProbes = LE32(-1);
 
-    PacketSetVarInt(WiFiBase->w_SDIO, "wpa_auth", WPA_AUTH_DISABLED);
-    PacketSetVarInt(WiFiBase->w_SDIO, "wsec", 0);
+    /* If IE was given parse it now */
+    if (ie != NULL)
+    {
+        ULONG length = ie->len + TLV_HDR_LEN;
+        ULONG uniCount = 0;
+        ULONG gval = 0;
+        ULONG pval = 0;
+        ULONG mfp = 0;
+        ULONG wpa_auth = 0;
+        int is_rsn_ie = !FindWPAIE(ie_b, length);
 
-    // TODO: brcmf_set_auth_type
-    PacketSetVarInt(WiFiBase->w_SDIO, "auth", 0);
-    PacketSetVarInt(WiFiBase->w_SDIO, "mfp", 0);
+        D(bug("[WiFi.0] WPAInfo is %s\n", (ULONG)(is_rsn_ie ? "RSN":"WPA")));
+
+        /* Skip header */
+        if (!is_rsn_ie)
+        {
+            off += VS_IE_FIXED_HDR_LEN;
+        }
+        else
+        {
+            off += WPA_IE_VERSION_LEN;
+        }
+
+        if (off + WPA_IE_MIN_OUI_LEN > length)
+        {
+            D(bug("[WiFi.0] No multicast cipher suite\n"));
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+            io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+            return 1;
+        }
+
+        if (!brcmf_valid_wpa_oui(&ie_b[off], is_rsn_ie))
+        {
+            D(bug("[WiFi.0] Invalid OUI at offset %ld\n", off));
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+            io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+            return 1;
+        }
+
+        off += TLV_OUI_LEN;
+
+        /* Select multicast cipher */
+        switch (ie_b[off])
+        {
+            case WPA_CIPHER_NONE:
+                gval = 0;
+                D(bug("[WiFi.0] Multicast cipher: NONE\n"));
+                break;
+            
+            case WPA_CIPHER_WEP_40: /* Fallthrough */
+            case WPA_CIPHER_WEP_104:
+                gval = WEP_ENABLED;
+                D(bug("[WiFi.0] Multicast cipher: WEP\n"));
+                break;
+            
+            case WPA_CIPHER_TKIP:
+                gval = TKIP_ENABLED;
+                D(bug("[WiFi.0] Multicast cipher: TKIP\n"));
+                break;
+            
+            case WPA_CIPHER_AES_CCM:
+                gval = AES_ENABLED;
+                D(bug("[WiFi.0] Multicast cipher: AES\n"));
+                break;
+
+            default:
+                D(bug("[WiFi.0] Invalid multicast cipher %ld\n", ie_b[off]));
+                io->ios2_WireError = S2WERR_GENERIC_ERROR;
+                io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+                return 1;
+        }
+
+        off++;
+        
+        /* Walk through unicast cipher list now and pick recognized one */
+        uniCount = ie_b[off] + (ie_b[off + 1] << 8);
+        off += WPA_IE_SUITE_COUNT_LEN;
+
+        /* Sanity check - all unicast cipher TLVs must fit here */
+        if (off + uniCount * WPA_IE_MIN_OUI_LEN > length)
+        {
+            D(bug("[WiFi.0] Unicast cipher list does not fit in WPAInfo!\n"));
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+            io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+            return 1;
+        }
+
+        /* Go through the list */
+        for (ULONG i = 0; i < uniCount; i++)
+        {
+            if (!brcmf_valid_wpa_oui(&ie_b[off], is_rsn_ie))
+            {
+                D(bug("[WiFi.0] Invalid OUI at offset %ld\n", off));
+                io->ios2_WireError = S2WERR_GENERIC_ERROR;
+                io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+                return 1;
+            }
+
+            off += TLV_OUI_LEN;
+            switch(ie_b[off])
+            {
+                case WPA_CIPHER_NONE:
+                    break;
+                case WPA_CIPHER_WEP_40: /* Fallthrough */
+                case WPA_CIPHER_WEP_104:
+                    D(bug("[WiFi.0] Unicast cipher: WEP\n"));
+                    pval |= WEP_ENABLED;
+                    break;
+                case WPA_CIPHER_TKIP:
+                    D(bug("[WiFi.0] Unicast cipher: TKIP\n"));
+                    pval |= TKIP_ENABLED;
+                    break;
+                case WPA_CIPHER_AES_CCM:
+                    D(bug("[WiFi.0] Unicast cipher: AES\n"));
+                    pval |= AES_ENABLED;
+                    break;
+                default:
+                    D(bug("[WiFi.0] Invalid multicast cipher %ld\n", ie_b[off]));
+                    io->ios2_WireError = S2WERR_GENERIC_ERROR;
+                    io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+                    return 1;
+            }
+            off++;
+        }
+
+        /* Walk through auth management list now and pick recognized one */
+        uniCount = ie_b[off] + (ie_b[off + 1] << 8);
+        off += WPA_IE_SUITE_COUNT_LEN;
+
+        /* Sanity check - all unicast cipher TLVs must fit here */
+        if (off + uniCount * WPA_IE_MIN_OUI_LEN > length)
+        {
+            D(bug("[WiFi.0] Auth management list does not fit in WPAInfo!\n"));
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+            io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+            return 1;
+        }
+
+        /* Go through the list */
+        for (ULONG i = 0; i < uniCount; i++)
+        {
+            if (!brcmf_valid_wpa_oui(&ie_b[off], is_rsn_ie))
+            {
+                D(bug("[WiFi.0] Invalid OUI at offset %ld\n", off));
+                io->ios2_WireError = S2WERR_GENERIC_ERROR;
+                io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+                return 1;
+            }
+
+            off += TLV_OUI_LEN;
+            switch(ie_b[off])
+            {
+                case RSN_AKM_NONE:
+                    D(bug("[WiFi.0] WPA_AUTH_NONE\n"));
+                    wpa_auth |= WPA_AUTH_NONE;
+                    break;
+                
+                case RSN_AKM_UNSPECIFIED:
+                    D(bug("[WiFi.0] WPA%s_AUTH_UNSPECIFIED\n", (ULONG)(is_rsn_ie ? "2":"")));
+                    wpa_auth |= is_rsn_ie ? WPA2_AUTH_UNSPECIFIED : WPA_AUTH_UNSPECIFIED;
+                    break;
+                
+                case RSN_AKM_PSK:
+                    D(bug("[WiFi.0] WPA%s_AUTH_PSK\n", (ULONG)(is_rsn_ie ? "2":"")));
+                    wpa_auth |= is_rsn_ie ? WPA2_AUTH_PSK : WPA_AUTH_PSK;
+                    break;
+
+                case RSN_AKM_SHA256_PSK:
+                    D(bug("[WiFi.0] WPA2_AUTH_MFP_PSK\n"));
+                    wpa_auth |= WPA2_AUTH_PSK_SHA256;
+                    break;
+
+                case RSN_AKM_SHA256_1X:
+                    D(bug("[WiFi.0] WPA2_AUTH_MFP_1X\n"));
+                    wpa_auth |= WPA2_AUTH_1X_SHA256;
+                    break;
+
+                case RSN_AKM_SAE:
+                    D(bug("[WiFi.0] WPA3_AUTH_SAE_PSK\n"));
+                    wpa_auth |= WPA3_AUTH_SAE_PSK;
+                    break;
+
+                default:
+                    D(bug("[WiFi.0] Invalid Auth management %ld\n", ie_b[off]));
+                    io->ios2_WireError = S2WERR_GENERIC_ERROR;
+                    io->ios2_Req.io_Error = S2ERR_NOT_SUPPORTED;
+                    return 1;
+            }
+        }
+
+        mfp = BRCMF_MFP_NONE;
+        /* TODO: handle MFP... */
+        
+        ULONG wsec = pval | gval | SES_OW_ENABLED;
+
+        /* Set auth to OPEN - required by WPA/WPA2/WPA3 */
+        PacketSetVarInt(WiFiBase->w_SDIO, "auth", 0);
+
+        /* Set wsec */
+        PacketSetVarInt(WiFiBase->w_SDIO, "wsec", wsec);
+        
+        /* Set MFP if set/required/enabled */
+        PacketSetVarInt(WiFiBase->w_SDIO, "mfp", mfp);
+
+        /* Set wpa auth now */
+        PacketSetVarInt(WiFiBase->w_SDIO, "wpa_auth", wpa_auth);
+    }
+    else
+    {
+        PacketSetVarInt(WiFiBase->w_SDIO, "auth", 0);
+        PacketSetVarInt(WiFiBase->w_SDIO, "wsec", 0);
+        PacketSetVarInt(WiFiBase->w_SDIO, "wpa_auth", WPA_AUTH_DISABLED);
+        PacketSetVarInt(WiFiBase->w_SDIO, "mfp", 0);
+    }
 
     PacketSetVar(WiFiBase->w_SDIO, "join", &unit->wu_JoinParams, sizeof(struct ExtJoinParams));
 
@@ -636,17 +860,39 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
 
     if (unit->wu_AssocIELength != 0)
     {
-        tags->ti_Tag = S2INFO_WPAInfo;
-        tags->ti_Data = (ULONG)AllocVecPooled(memPool, unit->wu_AssocIELength); // + 2);
-        if (tags->ti_Data == 0)
+        APTR ie = FindWPAIE(unit->wu_AssocIE, unit->wu_AssocIELength);
+        ULONG ieLen = 0;
+        
+        if (ie)
         {
-            io->ios2_WireError = S2WERR_BUFF_ERROR;
-            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
-            return 1;
+            ieLen = TLV_HDR_LEN + ((UBYTE*)ie)[1];
+            D(bug("[WiFi.0] WPA IE at %08lx, size %ld\n", (ULONG)ie, ieLen));
         }
-        CopyMem(unit->wu_AssocIE, (APTR)(tags->ti_Data/* + 2 */), unit->wu_AssocIELength);
-        //*(UWORD*)(tags->ti_Data) = unit->wu_AssocIELength + 2;
-        tags++;
+        else
+        {
+            ie = NULL;
+            APTR rsn_ie = brcmf_parse_tlvs(unit->wu_AssocIE, unit->wu_AssocIELength, 48 /* WLAN_EID_RSN*/);
+            if (rsn_ie)
+            {
+                ie = rsn_ie;
+                ieLen = ((UBYTE*)ie)[1] + TLV_HDR_LEN;
+                D(bug("[WiFi.0] RSN IE at %08lx, size %ld\n", (ULONG)ie, ieLen));
+            }
+        }
+
+        if (ie && ieLen)
+        {
+            tags->ti_Tag = S2INFO_WPAInfo;
+            tags->ti_Data = (ULONG)AllocVecPooled(memPool, ieLen);
+            if (tags->ti_Data == 0)
+            {
+                io->ios2_WireError = S2WERR_BUFF_ERROR;
+                io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+                return 1;
+            }
+            CopyMem(ie, (APTR)tags->ti_Data, ieLen);
+            tags++;
+        }
     }
 
     tags->ti_Tag = TAG_DONE;
@@ -1103,6 +1349,8 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
         D(bug("[WiFi.0] Firmware version: %s\n", (ULONG)ver));
 
         PacketSetVarInt(sdio, "roam_off", 1);
+
+        PacketSetVarInt(sdio, "sup_wpa", 0);
 
         PacketCmdInt(sdio, BRCMF_C_SET_INFRA, 1);
         PacketCmdInt(sdio, BRCMF_C_SET_PROMISC, 0);
