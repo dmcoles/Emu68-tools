@@ -584,6 +584,10 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
         tags++;
     }
 
+    tags->ti_Tag = S2INFO_Capabilities;
+    tags->ti_Data = info->bssi_Capability;
+    tags++;
+
     struct ChannelInfo ci;
     ci.ci_CHSpec = LE16(info->bssi_ChanSpec);
     DecodeChanSpec(&ci, sdio->s_Chip->c_D11Type);
