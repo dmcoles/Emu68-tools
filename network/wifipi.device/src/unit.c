@@ -304,6 +304,7 @@ static const UWORD WiFi_SupportedCommands[] = {
     S2_SETOPTIONS,
     S2_SETKEY,
     S2_GETNETWORKINFO,
+    S2_GETCRYPTTYPES,
     //S2_GETRADIOBANDS,
 
     NSCMD_DEVICEQUERY,
@@ -343,6 +344,37 @@ void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
         }
         Enable();
     }
+}
+
+static int Do_S2_GETCRYPTTYPES(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct ExecBase *SysBase = unit->wu_Base->w_SysBase;
+
+    if (io->ios2_Data)
+    {
+        UBYTE *types = AllocPooled(io->ios2_Data, 4);
+        if (types == NULL)
+        {
+            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+        }
+        else
+        {
+            types[0] = S2ENC_CCMP;
+            types[1] = S2ENC_TKIP;
+            types[2] = S2ENC_WEP;
+            types[3] = S2ENC_NONE;
+            io->ios2_DataLength = 4;
+            io->ios2_Req.io_Error = 0;
+        }
+    }
+    else
+    {
+        io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+        io->ios2_WireError = S2WERR_GENERIC_ERROR;
+    }
+    return 1;
 }
 
 static int Do_S2_ONEVENT(struct IOSana2Req *io)
@@ -520,7 +552,16 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     unit->wu_JoinParams.ej_Assoc.ap_ChanspecNum = 0;
     unit->wu_JoinParams.ej_Assoc.ap_ChanSpecList[0] = 0;
 
-
+    if ((ti = FindTagItem(S2INFO_WPAInfo, io->ios2_Data)))
+    {
+        UBYTE *info = (UBYTE*)ti->ti_Data;
+        D(bug("[WiFi.0] WPAInfo provided:"));
+        for (int i=0; i < 16; i++)
+        {
+            D(bug(" %02lx", info[i]));
+        }
+        D(bug("\n"));
+    }
 
     unit->wu_JoinParams.ej_Scan.js_ScanYype = -1;
     unit->wu_JoinParams.ej_Scan.js_HomeTime = LE32(-1);
@@ -596,15 +637,15 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
     if (unit->wu_AssocIELength != 0)
     {
         tags->ti_Tag = S2INFO_WPAInfo;
-        tags->ti_Data = (ULONG)AllocVecPooled(memPool, unit->wu_AssocIELength + 2);
+        tags->ti_Data = (ULONG)AllocVecPooled(memPool, unit->wu_AssocIELength); // + 2);
         if (tags->ti_Data == 0)
         {
             io->ios2_WireError = S2WERR_BUFF_ERROR;
             io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
             return 1;
         }
-        CopyMem(unit->wu_AssocIE, (APTR)(tags->ti_Data + 2), unit->wu_AssocIELength);
-        *(UWORD*)(tags->ti_Data) = unit->wu_AssocIELength + 2;
+        CopyMem(unit->wu_AssocIE, (APTR)(tags->ti_Data/* + 2 */), unit->wu_AssocIELength);
+        //*(UWORD*)(tags->ti_Data) = unit->wu_AssocIELength + 2;
         tags++;
     }
 
@@ -1243,6 +1284,10 @@ void HandleRequest(struct IOSana2Req *io)
 
             case S2_GETNETWORKINFO:
                 complete = Do_S2_GETNETWORKINFO(io);
+                break;
+            
+            case S2_GETCRYPTTYPES:
+                complete = Do_S2_GETCRYPTTYPES(io);
                 break;
 
             case S2_BROADCAST: /* Fallthrough */
