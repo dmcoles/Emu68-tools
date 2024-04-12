@@ -211,7 +211,7 @@ BOOL LoadFirmware(struct Chip *chip)
     struct Library *DOSBase = WiFiBase->w_DosBase;
 
 
-    BPTR file = Open((CONST_STRPTR)"T:wifipi.txt", MODE_NEWFILE);
+    BPTR file = Open((CONST_STRPTR)"RAM:T/wifipi.txt", MODE_NEWFILE);
     UBYTE buf[4];
     UWORD data = chip->c_ChipID;
     for (int i=0; i < 4; i++)
