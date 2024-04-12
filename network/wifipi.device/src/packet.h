@@ -224,4 +224,54 @@ struct JoinParams {
     struct AssocParams      j_Assoc;
 };
 
+#define TLV_LEN_OFF			1	/* length offset */
+#define TLV_HDR_LEN			2	/* header length */
+#define TLV_BODY_OFF			2	/* body offset */
+#define TLV_OUI_LEN			3	/* oui id length */
+
+#define VS_IE_FIXED_HDR_LEN             6
+#define WPA_IE_VERSION_LEN              2
+#define WPA_IE_MIN_OUI_LEN              4
+#define WPA_IE_SUITE_COUNT_LEN          2
+
+#define WPA_CIPHER_NONE                 0       /* None */
+#define WPA_CIPHER_WEP_40               1       /* WEP (40-bit) */
+#define WPA_CIPHER_TKIP                 2       /* TKIP: default for WPA */
+#define WPA_CIPHER_AES_CCM              4       /* AES (CCM) */
+#define WPA_CIPHER_WEP_104              5       /* WEP (104-bit) */
+
+#define RSN_AKM_NONE                    0       /* None (IBSS) */
+#define RSN_AKM_UNSPECIFIED             1       /* Over 802.1x */
+#define RSN_AKM_PSK                     2       /* Pre-shared Key */
+#define RSN_AKM_SHA256_1X               5       /* SHA256, 802.1X */
+#define RSN_AKM_SHA256_PSK              6       /* SHA256, Pre-shared Key */
+#define RSN_AKM_SAE                     8       /* SAE */
+
+#define WPA_OUI				(CONST_STRPTR)"\x00\x50\xF2"	/* WPA OUI */
+#define WPA_OUI_TYPE			1
+#define RSN_OUI				(CONST_STRPTR)"\x00\x0F\xAC"	/* RSN OUI */
+#define	WME_OUI_TYPE			2
+#define WPS_OUI_TYPE			4
+
+#define BRCMF_MFP_NONE                  0
+#define BRCMF_MFP_CAPABLE               1
+#define BRCMF_MFP_REQUIRED              2
+
+struct TLV {
+    UBYTE id;
+    UBYTE len;
+    UBYTE data[];
+};
+
+/* Vendor specific ie. id = 221, oui and type defines exact ie */
+struct VsTLV {
+    UBYTE id;
+    UBYTE len;
+    UBYTE oui[3];
+    UBYTE oui_type;
+};
+
+struct VsTLV * FindWPAIE(UBYTE *data, ULONG len);
+struct TLV * brcmf_parse_tlvs(void *buf, ULONG buflen, UBYTE key);
+
 #endif /* _PACKET_H */

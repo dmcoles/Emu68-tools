@@ -218,11 +218,7 @@ struct PacketMessage {
 #define VENDOR_SPECIFIC_IE  221
 #define WLAN_EID_RSN 48
 
-#define WPA_OUI				(CONST_STRPTR)"\x00\x50\xF2"	/* WPA OUI */
-#define WPA_OUI_TYPE			1
-#define RSN_OUI				(CONST_STRPTR)"\x00\x0F\xAC"	/* RSN OUI */
-#define	WME_OUI_TYPE			2
-#define WPS_OUI_TYPE			4
+
 
 /*
 static const UBYTE WPA_OUI_TYPE[] = {0x00, 0x50, 0xf2, 1};
@@ -239,30 +235,13 @@ static const UBYTE RSN_CIPHER_SUITE_CCMP[] = {0x00, 0x0f, 0xac, 4};
 static const UBYTE RSN_CIPHER_SUITE_WEP104[] = {0x00, 0x0f, 0xac, 5};
 */
 
-#define TLV_LEN_OFF			1	/* length offset */
-#define TLV_HDR_LEN			2	/* header length */
-#define TLV_BODY_OFF			2	/* body offset */
-#define TLV_OUI_LEN			3	/* oui id length */
 
-struct TLV {
-    UBYTE id;
-    UBYTE len;
-    UBYTE data[];
-};
-
-/* Vendor specific ie. id = 221, oui and type defines exact ie */
-struct VsTLV {
-    UBYTE id;
-    UBYTE len;
-    UBYTE oui[3];
-    UBYTE oui_type;
-};
 
 /* Traverse a string of 1-byte tag/1-byte length/variable-length value
  * triples, returning a pointer to the substring whose first element
  * matches tag
  */
-static struct TLV * brcmf_parse_tlvs(void *buf, ULONG buflen, UBYTE key)
+struct TLV * brcmf_parse_tlvs(void *buf, ULONG buflen, UBYTE key)
 {
     struct TLV *elt = buf;
     ULONG totlen = buflen;
@@ -1248,6 +1227,9 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
 
             /* Report error event */
         }
+        /* Set number of bytes received */
+        io->ios2_DataLength = copyLength;
+
         Disable();
         Remove((struct Node *)io);
         Enable();
@@ -1265,7 +1247,19 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
     // Get destination address and check if it is a multicast
     uint64_t destAddr = ((uint64_t)*(UWORD*)&packet[0] << 32) |
                         *(ULONG*)&packet[2];
-    
+#if 0
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    bug("[DATA.IN] Packet in:\n");
+    for (ULONG i=0; i < packetLength; i++)
+    {
+        if (i % 16 == 0)
+            bug("[DATA.IN] %04lx: ", i);
+        bug(" %02lx", packet[i]);
+        if (i % 16 == 15)
+            bug("\n");
+    }
+    if (packetLength % 16 != 0) bug("\n");
+#endif
     if (destAddr != 0xffffffffffffULL && (destAddr & 0x010000000000ULL))
     {
         struct MulticastRange *range;
@@ -1438,6 +1432,18 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
         }
         else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
 
+#if 0
+        bug("[DATA.OUT] Packet out:\n");
+        for (ULONG i=0; i < packetLength; i++)
+        {
+            if (i % 16 == 0)
+                bug("[DATA.OUT] %04lx: ", i);
+            bug(" %02lx", ((UBYTE*)hw)[i]);
+            if (i % 16 == 15)
+                bug("\n");
+        }
+        if (packetLength % 16 != 0) bug("\n");
+#endif
         // Increase total length by packet length (aligned)
         totalLength += (packetLength + 3) & ~3;
     }
