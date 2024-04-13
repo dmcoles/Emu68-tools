@@ -520,7 +520,7 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     D(bug("[WiFi.0] S2_SETOPTIONS\n"));
 
     struct TagItem *ti = io->ios2_Data;
-    struct TLV *ie = NULL;
+    UBYTE ie_found = 0;
     UBYTE *ie_b = NULL;
     ULONG off = 0;
 
@@ -564,10 +564,10 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     unit->wu_JoinParams.ej_Assoc.ap_ChanspecNum = 0;
     unit->wu_JoinParams.ej_Assoc.ap_ChanSpecList[0] = 0;
 
-    if ((ti = FindTagItem(S2INFO_WPAInfo, io->ios2_Data)))
+    if ((ti = FindTagItem(S2INFO_WPAInfo, io->ios2_Data)) && ti->ti_Data != 0)
     {
         UBYTE *info = (UBYTE*)ti->ti_Data;
-        D(bug("[WiFi.0] WPAInfo provided:"));
+        D(bug("[WiFi.0] WPAInfo at %08lx provided:", (ULONG)info));
         for (int i=0; i < info[1] + 2; i++)
         {
             D(bug(" %02lx", info[i]));
@@ -576,7 +576,7 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
 
         ie_b = info;
         off = TLV_HDR_LEN;
-        ie = (struct TLV *)info;
+        ie_found = 1;
     }
 
     unit->wu_JoinParams.ej_Scan.js_ScanYype = -1;
@@ -586,9 +586,9 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     unit->wu_JoinParams.ej_Scan.js_NProbes = LE32(-1);
 
     /* If IE was given parse it now */
-    if (ie != NULL)
+    if (ie_found)
     {
-        ULONG length = ie->len + TLV_HDR_LEN;
+        ULONG length = ie_b[1] + TLV_HDR_LEN;
         ULONG uniCount = 0;
         ULONG gval = 0;
         ULONG pval = 0;
