@@ -8,9 +8,17 @@
 
 #include <devices/sana2.h>
 #include <devices/sana2specialstats.h>
+#include <devices/newstyle.h>
 
+#include <common/compiler.h>
+
+#if defined(__INTELLISENSE__)
+#include <clib/exec_protos.h>
+#include <clib/utility_protos.h>
+#else
 #include <proto/exec.h>
 #include <proto/utility.h>
+#endif
 
 #include <stdint.h>
 
@@ -27,12 +35,12 @@ const struct Resident RomTag __attribute__((used)) = {
     RTC_MATCHWORD,
     (struct Resident *)&RomTag,
     (APTR)&deviceEnd,
-    RTF_AUTOINIT,
+    RTF_AUTOINIT | RTF_AFTERDOS,
     WIFIPI_VERSION,
     NT_DEVICE,
     WIFIPI_PRIORITY,
-    (char *)((intptr_t)&deviceName),
-    (char *)((intptr_t)&deviceIdString),
+    (APTR)deviceName,
+    (APTR)deviceIdString,
     (APTR)InitTable,
 };
 
@@ -44,7 +52,14 @@ static uint32_t WiFi_ExtFunc()
     return 0;
 }
 
-static BPTR WiFi_Expunge(struct WiFiBase * WiFiBase asm("a6"))
+void NewList(struct List *lh)
+{
+    lh->lh_Head = (struct Node *)&(lh->lh_Tail);
+    lh->lh_Tail = NULL;
+    lh->lh_TailPred = (struct Node *)&(lh->lh_Head);
+}
+
+static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
 {
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
     BPTR segList = 0;
@@ -84,15 +99,19 @@ static BPTR WiFi_Expunge(struct WiFiBase * WiFiBase asm("a6"))
 
 static const ULONG rx_tags[] = {
     S2_CopyToBuff,
+    S2_CopyToBuff16,
+    S2_CopyToBuff32,
     0
 };
 
 static const ULONG tx_tags[] = {
     S2_CopyFromBuff,
+    S2_CopyFromBuff16,
+    S2_CopyFromBuff32,
     0
 };
 
-void WiFi_Open(struct IOSana2Req * io asm("a1"), LONG unitNumber asm("d0"), ULONG flags asm("d1"))
+void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0"), REGARG(ULONG flags, "d1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
@@ -102,13 +121,39 @@ void WiFi_Open(struct IOSana2Req * io asm("a1"), LONG unitNumber asm("d0"), ULON
     struct WiFiUnit *unit = WiFiBase->w_Unit;
     struct Opener *opener;
     BYTE error=0;
-    int i;
 
-    D(bug("[WiFi] WiFiOpen(%08lx, %ld, %lx)\n", (ULONG)io, unitNumber, flags));
+    D(bug("[WiFi] WiFi_Open(%08lx, %ld, %lx)\n", (ULONG)io, unitNumber, flags));
 
-    if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOSana2Req) || unitNumber != 0)
+    if (unitNumber != 0)
     {
         error = IOERR_OPENFAIL;
+    }
+    
+    if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOSana2Req))
+    {
+        D(bug("[WiFI] Opening device with ordinary IORequest. Allowing limited mode only\n"));
+        if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOStdReq))
+        {
+            /* Message smaller than regular IORequest? Too bad, break now. */
+            error = IOERR_OPENFAIL;
+        }
+        else
+        {
+            /* Small IOReqest, only NSCMD command will be allowed. Check sharing now */
+            if (unit->wu_Unit.unit_OpenCnt != 0 && 
+            ((unit->wu_Flags & IFF_SHARED) == 0 || (flags & SANA2OPF_MINE) != 0))
+            {
+                error = IOERR_UNITBUSY;
+            }
+            else
+            {
+                WiFiBase->w_Device.dd_Library.lib_Flags &= ~LIBF_DELEXP;
+                WiFiBase->w_Device.dd_Library.lib_OpenCnt++;
+                unit->wu_Unit.unit_OpenCnt++;
+                io->ios2_Req.io_Error = 0;
+                return;
+            }
+        }
     }
 
     io->ios2_Req.io_Unit = NULL;
@@ -156,24 +201,43 @@ void WiFi_Open(struct IOSana2Req * io asm("a1"), LONG unitNumber asm("d0"), ULON
         NewList(&opener->o_ReadPort.mp_MsgList);
         opener->o_ReadPort.mp_Flags = PA_IGNORE;
 
-        for(int i = 0; rx_tags[i] != 0; i++)
+        NewList(&opener->o_OrphanListeners.mp_MsgList);
+        opener->o_OrphanListeners.mp_Flags = PA_IGNORE;
+
+        NewList(&opener->o_EventListeners.mp_MsgList);
+        opener->o_EventListeners.mp_Flags = PA_IGNORE;
+
+        for(int i = 0; rx_tags[i] != 0; i++) {
             opener->o_RXFunc = (APTR)GetTagData(rx_tags[i], (ULONG)opener->o_RXFunc, tags);
-        for(int i = 0; tx_tags[i] != 0; i++)
+        }
+
+        for(int i = 0; tx_tags[i] != 0; i++) {
             opener->o_TXFunc = (APTR)GetTagData(tx_tags[i], (ULONG)opener->o_TXFunc, tags);
+        }
 
+/*
+        opener->o_TXFuncDMA = (APTR)GetTagData(S2_DMACopyFromBuff32, 0, tags);
+        opener->o_RXFuncDMA = (APTR)GetTagData(S2_DMACopyToBuff32, 0, tags);
+*/
         opener->o_FilterHook = (APTR)GetTagData(S2_PacketFilter, 0, tags);
-
+        
         Disable();
         AddTail((APTR)&unit->wu_Openers, (APTR)opener);
         Enable();
 
         /* Start unit here? */
+        if (!(unit->wu_Flags & IFF_STARTED))
+        {
+            StartUnit(unit);
+        }
     }
+
+    D(bug("[WiFi] WiFi_Open ends with status %ld\n", error));
 
     io->ios2_Req.io_Error = error;
 }
 
-ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
+ULONG WiFi_Close(REGARG(struct IOSana2Req * io, "a1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
     struct ExecBase *SysBase = WiFiBase->w_SysBase;
@@ -182,17 +246,21 @@ ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
 
     D(bug("[WiFi] WiFi_Close(%08lx)\n", (ULONG)io));
 
-    /* Stop unit? */
-
-    // ...
-
-    if (opener)
+    /* DO most of things **only** if request is larger than IORequest */
+    if (io->ios2_Req.io_Message.mn_Length >= sizeof(struct IOSana2Req))
     {
-        Disable();
-        Remove((struct Node *)opener);
-        Enable();
+        /* Stop unit? */
 
-        FreeMem(opener, sizeof(struct Opener));
+        // ...
+
+        if (opener)
+        {
+            Disable();
+            Remove((struct Node *)opener);
+            Enable();
+
+            FreeMem(opener, sizeof(struct Opener));
+        }
     }
 
     u->wu_Unit.unit_OpenCnt--;
@@ -209,15 +277,57 @@ ULONG WiFi_Close(struct IOSana2Req * io asm("a1"))
     return 0;
 }
 
-static uint32_t wifipi_functions[] = {
+void WiFi_BeginIO(REGARG(struct IOSana2Req * io, "a1"))
+{
+    struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+
+    // Try to do the request directly by obtaining the lock, otherwise put in unit's CMD queue
+    if (AttemptSemaphore(&unit->wu_Lock))
+    {
+        HandleRequest(io);
+        ReleaseSemaphore(&unit->wu_Lock);
+    }
+    else
+    {
+        /* Unit was busy, remove QUICK flag so that Exec will wait for completion properly */
+        io->ios2_Req.io_Error = 0;
+        io->ios2_Req.io_Flags &= ~IOF_QUICK;
+        PutMsg(unit->wu_CmdQueue, (struct Message *)io);
+    }
+}
+
+LONG WiFi_AbortIO(REGARG(struct IOSana2Req *io, "a1"))
+{
+    struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+
+    /* AbortIO is a *wish* call. Someone would like to abort current IORequest */
+    if (io->ios2_Req.io_Unit != NULL)
+    {
+        Forbid();
+        /* If the IO was not quick and is of type message (not handled yet or in process), abord it and remove from queue */
+        if ((io->ios2_Req.io_Flags & IOF_QUICK) == 0 && io->ios2_Req.io_Message.mn_Node.ln_Type == NT_MESSAGE)
+        {
+            Remove(&io->ios2_Req.io_Message.mn_Node);
+            io->ios2_Req.io_Error = IOERR_ABORTED;
+            io->ios2_WireError = S2WERR_GENERIC_ERROR;
+            ReplyMsg(&io->ios2_Req.io_Message);
+        }
+        Permit();
+    }
+
+    return 0;
+}
+
+static const uint32_t wifipi_functions[] = {
     (uint32_t)WiFi_Open,
     (uint32_t)WiFi_Close,
     (uint32_t)WiFi_Expunge,
     (uint32_t)WiFi_ExtFunc,
-#if 0
     (uint32_t)WiFi_BeginIO,
     (uint32_t)WiFi_AbortIO,
-#endif
     -1
 };
 
