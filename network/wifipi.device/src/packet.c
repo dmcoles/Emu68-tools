@@ -564,7 +564,7 @@ void UpdateNetwork(struct WiFiUnit *unit, struct BSSInfo *info)
     }
 
     tags->ti_Tag = S2INFO_Capabilities;
-    tags->ti_Data = info->bssi_Capability;
+    tags->ti_Data = LE16(info->bssi_Capability);
     tags++;
 
     struct ChannelInfo ci;
