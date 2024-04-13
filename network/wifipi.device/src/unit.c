@@ -564,7 +564,8 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
     unit->wu_JoinParams.ej_Assoc.ap_ChanspecNum = 0;
     unit->wu_JoinParams.ej_Assoc.ap_ChanSpecList[0] = 0;
 
-    if ((ti = FindTagItem(S2INFO_WPAInfo, io->ios2_Data)) && ti->ti_Data != 0)
+    ti = FindTagItem(S2INFO_WPAInfo, io->ios2_Data);
+    if (ti != NULL && ti->ti_Data != 0)
     {
         UBYTE *info = (UBYTE*)ti->ti_Data;
         D(bug("[WiFi.0] WPAInfo at %08lx provided:", (ULONG)info));
