@@ -39,15 +39,15 @@ add_executable(wifipi_rom
 target_include_directories(wifipi_rom PRIVATE include)
 target_link_libraries(wifipi_rom devicetree sana2 common)
 target_link_options(wifipi_rom PRIVATE -Wl,-e_rom_start -Wl,-T${CMAKE_SOURCE_DIR}/extrom.lds)
-# add_custom_command(
-#    TARGET wifipi_rom POST_BUILD
-#    COMMAND ${CMAKE_OBJCOPY} -v -O binary "${CMAKE_CURRENT_BINARY_DIR}/wifipi_rom" "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom"
-#    COMMAND dd if="${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom" of="${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom~" bs=512k skip=30
-#    COMMAND mv "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom~" "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom"
+add_custom_command(
+    TARGET wifipi_rom POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -v -O binary "${CMAKE_CURRENT_BINARY_DIR}/wifipi_rom" "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom"
+    COMMAND dd if="${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom" of="${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom~" bs=512k skip=30
+    COMMAND mv "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom~" "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom"
 #    COMMAND cp "${CMAKE_CURRENT_BINARY_DIR}/wifipi.rom" /home/michal/tftpboot/
-#    COMMAND rm "${CMAKE_CURRENT_BINARY_DIR}/wifipi_rom"
-#    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-#)
+    COMMAND rm "${CMAKE_CURRENT_BINARY_DIR}/wifipi_rom"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
 set_target_properties(wifipi_rom PROPERTIES LINK_DEPENDS ${CMAKE_SOURCE_DIR}/extrom.lds)
 
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/wifipi.device DESTINATION ./Emu68-WiFi/Devs/Networks)
