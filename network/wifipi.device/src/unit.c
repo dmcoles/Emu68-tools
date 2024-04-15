@@ -220,8 +220,9 @@ void StartUnit(struct WiFiUnit *unit)
         unit->wu_OrigEtherAddr[0], unit->wu_OrigEtherAddr[1], unit->wu_OrigEtherAddr[2],
         unit->wu_OrigEtherAddr[3], unit->wu_OrigEtherAddr[4], unit->wu_OrigEtherAddr[5]));
 
-    CopyMem(unit->wu_OrigEtherAddr, unit->wu_EtherAddr, 6);
-
+    /* Don't set EtherAddr yet. */
+    _bzero(unit->wu_EtherAddr, 6);
+    
     unit->wu_Flags |= IFF_STARTED;
 }
 
@@ -324,11 +325,11 @@ void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
     struct Opener *opener;
 
     /* Report event to every listener of every opener accepting the mask */
+    Disable();
     ForeachNode(&unit->wu_Openers, opener)
     {
         struct IOSana2Req *io, *next;
-        
-        Disable();
+
         ForeachNodeSafe(&opener->o_EventListeners.mp_MsgList, io, next)
         {
             /* Check if event mask in WireError fits the events occured */
@@ -342,8 +343,8 @@ void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
                 ReplyMsg((struct Message *)io);
             }
         }
-        Enable();
     }
+    Enable();
 }
 
 static int Do_S2_GETCRYPTTYPES(struct IOSana2Req *io)
@@ -921,6 +922,26 @@ static int Do_CMD_FLUSH(struct IOSana2Req *io)
         ReplyMsg((struct Message *)req);
     }
 
+    /* Flush network scan requests */
+    Disable();
+    if (unit->wu_ScanRequest != NULL)
+    {
+        req = unit->wu_ScanRequest;
+        req->ios2_Req.io_Error = IOERR_ABORTED;
+        req->ios2_WireError = 0;
+        ReplyMsg((struct Message *)req);
+        unit->wu_ScanRequest = NULL;
+    }
+
+    /* Flush scan queue */
+    while ((req = (struct IOSana2Req *)GetMsg(unit->wu_ScanQueue)))
+    {
+        req->ios2_Req.io_Error = IOERR_ABORTED;
+        req->ios2_WireError = 0;
+        ReplyMsg((struct Message *)req);
+    }
+    Enable();
+
     /* For every opener, flush orphan and even queues */
     ForeachNode(&unit->wu_Openers, opener)
     {
@@ -1015,6 +1036,7 @@ static int Do_CMD_WRITE(struct IOSana2Req *io)
 
     if (unit->wu_Flags & IFF_UP)
     {
+        io->ios2_Req.io_Flags &= ~IOF_QUICK;
         PutMsg(sdio->s_SenderPort, (struct Message *)io);
         return 0;
     }
@@ -1416,6 +1438,26 @@ static int Do_S2_OFFLINE(struct IOSana2Req *io)
     D(bug("[WiFi.0] S2_OFFLINE\n"));
 
     unit->wu_Flags &= ~IFF_ONLINE;
+
+    /* Flush network scan requests */
+    Disable();
+    if (unit->wu_ScanRequest != NULL)
+    {
+        req = unit->wu_ScanRequest;
+        req->ios2_Req.io_Error = IOERR_ABORTED;
+        req->ios2_WireError = 0;
+        ReplyMsg((struct Message *)req);
+        unit->wu_ScanRequest = NULL;
+    }
+
+    /* Flush scan queue */
+    while ((req = (struct IOSana2Req *)GetMsg(unit->wu_ScanQueue)))
+    {
+        req->ios2_Req.io_Error = IOERR_ABORTED;
+        req->ios2_WireError = 0;
+        ReplyMsg((struct Message *)req);
+    }
+    Enable();
 
     /* Flush and cancel all write requests */
     while ((req = (struct IOSana2Req *)GetMsg(sdio->s_SenderPort)))

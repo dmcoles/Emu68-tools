@@ -202,14 +202,14 @@ struct Opener
 
 #define IFF_VOLATILE    (IFF_LOOPBACK|IFF_POINTOPOINT|IFF_BROADCAST|IFF_MASTER|IFF_SLAVE|IFF_RUNNING)
 
-#define IFF_PORTSEL     0x2000          /* can set media type           */
-#define IFF_AUTOMEDIA   0x4000          /* auto media select active     */
-#define IFF_DYNAMIC     0x8000          /* dialup device with changing addresses*/
-#define IFF_SHARED      0x10000         /* interface may be shared */
-#define IFF_CONFIGURED  0x20000         /* interface already configured */
-#define IFF_STARTED     0x40000         /* interface already started */
-#define IFF_ONLINE      0x40000         /* interface online */
-#define IFF_CONNECTED   0x40000         /* interface connected to network */
+#define IFF_PORTSEL     0x002000         /* can set media type           */
+#define IFF_AUTOMEDIA   0x004000         /* auto media select active     */
+#define IFF_DYNAMIC     0x008000         /* dialup device with changing addresses*/
+#define IFF_SHARED      0x010000         /* interface may be shared */
+#define IFF_CONFIGURED  0x020000         /* interface already configured */
+#define IFF_STARTED     0x040000         /* interface already started */
+#define IFF_ONLINE      0x080000         /* interface online */
+#define IFF_CONNECTED   0x100000         /* interface connected to network */
 
 static inline __attribute__((always_inline)) void putch(REGARG(UBYTE data, "d0"), REGARG(APTR ignore, "a3"))
 {

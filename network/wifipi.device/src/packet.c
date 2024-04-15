@@ -1187,46 +1187,54 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
     /* Packet not filtered. Send it now and reply request. */
     if (!packetFiltered)
     {
-        if (opener->o_RXFuncDMA)
+        if (copyLength != 0)
         {
-            APTR buffer = opener->o_RXFuncDMA(io->ios2_Data);
-            ULONG* src = (ULONG*)copyData;
-            ULONG* dst = buffer;
-            ULONG tmp1, tmp2;
+            if (opener->o_RXFuncDMA)
+            {
+                APTR buffer = opener->o_RXFuncDMA(io->ios2_Data);
+                ULONG* src = (ULONG*)copyData;
+                ULONG* dst = buffer;
+                ULONG tmp1, tmp2;
 
-            //D(bug("[WiFi] Copying data from %08lx to %08lx\n", (ULONG)src, (ULONG)dst));
+                //D(bug("[WiFi] Copying data from %08lx to %08lx\n", (ULONG)src, (ULONG)dst));
 
-            while(copyLength >= 8)
-            {
-                tmp1 = *src++;
-                tmp2 = *src++;
-                *dst++ = tmp1;
-                *dst++ = tmp2;
-                copyLength-=8;
-            }
-            if (copyLength >= 4)
-            {
-                *dst++ = *src++;
-                copyLength-=4;
-            }
-            if (copyLength > 0)
-            {
-                UBYTE *srcb = (UBYTE*)src;
-                UBYTE *dstb = (UBYTE*)dst;
-                while(copyLength)
+                while(copyLength >= 8)
                 {
-                    *dstb++ = *srcb++;
-                    copyLength--;
+                    tmp1 = *src++;
+                    tmp2 = *src++;
+                    *dst++ = tmp1;
+                    *dst++ = tmp2;
+                    copyLength-=8;
+                }
+                if (copyLength >= 4)
+                {
+                    *dst++ = *src++;
+                    copyLength-=4;
+                }
+                if (copyLength > 0)
+                {
+                    UBYTE *srcb = (UBYTE*)src;
+                    UBYTE *dstb = (UBYTE*)dst;
+                    while(copyLength)
+                    {
+                        *dstb++ = *srcb++;
+                        copyLength--;
+                    }
                 }
             }
-        }
-        else if (opener->o_RXFunc(io->ios2_Data, copyData, copyLength) == 0)
-        {
-            io->ios2_WireError = S2WERR_BUFF_ERROR;
-            io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
+            else if (opener->o_RXFunc(io->ios2_Data, copyData, copyLength) == 0)
+            {
+                io->ios2_WireError = S2WERR_BUFF_ERROR;
+                io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
 
-            /* Report error event */
+                /* Report error event */
+            }
         }
+        else
+        {
+            D(bug("[WiFi] Received frame without data\n"));
+        }
+
         /* Set number of bytes received */
         io->ios2_DataLength = copyLength;
 
@@ -1240,6 +1248,7 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
 void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
 {
     struct WiFiBase *WiFiBase = sdio->s_WiFiBase;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
     struct WiFiUnit *unit = WiFiBase->w_Unit;
     int accept = TRUE;
     UWORD packetType = *(UWORD*)&packet[12];
@@ -1247,19 +1256,23 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
     // Get destination address and check if it is a multicast
     uint64_t destAddr = ((uint64_t)*(UWORD*)&packet[0] << 32) |
                         *(ULONG*)&packet[2];
-#if 0
-    struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    bug("[DATA.IN] Packet in:\n");
-    for (ULONG i=0; i < packetLength; i++)
+#if 1
+    if (packetType == 0x888e)
     {
-        if (i % 16 == 0)
-            bug("[DATA.IN] %04lx: ", i);
-        bug(" %02lx", packet[i]);
-        if (i % 16 == 15)
-            bug("\n");
+        struct ExecBase *SysBase = WiFiBase->w_SysBase;
+        bug("[DATA.IN] Packet in:\n");
+        for (ULONG i=0; i < packetLength; i++)
+        {
+            if (i % 16 == 0)
+                bug("[DATA.IN] %04lx: ", i);
+            bug(" %02lx", packet[i]);
+            if (i % 16 == 15)
+                bug("\n");
+        }
+        if (packetLength % 16 != 0) bug("\n");
     }
-    if (packetLength % 16 != 0) bug("\n");
 #endif
+
     if (destAddr != 0xffffffffffffULL && (destAddr & 0x010000000000ULL))
     {
         struct MulticastRange *range;
@@ -1282,6 +1295,7 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
 
         unit->wu_Stats.PacketsReceived++;
 
+        Disable();
         /* Go through all openers */
         ForeachNode(&unit->wu_Openers, opener)
         {
@@ -1304,12 +1318,14 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
                 }
             }
         }
+        Enable();
 
         /* No receiver for this packet found? It's an orphan then */
         if (orphan)
         {
             unit->wu_Stats.UnknownTypesReceived++;
 
+            Disable();
             /* Go through all openers and offer orphan packet to anyone asking */
             ForeachNode(&unit->wu_Openers, opener)
             {
@@ -1323,6 +1339,7 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
                     CopyPacket(io, packet, packetLength);
                 }
             }
+            Enable();
         }
     }
 }
@@ -1417,32 +1434,45 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
             for (int i=0; i < 6; i++) ptr[i] = io->ios2_DstAddr[i];
 
             // Copy source
-            for (int i=0; i < 6; i++) ptr[6 + i] = io->ios2_SrcAddr[i];
+            for (int i=0; i < 6; i++) ptr[6 + i] = unit->wu_EtherAddr[i];
 
             // Copy packet type
             *(UWORD*)&ptr[12] = io->ios2_PacketType;
             ptr+=14;
         }
 
-        // Copy packet contents
-        if (opener->o_TXFuncDMA)
+        if (io->ios2_DataLength != 0)
         {
-            ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
-            CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
+            // Copy packet contents
+            if (opener->o_TXFuncDMA)
+            {
+                ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
+                CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
+            }
+            else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
         }
-        else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
+        else
+        {
+            D(bug("[WiFi] Sending Frame without data\n"));
+        }
 
-#if 0
-        bug("[DATA.OUT] Packet out:\n");
-        for (ULONG i=0; i < packetLength; i++)
+#if 1
+        if (io->ios2_PacketType == 0x888e)
         {
-            if (i % 16 == 0)
-                bug("[DATA.OUT] %04lx: ", i);
-            bug(" %02lx", ((UBYTE*)hw)[i]);
-            if (i % 16 == 15)
-                bug("\n");
+            UBYTE *ptr = (UBYTE *)hdr + sizeof(struct PacketHeaderSW) + 4;
+            ULONG length = packetLength - sizeof(struct Packet) - sizeof(struct GlomHeader) - 4;
+
+            bug("[DATA.OUT] Packet out:\n");
+            for (ULONG i=0; i < length; i++)
+            {
+                if (i % 16 == 0)
+                    bug("[DATA.OUT] %04lx: ", i);
+                bug(" %02lx", ptr[i]);
+                if (i % 16 == 15)
+                    bug("\n");
+            }
+            if (packetLength % 16 != 0) bug("\n");
         }
-        if (packetLength % 16 != 0) bug("\n");
 #endif
         // Increase total length by packet length (aligned)
         totalLength += (packetLength + 3) & ~3;
@@ -1525,14 +1555,20 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
         ptr+=14;
     }
 
-    // Copy packet contents
-    if (opener->o_TXFuncDMA)
+    if (io->ios2_DataLength != 0)
     {
-        ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
-        CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
+        // Copy packet contents
+        if (opener->o_TXFuncDMA)
+        {
+            ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
+            CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
+        }
+        else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
     }
-    else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
-
+    else
+    {
+        D(bug("[WiFi] Sending Frame without data\n"));
+    }
     //PacketDump(sdio, p, "WiFi.OUT");
 
     sdio->SendPKT((UBYTE*)p, totLen, sdio);
