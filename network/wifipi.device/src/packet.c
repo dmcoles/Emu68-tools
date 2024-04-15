@@ -1247,19 +1247,23 @@ void ProcessDataPacket(struct SDIO *sdio, UBYTE *packet, ULONG packetLength)
     // Get destination address and check if it is a multicast
     uint64_t destAddr = ((uint64_t)*(UWORD*)&packet[0] << 32) |
                         *(ULONG*)&packet[2];
-#if 0
-    struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    bug("[DATA.IN] Packet in:\n");
-    for (ULONG i=0; i < packetLength; i++)
+#if 1
+    if (packetType == 0x888e)
     {
-        if (i % 16 == 0)
-            bug("[DATA.IN] %04lx: ", i);
-        bug(" %02lx", packet[i]);
-        if (i % 16 == 15)
-            bug("\n");
+        struct ExecBase *SysBase = WiFiBase->w_SysBase;
+        bug("[DATA.IN] Packet in:\n");
+        for (ULONG i=0; i < packetLength; i++)
+        {
+            if (i % 16 == 0)
+                bug("[DATA.IN] %04lx: ", i);
+            bug(" %02lx", packet[i]);
+            if (i % 16 == 15)
+                bug("\n");
+        }
+        if (packetLength % 16 != 0) bug("\n");
     }
-    if (packetLength % 16 != 0) bug("\n");
 #endif
+
     if (destAddr != 0xffffffffffffULL && (destAddr & 0x010000000000ULL))
     {
         struct MulticastRange *range;
@@ -1432,17 +1436,23 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
         }
         else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
 
-#if 0
-        bug("[DATA.OUT] Packet out:\n");
-        for (ULONG i=0; i < packetLength; i++)
+#if 1
+        if (io->ios2_PacketType == 0x888e)
         {
-            if (i % 16 == 0)
-                bug("[DATA.OUT] %04lx: ", i);
-            bug(" %02lx", ((UBYTE*)hw)[i]);
-            if (i % 16 == 15)
-                bug("\n");
+            UBYTE *ptr = (UBYTE *)hdr + sizeof(struct PacketHeaderSW) + 4;
+            ULONG length = packetLength - sizeof(struct Packet) - sizeof(struct GlomHeader) - 4;
+
+            bug("[DATA.OUT] Packet out:\n");
+            for (ULONG i=0; i < length; i++)
+            {
+                if (i % 16 == 0)
+                    bug("[DATA.OUT] %04lx: ", i);
+                bug(" %02lx", ptr[i]);
+                if (i % 16 == 15)
+                    bug("\n");
+            }
+            if (packetLength % 16 != 0) bug("\n");
         }
-        if (packetLength % 16 != 0) bug("\n");
 #endif
         // Increase total length by packet length (aligned)
         totalLength += (packetLength + 3) & ~3;
