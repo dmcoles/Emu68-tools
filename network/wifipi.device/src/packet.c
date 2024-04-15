@@ -1417,7 +1417,7 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
             for (int i=0; i < 6; i++) ptr[i] = io->ios2_DstAddr[i];
 
             // Copy source
-            for (int i=0; i < 6; i++) ptr[6 + i] = io->ios2_SrcAddr[i];
+            for (int i=0; i < 6; i++) ptr[6 + i] = unit->wu_EtherAddr[i];
 
             // Copy packet type
             *(UWORD*)&ptr[12] = io->ios2_PacketType;
