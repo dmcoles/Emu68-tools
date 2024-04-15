@@ -220,8 +220,9 @@ void StartUnit(struct WiFiUnit *unit)
         unit->wu_OrigEtherAddr[0], unit->wu_OrigEtherAddr[1], unit->wu_OrigEtherAddr[2],
         unit->wu_OrigEtherAddr[3], unit->wu_OrigEtherAddr[4], unit->wu_OrigEtherAddr[5]));
 
-    CopyMem(unit->wu_OrigEtherAddr, unit->wu_EtherAddr, 6);
-
+    /* Don't set EtherAddr yet. */
+    _bzero(unit->wu_EtherAddr, 6);
+    
     unit->wu_Flags |= IFF_STARTED;
 }
 
