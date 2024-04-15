@@ -325,11 +325,11 @@ void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
     struct Opener *opener;
 
     /* Report event to every listener of every opener accepting the mask */
+    Disable();
     ForeachNode(&unit->wu_Openers, opener)
     {
         struct IOSana2Req *io, *next;
-        
-        Disable();
+
         ForeachNodeSafe(&opener->o_EventListeners.mp_MsgList, io, next)
         {
             /* Check if event mask in WireError fits the events occured */
@@ -343,8 +343,8 @@ void ReportEvents(struct WiFiUnit *unit, ULONG eventSet)
                 ReplyMsg((struct Message *)io);
             }
         }
-        Enable();
     }
+    Enable();
 }
 
 static int Do_S2_GETCRYPTTYPES(struct IOSana2Req *io)
