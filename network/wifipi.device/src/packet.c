@@ -1449,7 +1449,7 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
                 ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
                 CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
             }
-            else opener->o_TXFunc(ptr, io->ios2_Data, (io->ios2_DataLength + 3) & ~3);
+            else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
         }
         else
         {
@@ -1563,7 +1563,7 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
             ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
             CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
         }
-        else opener->o_TXFunc(ptr, io->ios2_Data, (io->ios2_DataLength + 3) & ~3);
+        else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
     }
     else
     {
