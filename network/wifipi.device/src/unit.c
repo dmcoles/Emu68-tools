@@ -1272,6 +1272,35 @@ int Do_S2_DEVICEQUERY(struct IOSana2Req *io)
     return 1;
 }
 
+static int Do_S2_ONLINE(struct IOSana2Req *io)
+{
+    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
+    struct WiFiBase *WiFiBase = unit->wu_Base;
+    struct ExecBase *SysBase = WiFiBase->w_SysBase;
+    struct TimerBase *TimerBase = unit->wu_TimerBase;
+
+    D(bug("[WiFi.0] S2_ONLINE\n"));
+
+    // Bring all stats to 0
+    _bzero(&unit->wu_Stats, sizeof(struct Sana2DeviceStats));
+    
+    // Get last start time
+    GetSysTime(&unit->wu_Stats.LastStart);
+
+    /* If unit was not yet online, report event now */
+
+    D(bug("[WiFi.0] unit->wu_Flags = %08lx\n", unit->wu_Flags));
+
+    if ((unit->wu_Flags & IFF_ONLINE) == 0)
+    {
+        unit->wu_Flags |= IFF_ONLINE;
+
+        ReportEvents(unit, S2EVENT_ONLINE);
+    }
+
+    return 1;
+}
+
 static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
 {
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
@@ -1400,29 +1429,10 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
 
         /* We do not allow to change ethernet address yet */
         unit->wu_Flags |= IFF_CONFIGURED | IFF_UP;
+
+        /* Bring unit online */
+        Do_S2_ONLINE(io);
     }
-
-    return 1;
-}
-
-static int Do_S2_ONLINE(struct IOSana2Req *io)
-{
-    struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
-    struct WiFiBase *WiFiBase = unit->wu_Base;
-    struct ExecBase *SysBase = WiFiBase->w_SysBase;
-    struct TimerBase *TimerBase = unit->wu_TimerBase;
-
-    D(bug("[WiFi.0] S2_ONLINE\n"));
-
-    // Bring all stats to 0
-    _bzero(&unit->wu_Stats, sizeof(struct Sana2DeviceStats));
-    
-    // Get last start time
-    GetSysTime(&unit->wu_Stats.LastStart);
-
-    unit->wu_Flags |= IFF_ONLINE;
-
-    ReportEvents(unit, S2EVENT_ONLINE);
 
     return 1;
 }
@@ -1436,8 +1446,6 @@ static int Do_S2_OFFLINE(struct IOSana2Req *io)
     struct IOSana2Req *req;
 
     D(bug("[WiFi.0] S2_OFFLINE\n"));
-
-    unit->wu_Flags &= ~IFF_ONLINE;
 
     /* Flush network scan requests */
     Disable();
@@ -1467,7 +1475,13 @@ static int Do_S2_OFFLINE(struct IOSana2Req *io)
         ReplyMsg((struct Message *)req);
     }
 
-    ReportEvents(unit, S2EVENT_OFFLINE);
+    /* If unit was ONLINE before, report offline event now */
+    if (unit->wu_Flags & IFF_ONLINE)
+    {
+        unit->wu_Flags &= ~IFF_ONLINE;
+
+        ReportEvents(unit, S2EVENT_OFFLINE);
+    }
 
     return 1;
 }
