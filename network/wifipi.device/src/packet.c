@@ -1833,7 +1833,7 @@ int PacketSetVar(struct SDIO *sdio, char *varName, const void *setBuffer, int se
     sw->c_FlowControl = 0;
     sw->c_Seq = sdio->s_TXSeq++;
 
-    c->c_Command = LE32(263);
+    c->c_Command = LE32(BRCMF_C_SET_VAR); 
     c->c_Length = LE32(varSize + setSize);
     c->c_Flags = LE16(BCDC_DCMD_SET);
     c->c_ID = LE16(++(sdio->s_CmdID));
