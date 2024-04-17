@@ -161,6 +161,7 @@ struct WiFiUnit
     struct ExtJoinParams    wu_JoinParams;
     UBYTE *                 wu_AssocIE;
     UWORD                   wu_AssocIELength;
+    UBYTE *                 wu_WPAInfo;
 };
 
 struct MulticastRange {
