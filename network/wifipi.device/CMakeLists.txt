@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.14.0)
-project(WiFiPi VERSION 0.2.0)
+project(WiFiPi VERSION 0.3.0)
 get_verstring(VERSTRING)
 
 add_link_options(-ffreestanding -nostdlib -nostartfiles -Wl,-e,__start)
-add_compile_options(-O2 -m68040 -Wall -Wextra -Werror -fomit-frame-pointer)
+add_compile_options(-Os -m68040 -Wall -Wextra -Werror -fomit-frame-pointer)
 add_compile_definitions(PRIVATE VERSION_STRING="${VERSTRING}")
 
 add_executable(wifipi.device
