@@ -467,14 +467,26 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
         for (ULONG i=0; i < io->ios2_DataLength; i++) {
             if (i == 0)
                 bug(" (%02lx, ", ((UBYTE*)io->ios2_Data)[i]);
-            if (i == io->ios2_DataLength - 1)
+            else if (i == io->ios2_DataLength - 1)
                 bug("%02lx)\n", ((UBYTE*)io->ios2_Data)[i]);
             else
                 bug("%02lx, ", ((UBYTE*)io->ios2_Data)[i]);
         }
     }
     else { D(bug("\n")); }
-    D(bug("[WiFi.0]   RX cnt: %ld\n", (ULONG)io->ios2_StatData));
+    D(bug("[WiFi.0]   RX cnt: %08lx", (ULONG)io->ios2_StatData));
+    if (io->ios2_StatData)
+    {
+        for (ULONG i=0; i < 8; i++) {
+            if (i == 0)
+                bug(" (%02lx, ", ((UBYTE*)io->ios2_StatData)[i]);
+            else if (i == 7 - 1)
+                bug("%02lx)\n", ((UBYTE*)io->ios2_StatData)[i]);
+            else
+                bug("%02lx, ", ((UBYTE*)io->ios2_StatData)[i]);
+        }
+    }
+    else { D(bug("\n")); }
 
     if (unit->wu_Keys[idx].k_Key)
         FreeVecPooled(WiFiBase->w_MemPool, unit->wu_Keys[idx].k_Key);
@@ -484,7 +496,7 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     unit->wu_Keys[idx].k_RXCount = (ULONG)io->ios2_StatData;
     if (io->ios2_DataLength != 0)
     {
-        unit->wu_Keys[idx].k_Key = AllocVecPooled(WiFiBase->w_MemPool, io->ios2_DataLength);
+        unit->wu_Keys[idx].k_Key = AllocVecPooledClear(WiFiBase->w_MemPool, io->ios2_DataLength);
         if (unit->wu_Keys[idx].k_Key == NULL)
         {
             io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
@@ -497,6 +509,86 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     else
     {
         unit->wu_Keys[idx].k_Key = NULL;
+    }
+
+    /* If key length == 0 then actually clear the key */
+    if (io->ios2_DataLength == 0)
+    {
+        struct bwfm_wsec_key key;
+        _bzero(&key, sizeof(key));
+
+        /* Set index and flags only, everything else remains empty */
+        key.k_Index = LE32(io->ios2_WireError);
+        key.k_Flags = LE32(WSEC_PRIMARY_KEY);
+
+        PacketSetVar(WiFiBase->w_SDIO, "wsec_key", &key, sizeof(key));
+    }
+    else
+    {
+        ULONG wsec = 0;
+        ULONG wsec_orig = 0;
+        struct bwfm_wsec_key key;
+        _bzero(&key, sizeof(key));
+        
+        UBYTE *rx_counter = io->ios2_StatData;
+
+        /* Set index and primary key */
+        key.k_Index = LE32(io->ios2_WireError);
+        key.k_Flags = LE32(WSEC_PRIMARY_KEY);
+        key.k_Length = LE32(io->ios2_DataLength);
+
+        key.k_RXIV.riv_High = LE32(*(ULONG*)(rx_counter + 2));
+        key.k_RXIV.riv_Low = LE16(*(UWORD*)(rx_counter));
+
+        /* Copy key itself */
+        CopyMem(io->ios2_Data, key.k_Data, io->ios2_DataLength);
+
+        /* Key idx 0 is GTK, it needs AP's BSSID and flags zeroed */
+        if (io->ios2_WireError == 0)
+        {
+            CopyMem(unit->wu_JoinParams.ej_Assoc.ap_BSSID, &key.k_EA, 6);
+            key.k_Flags = 0;
+        }
+
+        switch (io->ios2_PacketType)
+        {
+            case S2ENC_NONE:
+                break;
+            case S2ENC_WEP:
+                key.k_Algo = LE32(CRYPTO_ALGO_WEP128);
+                wsec = WEP_ENABLED;
+                break;
+            case S2ENC_TKIP:
+                key.k_Algo = LE32(CRYPTO_ALGO_TKIP);
+                wsec = TKIP_ENABLED;
+                break;
+            case S2ENC_CCMP:
+                key.k_Algo = LE32(CRYPTO_ALGO_AES_CCM);
+                wsec = AES_ENABLED;
+                break;
+        }
+
+        D(bug("[WiFi.0] Setting key (size %ld)\n", sizeof(key)));
+        for (unsigned i=0; i < sizeof(key); i++)
+        {
+            if (i % 16 == 0)
+                D(bug("[KEY] %03lx:", i));
+            
+            D(bug(" %02lx", ((UBYTE*)&key)[i]));
+            if (i % 16 == 15)
+                D(bug("\n"));
+        }
+        if (sizeof(key) & 15) D(bug("\n"));
+
+        PacketSetVar(WiFiBase->w_SDIO, "wsec_key", &key, sizeof(key));
+        D(bug("[WiFi.0] Key set\n"));
+        PacketGetVar(WiFiBase->w_SDIO, "wsec", &wsec_orig, sizeof(ULONG));
+        wsec_orig = LE32(wsec_orig);
+        D(bug("[WiFi.0] Orig wsec: %08lx\n", wsec_orig));
+        wsec_orig &= ~(TKIP_ENABLED | WEP_ENABLED | AES_ENABLED);
+        wsec |= wsec_orig;
+        D(bug("[WiFi.0] New wsec: %08lx\n", wsec));
+        PacketSetVarInt(WiFiBase->w_SDIO, "wsec", wsec);
     }
 
     return 1;
@@ -779,8 +871,11 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
 
         mfp = BRCMF_MFP_NONE;
         /* TODO: handle MFP... */
-        
-        ULONG wsec = pval | gval | SES_OW_ENABLED;
+
+        /* Send WPA IE to WiFi module */
+        PacketSetVar(WiFiBase->w_SDIO, "wpaie", ie_b, length);
+
+        ULONG wsec = pval | gval; // | SES_OW_ENABLED;
 
         /* Set auth to OPEN - required by WPA/WPA2/WPA3 */
         PacketSetVarInt(WiFiBase->w_SDIO, "auth", 0);
@@ -793,6 +888,10 @@ static int Do_S2_SETOPTIONS(struct IOSana2Req *io)
 
         /* Set wpa auth now */
         PacketSetVarInt(WiFiBase->w_SDIO, "wpa_auth", wpa_auth);
+
+        if (unit->wu_WPAInfo != NULL) FreeVecPooled(WiFiBase->w_MemPool, unit->wu_WPAInfo);
+        unit->wu_WPAInfo = AllocVecPooled(WiFiBase->w_MemPool, ie_b[1] + 2);
+        CopyMem(ie_b, unit->wu_WPAInfo, ie_b[1] + 2);
     }
     else
     {
@@ -860,11 +959,14 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
     CopyMem(unit->wu_JoinParams.ej_Assoc.ap_BSSID, (APTR)tags->ti_Data, 6);
     tags++;
 
+#if 0
     if (unit->wu_AssocIELength != 0)
     {
         APTR ie = FindWPAIE(unit->wu_AssocIE, unit->wu_AssocIELength);
         ULONG ieLen = 0;
         
+        D(bug("[WiFi.0] AssocIELength = %ld\n", unit->wu_AssocIELength));
+
         if (ie)
         {
             ieLen = TLV_HDR_LEN + ((UBYTE*)ie)[1];
@@ -896,6 +998,15 @@ static int Do_S2_GETNETWORKINFO(struct IOSana2Req *io)
             tags++;
         }
     }
+#endif
+    if (unit->wu_WPAInfo)
+    {
+        tags->ti_Tag = S2INFO_WPAInfo;
+        tags->ti_Data = (ULONG)AllocPooled(memPool, unit->wu_WPAInfo[1] + 2);
+        CopyMem(unit->wu_WPAInfo, (APTR)tags->ti_Data, unit->wu_WPAInfo[1] + 2);
+        tags++;
+    }
+    
 
     tags->ti_Tag = TAG_DONE;
     tags->ti_Data = 0;
