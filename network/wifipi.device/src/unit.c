@@ -1516,11 +1516,13 @@ static int Do_S2_CONFIGINTERFACE(struct IOSana2Req *io)
         /* Enable TX beamforming */
         //PacketSetVarInt(sdio, "txbf", 1);
 
+#if 0
         /* Disable all offloading (ARP, NDP, TCP/UDP cksum). */
         PacketSetVarInt(sdio, "arp_ol", 0);
         PacketSetVarInt(sdio, "arpoe", 0);
         PacketSetVarInt(sdio, "ndoe", 0);
         PacketSetVarInt(sdio, "toe", 0);
+#endif
 
         PacketSetVarInt(sdio, "sup_wpa", 0);
 
