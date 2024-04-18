@@ -1449,11 +1449,11 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
                 ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
                 CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
             }
-            else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
+            else opener->o_TXFunc(ptr, io->ios2_Data, (io->ios2_DataLength + 3) & ~3);
         }
         else
         {
-            D(bug("[WiFi] Sending Frame without data\n"));
+            D(bug("[WiFi] Sending Frame without data, packet type %04lx\n", io->ios2_PacketType));
         }
 
 #if 1
@@ -1563,11 +1563,11 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
             ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
             CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
         }
-        else opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
+        else opener->o_TXFunc(ptr, io->ios2_Data, (io->ios2_DataLength + 3) & ~3);
     }
     else
     {
-        D(bug("[WiFi] Sending Frame without data\n"));
+        D(bug("[WiFi] Sending non-glom Frame without data, packet type %04lx\n", io->ios2_PacketType));
     }
     //PacketDump(sdio, p, "WiFi.OUT");
 
