@@ -6,6 +6,7 @@ get_verstring(VERSTRING)
 
 add_subdirectory(common)
 add_subdirectory(devicetree.resource)
+add_subdirectory(gic.resource)
 add_subdirectory(sdcard.device)
 add_subdirectory(VideoCore.card)
 add_subdirectory(unicam.resource)
