@@ -3,6 +3,7 @@
 #include <libraries/configvars.h>
 #include <exec/lists.h>
 #include <exec/nodes.h>
+#include <exec/resident.h>
 
 #include <proto/exec.h>
 #include <proto/expansion.h>
