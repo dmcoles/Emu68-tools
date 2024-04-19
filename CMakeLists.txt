@@ -20,6 +20,7 @@ add_subdirectory(i2c.library)
 add_subdirectory(lattice_i2c_prog)
 add_subdirectory(SetClockI2C)
 add_subdirectory(network)
+add_subdirectory(Emu68rom)
 
 # Contribs
 # add_subdirectory(Emu68Contribs/Emu68Info) <-- Disabled until original gets an update

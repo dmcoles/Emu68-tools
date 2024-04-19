@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14.0)
 project(devicetree VERSION 1.5.0)
 get_verstring(VERSTRING)
 
-add_link_options(-ffreestanding -nostdlib -nostartfiles -Wl,-e_rom_start -Wl,-T${CMAKE_CURRENT_SOURCE_DIR}/ldscript.lds)
+add_link_options(-ffreestanding -nostdlib -nostartfiles -s -Wl,-e_rom_start -Wl,-T${CMAKE_CURRENT_SOURCE_DIR}/ldscript.lds)
 add_compile_options(-Os -m68040 -msmall-code -mpcrel -fomit-frame-pointer)
 add_compile_definitions(PRIVATE VERSION_STRING="${VERSTRING}")
 
