@@ -3,14 +3,7 @@
 #include <libraries/configvars.h>
 #include <exec/lists.h>
 #include <exec/nodes.h>
-<<<<<<< HEAD
-<<<<<<< HEAD
 #include <exec/resident.h>
-=======
->>>>>>> 090e978 (Emu68 rom as placeholder for all rom-embeddable drivers)
-=======
-#include <exec/resident.h>
->>>>>>> 57199e0 (add resident.h include)
 
 #include <proto/exec.h>
 #include <proto/expansion.h>
