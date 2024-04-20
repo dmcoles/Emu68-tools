@@ -100,7 +100,7 @@ static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
 static const ULONG rx_tags[] = {
     S2_CopyToBuff,
     S2_CopyToBuff16,
-    S2_CopyToBuff32,
+    //S2_CopyToBuff32,
     0
 };
 

@@ -45,5 +45,26 @@
 
 #define WPA3_AUTH_SAE_PSK       0x40000 /* SAE with 4-way handshake */
 
+struct bwfm_wsec_key {
+    uint32_t k_Index;
+    uint32_t k_Length;
+    uint8_t  k_Data[32];
+    uint32_t PAD[18];
+    uint32_t k_Algo;
+    uint32_t k_Flags;
+    uint32_t PAD[3];
+    uint32_t k_IV;
+    uint32_t PAD;
+    struct {
+        uint32_t riv_High;
+        uint16_t riv_Low;
+        uint16_t PAD;
+    }       k_RXIV;
+    uint32_t PAD[2];
+    uint8_t  k_EA[6];
+    uint16_t PAD;
+};
+
+#define WSEC_PRIMARY_KEY    0x0002
 
 #endif /* _BRCM_WIFI_H */
