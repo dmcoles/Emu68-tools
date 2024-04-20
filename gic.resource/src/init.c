@@ -30,6 +30,8 @@ extern const char deviceIdString[];
 int _strcmp(const char *s1, const char *s2);
 
 asm(".globl _GetVBR\n_GetVBR: movec.l VBR, d0; rte");
+asm(".globl _GetVEC\n_GetVEC: movec.l #0x1e1, d0; rte");
+asm(".globl _intSetVEC\n_intSetVEC: movec.l d0, #0x1e1; rte");
 
 asm(
     "           .globl _IntEntry\n\t.globl _IntEntryLength\n"
@@ -53,9 +55,20 @@ asm(
 );
 
 extern ULONG GetVBR();
+extern ULONG GetVEC();
+extern void intSetVEC();
 extern UBYTE IntEntry;
 extern ULONG IntEntryLength;
 extern UBYTE ListAddr;
+
+static inline void SetVEC(ULONG v, struct ExecBase *_SysBase)
+{
+    register struct ExecBase *SysBase asm("a6") = _SysBase;
+    register ULONG vec asm("d0") = v;
+    register APTR func asm("a5") = intSetVEC;
+
+    asm volatile("jsr -30(%0)"::"r"(SysBase),"r"(vec), "r"(func));
+}
 
 APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 {
@@ -110,10 +123,11 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
         APTR *vbr = (APTR *)Supervisor(GetVBR);
         ULONG installed = 0;
         const ULONG handlerSize = IntEntryLength;
-        const ULONG handlerListOffset = 2 + (&ListAddr - &IntEntry);
+
+        D(bug("[gic] CPU VBR at %08lx\n", (ULONG)vbr));
 
         /* Go through the VBR table */
-        for (UBYTE vector = 64; vector == 0; vector++)
+        for (int vector = 64; vector < 256; vector++)
         {
             /* If entry in the table is not set until now (NULL), install handler there */
             if (vbr[vector] == NULL)
@@ -131,7 +145,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 CopyMem(&IntEntry, handler, handlerSize);
 
                 // Install List address within handler's code
-                *(APTR *)((ULONG)handler + handlerListOffset) = &GICBase->g_IntServers[installed];
+                *(APTR *)((ULONG)handler + 2 - (ULONG)&IntEntry + &ListAddr) = &GICBase->g_IntServers[installed];
 
                 D(bug("[gic] Installing %s handler %08lx at vector %ld\n",
                     (ULONG)vecNames[installed], (ULONG)handler, vector));
@@ -162,6 +176,13 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             CloseLibrary((struct Library *)ExpansionBase);
             return NULL;
         }
+
+        /* Set obtained vectors */
+        ULONG vec = GICBase->g_Vectors[0] |
+                   (GICBase->g_Vectors[1] << 8) |
+                   (GICBase->g_Vectors[2] << 16);
+        
+        SetVEC(0x40000000 | vec, SysBase);
 
         Enable();
 
