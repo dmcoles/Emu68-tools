@@ -1190,40 +1190,7 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
     {
         if (copyLength != 0)
         {
-            if (opener->o_RXFuncDMA)
-            {
-                APTR buffer = opener->o_RXFuncDMA(io->ios2_Data);
-                ULONG* src = (ULONG*)copyData;
-                ULONG* dst = buffer;
-                ULONG tmp1, tmp2;
-
-                //D(bug("[WiFi] Copying data from %08lx to %08lx\n", (ULONG)src, (ULONG)dst));
-
-                while(copyLength >= 8)
-                {
-                    tmp1 = *src++;
-                    tmp2 = *src++;
-                    *dst++ = tmp1;
-                    *dst++ = tmp2;
-                    copyLength-=8;
-                }
-                if (copyLength >= 4)
-                {
-                    *dst++ = *src++;
-                    copyLength-=4;
-                }
-                if (copyLength > 0)
-                {
-                    UBYTE *srcb = (UBYTE*)src;
-                    UBYTE *dstb = (UBYTE*)dst;
-                    while(copyLength)
-                    {
-                        *dstb++ = *srcb++;
-                        copyLength--;
-                    }
-                }
-            }
-            else if (opener->o_RXFunc(io->ios2_Data, copyData, copyLength) == 0)
+            if (opener->o_RXFunc(io->ios2_Data, copyData, copyLength) == 0)
             {
                 io->ios2_WireError = S2WERR_BUFF_ERROR;
                 io->ios2_Req.io_Error = S2ERR_NO_RESOURCES;
@@ -1445,12 +1412,7 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
         if (io->ios2_DataLength != 0)
         {
             // Copy packet contents
-            if (opener->o_TXFuncDMA)
-            {
-                ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
-                CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
-            }
-            else opener->o_TXFunc(ptr, io->ios2_Data, (io->ios2_DataLength + 3) & ~3);
+            opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
         }
         else
         {
@@ -1559,12 +1521,7 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     if (io->ios2_DataLength != 0)
     {
         // Copy packet contents
-        if (opener->o_TXFuncDMA)
-        {
-            ULONG *src = opener->o_TXFuncDMA(io->ios2_Data);
-            CopyMemQuick(src, ptr, (io->ios2_DataLength + 3) & ~3);
-        }
-        else opener->o_TXFunc(ptr, io->ios2_Data, (io->ios2_DataLength + 3) & ~3);
+        opener->o_TXFunc(ptr, io->ios2_Data, io->ios2_DataLength);
     }
     else
     {

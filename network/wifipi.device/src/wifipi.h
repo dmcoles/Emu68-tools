@@ -180,8 +180,6 @@ struct Opener
     struct Hook *       o_FilterHook;
     BOOL              (*o_RXFunc)(REGARG(APTR, "a0"), REGARG(APTR, "a1"), REGARG(ULONG, "d0"));
     BOOL              (*o_TXFunc)(REGARG(APTR, "a0"), REGARG(APTR, "a1"), REGARG(ULONG, "d0"));
-    APTR              (*o_RXFuncDMA)(REGARG(APTR, "a0"));
-    APTR              (*o_TXFuncDMA)(REGARG(APTR, "a0"));
 };
 
 /* Standard interface flags (netdevice->flags). */
