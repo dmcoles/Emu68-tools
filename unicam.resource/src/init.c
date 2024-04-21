@@ -449,13 +449,16 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                 LONG kernel_b = (UnicamBase->u_KernelB * 256) / 1000;
                 LONG kernel_c = (UnicamBase->u_KernelC * 256) / 1000;
 
-                UnicamBase->u_UnicamKernel = 0x400;
+                UnicamBase->u_UnicamKernel = 0x300;
                 ULONG *dlistPtr = (ULONG *)((ULONG)UnicamBase->u_PeriphBase + 
                     (UnicamBase->u_IsVC6 ? 0x00404000 : 0x00402000));
 
                 bug("[unicam] DisplayList at %08lx\n", (ULONG)dlistPtr);
 
-                UnicamStart(UnicamBase->u_ReceiveBuffer, 1, UNICAM_MODE, UNICAM_WIDTH, UNICAM_HEIGHT, UNICAM_BPP);
+                UnicamStart(UnicamBase->u_ReceiveBuffer, 1, 
+                    UnicamBase->u_Mode, 
+                    UnicamBase->u_FullSize.width, UnicamBase->u_FullSize.height,
+                    UnicamBase->u_BPP);
 
                 while (UnicamBase->u_DisplaySize.width == 0 || UnicamBase->u_DisplaySize.height == 0)
                 {
