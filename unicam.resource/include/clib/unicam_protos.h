@@ -29,6 +29,8 @@ ULONG UnicamGetCropSize(void);
 ULONG UnicamGetCropOffset(void);
 ULONG UnicamGetKernel(void);
 ULONG UnicamGetConfig(void);
+ULONG UnicamGetSize(void);
+ULONG UnicamGetMode(void);
 
 #ifdef __cplusplus
 }

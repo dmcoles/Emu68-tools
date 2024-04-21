@@ -52,4 +52,12 @@ typedef ULONG _sfdc_vararg;
       LP0(0x30, ULONG, UnicamGetConfig ,\
       , UNICAM_BASE_NAME)
 
+#define UnicamGetSize() \
+      LP0(0x36, ULONG, UnicamGetSize ,\
+      , UNICAM_BASE_NAME)
+
+#define UnicamGetMode() \
+      LP0(0x3c, ULONG, UnicamGetMode ,\
+      , UNICAM_BASE_NAME)
+
 #endif /* !_INLINE_UNICAM_H */
