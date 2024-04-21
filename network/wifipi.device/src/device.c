@@ -90,31 +90,40 @@ static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
         /* Wait for unit and receiver tasks to finish */
         do {
             if (tr) {
-                tr->tr_time.tv_micro = 100000;
+                tr->tr_time.tv_micro = 250000;
                 tr->tr_time.tv_secs = 0;
                 tr->tr_node.io_Command = TR_ADDREQUEST;
-                SendIO(&tr->tr_node);
+                DoIO(&tr->tr_node);
             }
+            D(bug("[WiFi] Receiver: %08lx, Unit: %08lx\n", (ULONG)WiFiBase->w_SDIO->s_ReceiverTask, (ULONG)WiFiBase->w_Unit->wu_Task));
         } while(WiFiBase->w_SDIO->s_ReceiverTask != 0 || WiFiBase->w_Unit->wu_Task != 0);
 
         CloseDevice(&tr->tr_node);
         DeleteIORequest(tr);
         DeleteMsgPort(port);
 
+        D(bug("[WiFi] Both tasks finished\n"));
+
         if (WiFiBase->w_UtilityBase != NULL)
         {
             CloseLibrary(WiFiBase->w_UtilityBase);
+        }
+        if (WiFiBase->w_DosBase != NULL)
+        {
+            CloseLibrary(WiFiBase->w_DosBase);
         }
 
         /* Return SegList so that DOS can unload the binary */
         segList = WiFiBase->w_SegList;
 
+        Disable();
         /* Remove device node */
         Remove(&WiFiBase->w_Device.dd_Library.lib_Node);
+        Enable();
 
         /* Free memory */
         DeletePool(WiFiBase->w_MemPool);
-        FreeMem((APTR)((ULONG)WiFiBase - (negSize + posSize)), sizeof(struct WiFiBase));
+        FreeMem((APTR)((ULONG)WiFiBase - negSize), negSize + posSize);
     }
     else
     {
@@ -146,7 +155,7 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
     
     if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOSana2Req))
     {
-        D(bug("[WiFI] Opening device with ordinary IORequest. Allowing limited mode only\n"));
+        D(bug("[WiFi] Opening device with ordinary IORequest. Allowing limited mode only\n"));
         if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOStdReq))
         {
             /* Message smaller than regular IORequest? Too bad, break now. */
