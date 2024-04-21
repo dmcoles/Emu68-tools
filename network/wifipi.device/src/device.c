@@ -97,20 +97,6 @@ static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
     return segList;
 }
 
-static const ULONG rx_tags[] = {
-    S2_CopyToBuff,
-    S2_CopyToBuff16,
-    //S2_CopyToBuff32,
-    0
-};
-
-static const ULONG tx_tags[] = {
-    S2_CopyFromBuff,
-    S2_CopyFromBuff16,
-    S2_CopyFromBuff32,
-    0
-};
-
 void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0"), REGARG(ULONG flags, "d1"))
 {
     struct WiFiBase *WiFiBase = (struct WiFiBase *)io->ios2_Req.io_Device;
@@ -207,14 +193,8 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
         NewList(&opener->o_EventListeners.mp_MsgList);
         opener->o_EventListeners.mp_Flags = PA_IGNORE;
 
-        for(int i = 0; rx_tags[i] != 0; i++) {
-            opener->o_RXFunc = (APTR)GetTagData(rx_tags[i], (ULONG)opener->o_RXFunc, tags);
-        }
-
-        for(int i = 0; tx_tags[i] != 0; i++) {
-            opener->o_TXFunc = (APTR)GetTagData(tx_tags[i], (ULONG)opener->o_TXFunc, tags);
-        }
-
+        opener->o_RXFunc = (APTR)GetTagData(S2_CopyToBuff, (ULONG)opener->o_RXFunc, tags);
+        opener->o_TXFunc = (APTR)GetTagData(S2_CopyFromBuff, (ULONG)opener->o_TXFunc, tags);
 /*
         opener->o_TXFuncDMA = (APTR)GetTagData(S2_DMACopyFromBuff32, 0, tags);
         opener->o_RXFuncDMA = (APTR)GetTagData(S2_DMACopyToBuff32, 0, tags);
