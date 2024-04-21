@@ -6,6 +6,7 @@
 
 #include <utility/tagitem.h>
 
+#include <devices/timer.h>
 #include <devices/sana2.h>
 #include <devices/sana2specialstats.h>
 #include <devices/newstyle.h>
@@ -69,23 +70,60 @@ static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
     /* If device's open count is 0, remove it from list and free memory */
     if (WiFiBase->w_Device.dd_Library.lib_OpenCnt == 0)
     {
+        struct MsgPort *port = CreateMsgPort();
+        struct timerequest *tr = CreateIORequest(port, sizeof(struct timerequest));
+
         UWORD negSize = WiFiBase->w_Device.dd_Library.lib_NegSize;
         UWORD posSize = WiFiBase->w_Device.dd_Library.lib_PosSize;
+
+        if (tr != NULL && port != NULL)
+        {
+            OpenDevice((CONST_STRPTR)"timer.device", UNIT_VBLANK, (struct IORequest *)tr, 0);
+        }
+
+        /* Stop tasks */
+        D(bug("[WiFi] Killing receiver task\n"));
+        Signal(WiFiBase->w_SDIO->s_ReceiverTask, SIGBREAKF_CTRL_C);
+        D(bug("[WiFi] Killing unit task\n"));
+        Signal(WiFiBase->w_Unit->wu_Task, SIGBREAKF_CTRL_C);
+
+        /* Wait for unit and receiver tasks to finish */
+        do {
+            if (tr) {
+                tr->tr_time.tv_micro = 250000;
+                tr->tr_time.tv_secs = 0;
+                tr->tr_node.io_Command = TR_ADDREQUEST;
+                DoIO(&tr->tr_node);
+            }
+            D(bug("[WiFi] Receiver: %08lx, Unit: %08lx\n", (ULONG)WiFiBase->w_SDIO->s_ReceiverTask, (ULONG)WiFiBase->w_Unit->wu_Task));
+        } while(WiFiBase->w_SDIO->s_ReceiverTask != 0 || WiFiBase->w_Unit->wu_Task != 0);
+
+        CloseDevice(&tr->tr_node);
+        DeleteIORequest(tr);
+        DeleteMsgPort(port);
+
+        D(bug("[WiFi] Both tasks finished\n"));
 
         if (WiFiBase->w_UtilityBase != NULL)
         {
             CloseLibrary(WiFiBase->w_UtilityBase);
         }
+        if (WiFiBase->w_DosBase != NULL)
+        {
+            CloseLibrary(WiFiBase->w_DosBase);
+        }
 
         /* Return SegList so that DOS can unload the binary */
         segList = WiFiBase->w_SegList;
 
+        Disable();
         /* Remove device node */
         Remove(&WiFiBase->w_Device.dd_Library.lib_Node);
+        Enable();
 
         /* Free memory */
-        FreeMem(WiFiBase->w_RequestOrig, 512);
-        FreeMem((APTR)((ULONG)WiFiBase - (negSize + posSize)), sizeof(struct WiFiBase));
+        DeletePool(WiFiBase->w_MemPool);
+        FreeMem((APTR)((ULONG)WiFiBase - negSize), negSize + posSize);
     }
     else
     {
@@ -96,20 +134,6 @@ static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
 
     return segList;
 }
-
-static const ULONG rx_tags[] = {
-    S2_CopyToBuff,
-    S2_CopyToBuff16,
-    //S2_CopyToBuff32,
-    0
-};
-
-static const ULONG tx_tags[] = {
-    S2_CopyFromBuff,
-    S2_CopyFromBuff16,
-    S2_CopyFromBuff32,
-    0
-};
 
 void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0"), REGARG(ULONG flags, "d1"))
 {
@@ -131,7 +155,7 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
     
     if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOSana2Req))
     {
-        D(bug("[WiFI] Opening device with ordinary IORequest. Allowing limited mode only\n"));
+        D(bug("[WiFi] Opening device with ordinary IORequest. Allowing limited mode only\n"));
         if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOStdReq))
         {
             /* Message smaller than regular IORequest? Too bad, break now. */
@@ -207,14 +231,8 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
         NewList(&opener->o_EventListeners.mp_MsgList);
         opener->o_EventListeners.mp_Flags = PA_IGNORE;
 
-        for(int i = 0; rx_tags[i] != 0; i++) {
-            opener->o_RXFunc = (APTR)GetTagData(rx_tags[i], (ULONG)opener->o_RXFunc, tags);
-        }
-
-        for(int i = 0; tx_tags[i] != 0; i++) {
-            opener->o_TXFunc = (APTR)GetTagData(tx_tags[i], (ULONG)opener->o_TXFunc, tags);
-        }
-
+        opener->o_RXFunc = (APTR)GetTagData(S2_CopyToBuff, (ULONG)opener->o_RXFunc, tags);
+        opener->o_TXFunc = (APTR)GetTagData(S2_CopyFromBuff, (ULONG)opener->o_TXFunc, tags);
 /*
         opener->o_TXFuncDMA = (APTR)GetTagData(S2_DMACopyFromBuff32, 0, tags);
         opener->o_RXFuncDMA = (APTR)GetTagData(S2_DMACopyToBuff32, 0, tags);

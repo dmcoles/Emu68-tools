@@ -75,5 +75,17 @@
 #ifdef __CLIB_PRAGMA_AMICALL
  #pragma amicall(UnicamBase, 0x30, UnicamGetConfig())
 #endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetSize 36 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x36, UnicamGetSize())
+#endif /* __CLIB_PRAGMA_AMICALL */
+#ifdef __CLIB_PRAGMA_LIBCALL
+ #pragma libcall UnicamBase UnicamGetMode 3c 00
+#endif /* __CLIB_PRAGMA_LIBCALL */
+#ifdef __CLIB_PRAGMA_AMICALL
+ #pragma amicall(UnicamBase, 0x3c, UnicamGetMode())
+#endif /* __CLIB_PRAGMA_AMICALL */
 
 #endif /* PRAGMAS_UNICAM_PRAGMAS_H */
