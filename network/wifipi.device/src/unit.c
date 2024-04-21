@@ -49,6 +49,8 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     unit->wu_CmdQueue = CreateMsgPort();
     unit->wu_ScanQueue = CreateMsgPort();
 
+    unit->wu_Task = FindTask(NULL);
+
     if (port == NULL || tr == NULL || unit->wu_CmdQueue == NULL) // || unit->wu_WriteQueue == NULL)
     {
         D(bug("[WiFi.0] Failed to create requested MsgPorts\n"));
@@ -186,7 +188,12 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
         }
     } while ((sigset & SIGBREAKF_CTRL_C) == 0);
 
+    CloseDevice(&tr->tr_node);
+    DeleteIORequest(&tr->tr_node);
+    DeleteMsgPort(port);
     DeleteMsgPort(unit->wu_CmdQueue);
+    DeleteMsgPort(unit->wu_ScanQueue);
+    unit->wu_Task = NULL;
 }
 
 void StartUnit(struct WiFiUnit *unit)
@@ -270,7 +277,7 @@ void StartUnitTask(struct WiFiUnit *unit)
 
     D(bug("[WiFi] UnitTask starting\n"));
 
-    unit->wu_Task = AddTask(task, entry, NULL);
+    AddTask(task, entry, NULL);
 
     // Wait for a signal
     Wait(SIGBREAKF_CTRL_F);

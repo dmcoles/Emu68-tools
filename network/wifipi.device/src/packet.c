@@ -1122,6 +1122,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     DeleteIORequest(&tr->tr_node);
     DeleteMsgPort(port);
     DeleteMsgPort(ctrl);
+    sdio->s_ReceiverTask = NULL;
 }
 
 void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)

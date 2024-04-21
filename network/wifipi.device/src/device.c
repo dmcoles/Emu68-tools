@@ -6,6 +6,7 @@
 
 #include <utility/tagitem.h>
 
+#include <devices/timer.h>
 #include <devices/sana2.h>
 #include <devices/sana2specialstats.h>
 #include <devices/newstyle.h>
@@ -69,8 +70,36 @@ static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
     /* If device's open count is 0, remove it from list and free memory */
     if (WiFiBase->w_Device.dd_Library.lib_OpenCnt == 0)
     {
+        struct MsgPort *port = CreateMsgPort();
+        struct timerequest *tr = CreateIORequest(port, sizeof(struct timerequest));
+
         UWORD negSize = WiFiBase->w_Device.dd_Library.lib_NegSize;
         UWORD posSize = WiFiBase->w_Device.dd_Library.lib_PosSize;
+
+        if (tr != NULL && port != NULL)
+        {
+            OpenDevice((CONST_STRPTR)"timer.device", UNIT_VBLANK, (struct IORequest *)tr, 0);
+        }
+
+        /* Stop tasks */
+        D(bug("[WiFi] Killing receiver task\n"));
+        Signal(WiFiBase->w_SDIO->s_ReceiverTask, SIGBREAKF_CTRL_C);
+        D(bug("[WiFi] Killing unit task\n"));
+        Signal(WiFiBase->w_Unit->wu_Task, SIGBREAKF_CTRL_C);
+
+        /* Wait for unit and receiver tasks to finish */
+        do {
+            if (tr) {
+                tr->tr_time.tv_micro = 100000;
+                tr->tr_time.tv_secs = 0;
+                tr->tr_node.io_Command = TR_ADDREQUEST;
+                SendIO(&tr->tr_node);
+            }
+        } while(WiFiBase->w_SDIO->s_ReceiverTask != 0 || WiFiBase->w_Unit->wu_Task != 0);
+
+        CloseDevice(&tr->tr_node);
+        DeleteIORequest(tr);
+        DeleteMsgPort(port);
 
         if (WiFiBase->w_UtilityBase != NULL)
         {
@@ -84,7 +113,7 @@ static BPTR WiFi_Expunge(REGARG(struct WiFiBase * WiFiBase, "a6"))
         Remove(&WiFiBase->w_Device.dd_Library.lib_Node);
 
         /* Free memory */
-        FreeMem(WiFiBase->w_RequestOrig, 512);
+        DeletePool(WiFiBase->w_MemPool);
         FreeMem((APTR)((ULONG)WiFiBase - (negSize + posSize)), sizeof(struct WiFiBase));
     }
     else
