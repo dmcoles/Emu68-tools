@@ -63,7 +63,9 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             relFuncTable[5] = (ULONG)&L_UnicamGetCropOffset;
             relFuncTable[6] = (ULONG)&L_UnicamGetKernel;
             relFuncTable[7] = (ULONG)&L_UnicamGetConfig;
-            relFuncTable[8] = (ULONG)-1;
+            relFuncTable[8] = (ULONG)&L_UnicamGetSize;
+            relFuncTable[9] = (ULONG)&L_UnicamGetMode;
+            relFuncTable[10] = (ULONG)-1;
 
             UnicamBase = (struct UnicamBase *)((UBYTE *)base_pointer + BASE_NEG_SIZE);
             UnicamBase->u_SysBase = SysBase;
@@ -87,8 +89,11 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
             UnicamBase->u_IsVC6 = 0;
             UnicamBase->u_Offset.x = 0;
             UnicamBase->u_Offset.y = 0;
-            UnicamBase->u_Size.width = 720;
-            UnicamBase->u_Size.height = 576;
+            UnicamBase->u_FullSize.width = UNICAM_WIDTH;
+            UnicamBase->u_FullSize.height = UNICAM_HEIGHT;
+            UnicamBase->u_Mode = UNICAM_MODE;
+            UnicamBase->u_BPP = UNICAM_BPP;
+            UnicamBase->u_Size = UnicamBase->u_FullSize;
             UnicamBase->u_Phase = 64;
             UnicamBase->u_Scaler = 3;
             UnicamBase->u_Smooth = 0;
@@ -207,7 +212,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     }   
                 }
 
-                if (x != 0 && y != 0 && x <= 720 && y <= 576)
+                if (x != 0 && y != 0 && x <= UnicamBase->u_FullSize.width && y <= UnicamBase->u_FullSize.height)
                 {
                     UnicamBase->u_Size.width = x;
                     UnicamBase->u_Size.height = y;
@@ -242,12 +247,12 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
                     }   
                 }
 
-                if ((x + UnicamBase->u_Size.width) <= 720)
+                if ((x + UnicamBase->u_Size.width) <= UnicamBase->u_FullSize.width)
                 {
                     UnicamBase->u_Offset.x = x;
                 }
 
-                if ((y + UnicamBase->u_Size.height) <= 576)
+                if ((y + UnicamBase->u_Size.height) <= UnicamBase->u_FullSize.height)
                 {
                     UnicamBase->u_Offset.y = y;
                 }
@@ -361,7 +366,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 
             if (UnicamBase->u_ReceiveBuffer == NULL)
             {
-                const ULONG size = sizeof(ULONG) * 768 * 576;
+                const ULONG size = sizeof(ULONG) * UNICAM_HEIGHT * UNICAM_WIDTH;
                 
                 UnicamBase->u_ReceiveBuffer = AllocMem(size, MEMF_FAST);
                 UnicamBase->u_ReceiveBufferSize = size;
@@ -382,7 +387,7 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 
                 bug("[unicam] DisplayList at %08lx\n", (ULONG)dlistPtr);
 
-                UnicamStart(UnicamBase->u_ReceiveBuffer, 1, 0x22, 720, 576, 16);
+                UnicamStart(UnicamBase->u_ReceiveBuffer, 1, UNICAM_MODE, UNICAM_WIDTH, UNICAM_HEIGHT, UNICAM_BPP);
 
                 while (UnicamBase->u_DisplaySize.width == 0 || UnicamBase->u_DisplaySize.height == 0)
                 {

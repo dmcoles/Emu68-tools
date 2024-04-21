@@ -15,4 +15,6 @@ ULONG UnicamGetCropSize() ()
 ULONG UnicamGetCropOffset() ()
 ULONG UnicamGetKernel() ()
 ULONG UnicamGetConfig() ()
+ULONG UnicamGetSize() ()
+ULONG UnicamGetMode() ()
 ==end

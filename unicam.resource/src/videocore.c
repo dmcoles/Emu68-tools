@@ -167,8 +167,8 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
     }
 
     ULONG startAddress = (ULONG)UnicamBase->u_ReceiveBuffer;
-    startAddress += UnicamBase->u_Offset.x * sizeof(UWORD);
-    startAddress += UnicamBase->u_Offset.y * 720 * sizeof(UWORD);
+    startAddress += UnicamBase->u_Offset.x * (UnicamBase->u_BPP / 8);
+    startAddress += UnicamBase->u_Offset.y * UnicamBase->u_FullSize.width * (UnicamBase->u_BPP / 8);
 
     if (unity)
     {
@@ -196,7 +196,7 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         displist[cnt++] = LE32(0xdeadbeef);
 
         /* Pitch is full width, always */
-        displist[cnt++] = LE32(720*2);
+        displist[cnt++] = LE32(UnicamBase->u_FullSize.width * (UnicamBase->u_BPP / 8));
 
         /* Done */
         displist[cnt++] = LE32(0x80000000);
@@ -228,7 +228,7 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         displist[cnt++] = LE32(0xdeadbeef);
 
         /* Pitch is full width, always */
-        displist[cnt++] = LE32(720*2);
+        displist[cnt++] = LE32(UnicamBase->u_FullSize.width * (UnicamBase->u_BPP / 8));
 
         /* LMB address */
         displist[cnt++] = LE32(0);
@@ -338,8 +338,8 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
     }
 
     ULONG startAddress = (ULONG)UnicamBase->u_ReceiveBuffer;
-    startAddress += UnicamBase->u_Offset.x * sizeof(UWORD);
-    startAddress += UnicamBase->u_Offset.y * 720 * sizeof(UWORD);
+    startAddress += UnicamBase->u_Offset.x * (UnicamBase->u_BPP / 8);
+    startAddress += UnicamBase->u_Offset.y * UnicamBase->u_FullSize.width * (UnicamBase->u_BPP / 8);
 
     if (unity)
     {
@@ -370,7 +370,7 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         displist[cnt++] = LE32(0xdeadbeef);
 
         /* Pitch is full width, always */
-        displist[cnt++] = LE32(720*2);
+        displist[cnt++] = LE32(UnicamBase->u_FullSize.width * (UnicamBase->u_BPP / 8));
 
         /* Done */
         displist[cnt++] = LE32(0x80000000);
@@ -403,7 +403,7 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         displist[cnt++] = LE32(0xdeadbeef);
 
         /* Pitch is full width, always */
-        displist[cnt++] = LE32(720*2);
+        displist[cnt++] = LE32(UnicamBase->u_FullSize.width * (UnicamBase->u_BPP / 8));
 
         /* LMB address */
         displist[cnt++] = LE32(0);

@@ -13,6 +13,11 @@
 #define UNICAM_REVISION 2
 #define UNICAM_PRIORITY 118
 
+#define UNICAM_MODE     0x22
+#define UNICAM_WIDTH    720
+#define UNICAM_HEIGHT   576
+#define UNICAM_BPP      16
+
 struct Size {
     UWORD width;
     UWORD height;
@@ -37,6 +42,7 @@ struct UnicamBase {
     struct Size         u_DisplaySize;
     struct Size         u_Size;
     struct Point        u_Offset;
+    struct Size         u_FullSize;
     ULONG               u_UnicamDL;
     ULONG               u_UnicamKernel;
 
@@ -46,11 +52,13 @@ struct UnicamBase {
     UBYTE               u_Phase;
     UBYTE               u_Integer;
     UBYTE               u_Smooth;
+    UBYTE               u_Mode;
+    UBYTE               u_BPP;
     BOOL                u_StartOnBoot;
     BOOL                u_IsVC6;
 };
 
-#define UNICAM_FUNC_COUNT   8
+#define UNICAM_FUNC_COUNT   10
 #define BASE_NEG_SIZE       ((UNICAM_FUNC_COUNT) * 6)
 #define BASE_POS_SIZE       (sizeof(struct UnicamBase))
 
@@ -77,5 +85,7 @@ ULONG L_UnicamGetCropSize(REGARG(struct UnicamBase * UnicamBase, "a6"));
 ULONG L_UnicamGetCropOffset(REGARG(struct UnicamBase * UnicamBase, "a6"));
 ULONG L_UnicamGetKernel(REGARG(struct UnicamBase * UnicamBase, "a6"));
 ULONG L_UnicamGetConfig(REGARG(struct UnicamBase * UnicamBase, "a6"));
+ULONG L_UnicamGetSize(REGARG(struct UnicamBase * UnicamBase, "a6"));
+ULONG L_UnicamGetMode(REGARG(struct UnicamBase * UnicamBase, "a6"));
 
 #endif /* _UNICAM_H */

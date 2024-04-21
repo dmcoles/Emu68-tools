@@ -24,6 +24,7 @@ add_executable(unicam.resource
     src/getcropsize.c
     src/getkernel.c
     src/getconfig.c
+    src/getsize.c
 )
 
 add_custom_command(
