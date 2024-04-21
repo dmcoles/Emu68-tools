@@ -186,6 +186,74 @@ APTR Init(REGARG(struct ExecBase *SysBase, "a6"))
 
             bug("[unicam] Scaler=%ld, Phase=%ld\n", UnicamBase->u_Scaler, UnicamBase->u_Phase);
 
+            if ((cmd = FindToken(cmdline, "unicam.mode=")))
+            {
+                ULONG w = 0, h = 0, m = 0, bpp = 0;
+                const char *c = &cmd[12];
+
+                for (int i = 0; i < 4; i++)
+                {
+                    if (*c < '0' || *c > '9')
+                    {
+                        break;
+                    }
+                    w = w * 10 + *c++ - '0';
+                }
+
+                if (w != 0 && *c++ == ',')
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        if (*c < '0' || *c > '9')
+                        {
+                            break;
+                        }
+                        h = h * 10 + *c++ - '0';
+                    }
+                }
+
+                if (*c++ == ',')
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        if (*c < '0' || *c > '9')
+                        {
+                            break;
+                        }
+                        m = m * 10 + *c++ - '0';
+                    }
+                }
+
+                if (*c++ == ',')
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        if (*c < '0' || *c > '9')
+                        {
+                            break;
+                        }
+                        bpp = bpp * 10 + *c++ - '0';
+                    }
+                }
+
+                if (w != 0 && h != 0)
+                {
+                    UnicamBase->u_FullSize.width = w;
+                    UnicamBase->u_FullSize.height = h;
+                    bug("[unicam] Overriding FullSize to %ld x %ld\n", UnicamBase->u_FullSize.width, UnicamBase->u_FullSize.height);
+                }
+                if (m != 0)
+                {
+                    UnicamBase->u_Mode = m;
+                    bug("[unicam] Overriding mode to %lx\n", UnicamBase->u_Mode);
+                }
+                if (bpp != 0)
+                {
+                    UnicamBase->u_BPP = bpp;
+                    bug("[unicam] Overriding bpp to %ld\n", UnicamBase->u_BPP);
+                }
+            }
+
             if ((cmd = FindToken(cmdline, "unicam.size=")))
             {
                 ULONG x = 0, y = 0;
