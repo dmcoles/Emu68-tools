@@ -182,9 +182,13 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             CONTROL_VALID
             | CONTROL_WORDS(7)
             | CONTROL_UNITY
-            | CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565)
             | CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB)
         );
+
+        if (UnicamBase->u_BPP == 16)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565));
+        else if (UnicamBase->u_BPP == 24)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888));
 
         /* Center it on the screen */
         displist[cnt++] = LE32(POS0_X(offset_x) | POS0_Y(offset_y) | POS0_ALPHA(0xff));
@@ -212,9 +216,13 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             CONTROL_VALID
             | CONTROL_WORDS(16)
             | 0x01800 
-            | CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565)
             | CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB)
         );
+
+        if (UnicamBase->u_BPP == 16)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565));
+        else if (UnicamBase->u_BPP == 24)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888));
 
         /* Center plane on the screen */
         displist[cnt++] = LE32(POS0_X(offset_x) | POS0_Y(offset_y) | POS0_ALPHA(0xff));
@@ -355,9 +363,13 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             | VC6_CONTROL_UNITY
             | VC6_CONTROL_ALPHA_EXPAND
             | VC6_CONTROL_RGB_EXPAND
-            | VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565)
             | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB)
         );
+
+        if (UnicamBase->u_BPP == 16)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565));
+        else if (UnicamBase->u_BPP == 24)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888));
 
         /* Center it on the screen */
         displist[cnt++] = LE32(VC6_POS0_X(offset_x) | VC6_POS0_Y(offset_y));
@@ -387,9 +399,13 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             | VC6_CONTROL_WORDS(17)
             | VC6_CONTROL_ALPHA_EXPAND
             | VC6_CONTROL_RGB_EXPAND
-            | VC6_CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565)
             | VC6_CONTROL_PIXEL_ORDER(HVS_PIXEL_ORDER_XRGB)
         );
+
+        if (UnicamBase->u_BPP == 16)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB565));
+        else if (UnicamBase->u_BPP == 24)
+            displist[cnt - 1] |= LE32(CONTROL_FORMAT(HVS_PIXEL_FORMAT_RGB888));
 
         /* Center plane on the screen */
         displist[cnt++] = LE32(VC6_POS0_X(offset_x) | VC6_POS0_Y(offset_y));
