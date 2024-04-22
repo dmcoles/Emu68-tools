@@ -159,8 +159,11 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             scale = 0x10000 / (ULONG)(0x10000 / scale);
         }
 
-        calc_width = (0x10000 * ((UnicamBase->u_Size.width * UnicamBase->u_Aspect) / 1000)) / scale;
-        calc_height = (0x10000 * UnicamBase->u_Size.height) / scale;
+        scale_x = scale * 1000 / UnicamBase->u_Aspect;
+        scale_y = scale;
+
+        calc_width = (0x10000 * UnicamBase->u_Size.width) / scale_x;
+        calc_height = (0x10000 * UnicamBase->u_Size.height) / scale_y;
 
         offset_x = (UnicamBase->u_DisplaySize.width - calc_width) >> 1;
         offset_y = (UnicamBase->u_DisplaySize.height - calc_height) >> 1;
@@ -242,8 +245,8 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         displist[cnt++] = LE32(0);
 
         /* Set PPF Scaler */
-        displist[cnt++] = LE32((scale << 8) | (UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
-        displist[cnt++] = LE32((scale << 8) | (UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
+        displist[cnt++] = LE32((scale_x << 8) | (UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
+        displist[cnt++] = LE32((scale_y << 8) | (UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
         displist[cnt++] = LE32(0); // Scratch written by HVS
 
         displist[cnt++] = LE32(kernel);
@@ -338,8 +341,11 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             scale = 0x10000 / (ULONG)(0x10000 / scale);
         }
 
-        calc_width = (0x10000 * ((UnicamBase->u_Size.width * UnicamBase->u_Aspect) / 1000)) / scale;
-        calc_height = (0x10000 * UnicamBase->u_Size.height) / scale;
+        scale_x = scale * 1000 / UnicamBase->u_Aspect;
+        scale_y = scale;
+
+        calc_width = (0x10000 * UnicamBase->u_Size.width) / scale_x;
+        calc_height = (0x10000 * UnicamBase->u_Size.height) / scale_y;
 
         offset_x = (UnicamBase->u_DisplaySize.width - calc_width) >> 1;
         offset_y = (UnicamBase->u_DisplaySize.height - calc_height) >> 1;
@@ -425,8 +431,8 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
         displist[cnt++] = LE32(0);
 
         /* Set PPF Scaler */
-        displist[cnt++] = LE32((scale << 8) | ((ULONG)UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
-        displist[cnt++] = LE32((scale << 8) | ((ULONG)UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
+        displist[cnt++] = LE32((scale_x << 8) | ((ULONG)UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
+        displist[cnt++] = LE32((scale_y << 8) | ((ULONG)UnicamBase->u_Scaler << 30) | UnicamBase->u_Phase);
         displist[cnt++] = LE32(0); // Scratch written by HVS
 
         displist[cnt++] = LE32(kernel);
