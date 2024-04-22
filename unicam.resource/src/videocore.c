@@ -134,13 +134,13 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
     volatile ULONG *displist = (ULONG *)((ULONG)UnicamBase->u_PeriphBase + 0x00402000);
 
     if (UnicamBase->u_Size.width == UnicamBase->u_DisplaySize.width &&
-        UnicamBase->u_Size.height == UnicamBase->u_DisplaySize.height)
+        UnicamBase->u_Size.height == UnicamBase->u_DisplaySize.height && UnicamBase->u_Aspect == 1000)
     {
         unity = 1;
     }
     else
     {
-        scale_x = 0x10000 * UnicamBase->u_Size.width / UnicamBase->u_DisplaySize.width;
+        scale_x = 0x10000 * ((UnicamBase->u_Size.width * UnicamBase->u_Aspect) / 1000) / UnicamBase->u_DisplaySize.width;
         scale_y = 0x10000 * UnicamBase->u_Size.height / UnicamBase->u_DisplaySize.height;
 
         recip_x = 0xffffffff / scale_x;
@@ -159,7 +159,7 @@ void VC4_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             scale = 0x10000 / (ULONG)(0x10000 / scale);
         }
 
-        calc_width = (0x10000 * UnicamBase->u_Size.width) / scale;
+        calc_width = (0x10000 * ((UnicamBase->u_Size.width * UnicamBase->u_Aspect) / 1000)) / scale;
         calc_height = (0x10000 * UnicamBase->u_Size.height) / scale;
 
         offset_x = (UnicamBase->u_DisplaySize.width - calc_width) >> 1;
@@ -313,13 +313,13 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
     volatile ULONG *displist = (ULONG *)((ULONG)UnicamBase->u_PeriphBase + 0x00404000);
 
     if (UnicamBase->u_Size.width == UnicamBase->u_DisplaySize.width &&
-        UnicamBase->u_Size.height == UnicamBase->u_DisplaySize.height)
+        UnicamBase->u_Size.height == UnicamBase->u_DisplaySize.height && UnicamBase->u_Aspect == 1000)
     {
         unity = 1;
     }
     else
     {
-        scale_x = 0x10000 * UnicamBase->u_Size.width / UnicamBase->u_DisplaySize.width;
+        scale_x = 0x10000 * ((UnicamBase->u_Size.width * UnicamBase->u_Aspect) / 1000) / UnicamBase->u_DisplaySize.width;
         scale_y = 0x10000 * UnicamBase->u_Size.height / UnicamBase->u_DisplaySize.height;
 
         recip_x = 0xffffffff / scale_x;
@@ -338,7 +338,7 @@ void VC6_ConstructUnicamDL(struct UnicamBase *UnicamBase, ULONG kernel)
             scale = 0x10000 / (ULONG)(0x10000 / scale);
         }
 
-        calc_width = (0x10000 * UnicamBase->u_Size.width) / scale;
+        calc_width = (0x10000 * ((UnicamBase->u_Size.width * UnicamBase->u_Aspect) / 1000)) / scale;
         calc_height = (0x10000 * UnicamBase->u_Size.height) / scale;
 
         offset_x = (UnicamBase->u_DisplaySize.width - calc_width) >> 1;
