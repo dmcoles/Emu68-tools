@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14.0)
-project(WiFiPi VERSION 0.3.2)
+project(WiFiPi VERSION 0.3.3)
 get_verstring(VERSTRING)
 
 add_link_options(-ffreestanding -nostdlib -nostartfiles -Wl,-e,__start)

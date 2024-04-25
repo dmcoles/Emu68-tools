@@ -454,6 +454,8 @@ static int Do_S2_GETSIGNALQUALITY(struct IOSana2Req *io)
     }
 }
 
+void delay_us(ULONG us, struct WiFiBase *WiFiBase);
+
 static int Do_S2_SETKEY(struct IOSana2Req *io)
 {
     struct WiFiUnit *unit = (struct WiFiUnit *)io->ios2_Req.io_Unit;
@@ -484,10 +486,10 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     D(bug("[WiFi.0]   RX cnt: %08lx", (ULONG)io->ios2_StatData));
     if (io->ios2_StatData)
     {
-        for (ULONG i=0; i < 8; i++) {
+        for (ULONG i=0; i < 6; i++) {
             if (i == 0)
                 bug(" (%02lx, ", ((UBYTE*)io->ios2_StatData)[i]);
-            else if (i == 7 - 1)
+            else if (i == 5)
                 bug("%02lx)\n", ((UBYTE*)io->ios2_StatData)[i]);
             else
                 bug("%02lx, ", ((UBYTE*)io->ios2_StatData)[i]);
@@ -500,7 +502,8 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
     
     unit->wu_Keys[idx].k_Type = io->ios2_PacketType;
     unit->wu_Keys[idx].k_Length = io->ios2_DataLength;
-    unit->wu_Keys[idx].k_RXCount = (ULONG)io->ios2_StatData;
+    unit->wu_Keys[idx].k_RXCountHigh = LE32(*(ULONG*)((ULONG)io->ios2_StatData + 2));
+    unit->wu_Keys[idx].k_RXCountLow = LE16(*(UWORD*)io->ios2_StatData);
     if (io->ios2_DataLength != 0)
     {
         unit->wu_Keys[idx].k_Key = AllocVecPooledClear(WiFiBase->w_MemPool, io->ios2_DataLength);
@@ -544,8 +547,11 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
         key.k_Flags = LE32(WSEC_PRIMARY_KEY);
         key.k_Length = LE32(io->ios2_DataLength);
 
-        key.k_RXIV.riv_High = LE32(*(ULONG*)(rx_counter + 2));
-        key.k_RXIV.riv_Low = LE16(*(UWORD*)(rx_counter));
+        if (rx_counter != NULL)
+        {
+            key.k_RXIV.riv_High = (*(ULONG*)(rx_counter + 2));
+            key.k_RXIV.riv_Low = (*(UWORD*)(rx_counter));
+        }
 
         /* Copy key itself */
         CopyMem(io->ios2_Data, key.k_Data, io->ios2_DataLength);
@@ -587,8 +593,13 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
         }
         if (sizeof(key) & 15) D(bug("\n"));
 
+        delay_us(1000, WiFiBase);
+
         PacketSetVar(WiFiBase->w_SDIO, "wsec_key", &key, sizeof(key));
         D(bug("[WiFi.0] Key set\n"));
+        (void)wsec;
+        (void)wsec_orig;
+        #if 0
         PacketGetVar(WiFiBase->w_SDIO, "wsec", &wsec_orig, sizeof(ULONG));
         wsec_orig = LE32(wsec_orig);
         D(bug("[WiFi.0] Orig wsec: %08lx\n", wsec_orig));
@@ -596,6 +607,7 @@ static int Do_S2_SETKEY(struct IOSana2Req *io)
         wsec |= wsec_orig;
         D(bug("[WiFi.0] New wsec: %08lx\n", wsec));
         PacketSetVarInt(WiFiBase->w_SDIO, "wsec", wsec);
+        #endif
     }
 
     return 1;

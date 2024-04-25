@@ -136,7 +136,8 @@ struct Key
     ULONG k_Type;
     ULONG k_Length;
     APTR  k_Key;
-    ULONG k_RXCount;
+    ULONG k_RXCountHigh;
+    UWORD k_RXCountLow;
 };
 
 struct WiFiUnit
