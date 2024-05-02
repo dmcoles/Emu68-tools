@@ -1,0 +1,223 @@
+/*  -*- C++ -*-
+
+    Copyright © 2024 Michal Schulz <michal.schulz@gmx.de>
+    https://github.com/michalsc
+
+    This Source Code Form is subject to the terms of the
+    Mozilla Public License, v. 2.0. If a copy of the MPL was not distributed
+    with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#ifndef _TINYSTD_STRING_VIEW
+#define _TINYSTD_STRING_VIEW
+
+#include <iterator>
+#include <tinystd/allocator>
+#include <proto/exec.h>
+
+namespace tinystd {
+
+namespace {
+    constexpr int _strlen(const char *s)
+    {
+        int len = 0;
+        while (*s++)
+            len++;
+        return len;
+    }
+}
+
+class string_view {
+public:
+    class const_iterator : public std::iterator<std::random_access_iterator_tag, char>
+    {
+        const char *p;
+
+    public:
+        const_iterator() : p(nullptr){};
+        const_iterator(const char *ptr) : p(ptr){};
+        const_iterator(const const_iterator &it) : p(it.p){};
+        const_iterator &operator+=(difference_type rhs)
+        {
+            p += rhs;
+            return *this;
+        }
+        const_iterator &operator-=(difference_type rhs)
+        {
+            p -= rhs;
+            return *this;
+        }
+        const char &operator*() const { return *p; }
+        const char *operator->() const { return p; }
+        const char &operator[](difference_type rhs) const { return p[rhs]; }
+
+        const_iterator &operator++()
+        {
+            ++p;
+            return *this;
+        }
+        const_iterator &operator--()
+        {
+            --p;
+            return *this;
+        }
+        const_iterator operator++(int)
+        {
+            const_iterator tmp(*this);
+            operator++();
+            return tmp;
+        }
+        const_iterator operator--(int)
+        {
+            const_iterator tmp(*this);
+            operator--();
+            return tmp;
+        }
+        difference_type operator-(const const_iterator &rhs) const { return (p - rhs.p); }
+        const_iterator operator+(difference_type rhs) const { return const_iterator(p + rhs); }
+        const_iterator operator-(difference_type rhs) const { return const_iterator(p - rhs); }
+        friend inline iterator operator+(difference_type lhs, const const_iterator &rhs) { return const_iterator(lhs + rhs.p); }
+
+        bool operator==(const const_iterator &rhs) const { return p == rhs.p; }
+        bool operator!=(const const_iterator &rhs) const { return p != rhs.p; }
+        bool operator>(const const_iterator &rhs) const { return p > rhs.p; }
+        bool operator>=(const const_iterator &rhs) const { return p >= rhs.p; }
+        bool operator<(const const_iterator &rhs) const { return p < rhs.p; }
+        bool operator<=(const const_iterator &rhs) const { return p <= rhs.p; }
+    };
+
+    // Random access reverse iterator with tiny bit of safety - it cannot go beyond
+    // given boundaries.
+    class const_reverse_iterator : public std::iterator<std::bidirectional_iterator_tag, char>
+    {
+        const char *p;
+
+    public:
+        const_reverse_iterator() : p(nullptr){};
+        const_reverse_iterator(const char *ptr) : p(ptr){};
+        const_reverse_iterator(const const_reverse_iterator &it) : p(it.p){};
+        const_reverse_iterator &operator=(const const_reverse_iterator &it)
+        {
+            p = it.p;
+            return *this;
+        }
+        const_reverse_iterator &operator+=(difference_type rhs)
+        {
+            p -= rhs;
+            return *this;
+        }
+        const_reverse_iterator &operator-=(difference_type rhs)
+        {
+            p += rhs;
+            return *this;
+        }
+        const char &operator*() const { return *p; }
+        const char *operator->() const { return p; }
+        const char &operator[](difference_type rhs) const { return p[-rhs]; }
+
+        const_reverse_iterator &operator++()
+        {
+            --p;
+            return *this;
+        }
+        const_reverse_iterator &operator--()
+        {
+            ++p;
+            return *this;
+        }
+        const_reverse_iterator operator++(int)
+        {
+            const_reverse_iterator tmp(*this);
+            operator++();
+            return tmp;
+        }
+        const_reverse_iterator operator--(int)
+        {
+            const_reverse_iterator tmp(*this);
+            operator--();
+            return tmp;
+        }
+        difference_type operator-(const const_reverse_iterator &rhs) const { return (rhs.p - p); }
+        const_reverse_iterator operator+(difference_type rhs) const { return const_reverse_iterator(p - rhs); }
+        const_reverse_iterator operator-(difference_type rhs) const { return const_reverse_iterator(p + rhs); }
+        friend inline const_reverse_iterator operator+(difference_type lhs, const const_reverse_iterator &rhs) { return const_reverse_iterator(rhs.p - lhs); }
+
+        bool operator==(const const_reverse_iterator &rhs) const { return p == rhs.p; }
+        bool operator!=(const const_reverse_iterator &rhs) const { return p != rhs.p; }
+        bool operator>(const const_reverse_iterator &rhs) const { return p < rhs.p; }
+        bool operator>=(const const_reverse_iterator &rhs) const { return p <= rhs.p; }
+        bool operator<(const const_reverse_iterator &rhs) const { return p > rhs.p; }
+        bool operator<=(const const_reverse_iterator &rhs) const { return p >= rhs.p; }
+    };
+
+    typedef const_iterator iterator;
+    typedef const_reverse_iterator reverse_iterator;
+
+    // Construction, assignment
+    constexpr string_view() noexcept : _buffer(nullptr), _length(0) {}
+    constexpr string_view(const string_view& other) noexcept = default; //: _buffer(other._buffer), _length(other._length) {}
+    constexpr string_view(const char *s, int count) noexcept : _buffer(s), _length(count) {}
+    constexpr string_view(const char *s) noexcept : _buffer(s), _length(_strlen(s)) {}
+    constexpr string_view &operator=(const string_view &view) noexcept { _buffer = view._buffer; _length = view._length; return *this; }
+    constexpr string_view(std::nullptr_t) = delete;
+
+    // Iterators
+    iterator begin() { return iterator(_buffer); }
+    iterator end() { return iterator(_buffer + _length); }
+    reverse_iterator rbegin() { return reverse_iterator(_buffer + _length - 1); }
+    reverse_iterator rend() { return reverse_iterator(_buffer - 1); }
+    const_iterator cbegin() { return const_iterator(_buffer); }
+    const_iterator cend() { return const_iterator(_buffer + _length); }
+    const_reverse_iterator crbegin() { return const_reverse_iterator(_buffer + _length - 1); }
+    const_reverse_iterator crend() { return const_reverse_iterator(_buffer - 1); }
+
+    // Access
+    constexpr const char &operator[](int pos) const { return _buffer[pos]; }
+    constexpr const char &at(int pos) const { return _buffer[pos]; }
+    constexpr const char &front() const { return _buffer[0]; }
+    constexpr const char &back() const { return _buffer[_length - 1]; }
+    constexpr const char * data() const noexcept { if (_length) return _buffer; else return nullptr; }
+
+    // Modifiers
+    constexpr void remove_prefix(int n) { _buffer += n; _length -= n; }
+    constexpr void remove_suffix(int n) { _length -= n; }
+    constexpr void swap(string_view &v) noexcept { const char *ptr = v._buffer; int len = v._length; v._buffer = _buffer; v._length = _length; _buffer = ptr; _length = len; };
+
+    // Capacity
+    constexpr int size() const noexcept { return _length; }
+    constexpr int length() const noexcept { return _length; }
+    constexpr int max_size() const noexcept { return 0x7fffffff; }
+    constexpr bool empty() const noexcept { return (_length == 0); }
+
+    // Operations
+    constexpr bool starts_with(string_view sv) const noexcept {
+        if (sv._length == 0) return true;
+        else if (sv._length > _length) return false;
+        int len = sv._length;
+        for (int i=0; i < len; i++) { if (sv._buffer[i] != _buffer[i]) return false; }
+        return true;
+    }
+    constexpr bool starts_with(char ch) const noexcept {
+        if (_length > 0 && *_buffer == ch) return true;
+        else return false;
+    }
+    constexpr bool starts_with(const char *s) const noexcept
+    {
+        return starts_with(string_view(s));
+    }
+
+private:
+    const char *_buffer;
+    int _length;
+};
+
+namespace string_view_literals
+{
+    constexpr string_view
+    operator ""_sv(const char *str, unsigned int len) noexcept {
+        return string_view(str, len);
+    }
+}
+}
+
+#endif // _TINYSTD_STRING_VIEW
