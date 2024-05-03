@@ -20,6 +20,9 @@ namespace tinystd {
 
 class string {
 public:
+    typedef unsigned int size_type;
+    static constexpr size_type npos = size_type(-1);
+
     class const_iterator;
     // Random access iterator with tiny bit of safety - it cannot go beyond
     // given boundaries.
@@ -119,10 +122,10 @@ public:
     // Constructors
     string(const char *src = "");
     string(const string& str);
-    string(const string& str, int pos, int len = npos);
-    string(const char *src, int n);
-    string(int n, char c);
-    string(int n, int c) : string(n, (char)c) {}
+    string(const string& str, size_type pos, size_type len = npos);
+    string(const char *src, size_type n);
+    string(size_type n, char c);
+    string(size_type n, int c) : string(n, (char)c) {}
     template <class T = iterator>
     string(T first, T last) : _buffer(NULL), _capacity(0), _length(0)
     {
@@ -147,29 +150,29 @@ public:
     reverse_iterator rend() { return reverse_iterator(_buffer - 1); }
 
     // Capacity
-    int size() { return _length; }
-    int length() { return _length; }
-    int max_size() { return 0x7fffffff; }
-    void resize(int n, char c=0);
-    int capacity() { return _capacity; }
-    void reserve(int n = 0) { if (n > (_length + 1)) resize_buffer(n + 1); }
+    size_type size() { return _length; }
+    size_type length() { return _length; }
+    size_type max_size() { return npos; }
+    void resize(size_type n, char c=0);
+    size_type capacity() { return _capacity; }
+    void reserve(size_type n = 0) { if (n > (_length + 1)) resize_buffer(n + 1); }
     void clear();
     bool empty() const { return (_length == 0); }
 
     // Element access
-    char& operator[] (int pos) { if (pos >= 0 && pos < _length) return _buffer[pos]; else return (char&)_null; }
-    char& at(int pos) { if (pos >= 0 && pos < _length) return _buffer[pos]; else return (char&)_null; }
+    char& operator[] (size_type pos) { if (pos >= 0 && pos < _length) return _buffer[pos]; else return (char&)_null; }
+    char& at(size_type pos) { if (pos >= 0 && pos < _length) return _buffer[pos]; else return (char&)_null; }
 
     // Modifiers
     string& operator+= (const string& str);
     string& operator+= (const char* s);
     string& operator+= (char c);
     string& append(const string& str) { return (*this += str); }
-    string& append(const string& str, int subpos, int sublen);
+    string& append(const string& str, size_type subpos, size_type sublen);
     string& append(const char* s) { return (*this += s); }
-    string& append(const char* s, int n);
-    string& append(int n, char c);
-    string& append(int n, int c) { return append(n, (char)c); }
+    string& append(const char* s, size_type n);
+    string& append(size_type n, char c);
+    string& append(size_type n, int c) { return append(n, (char)c); }
     template <class T = iterator>
     string& append(T first, T last) {
         int len = last - first;
@@ -182,11 +185,11 @@ public:
     }
     void push_back(char c) { *this += c; }
     string& assign(const string& str);
-    string& assign(const string& str, int subpos, int sublen);
+    string& assign(const string& str, size_type subpos, size_type sublen);
     string& assign(const char *s) { return (*this = s); }
-    string& assign(const char *s, int n);
-    string& assign(int n, char c);
-    string& assign(int n, int c) { return assign(n, (char)c); }
+    string& assign(const char *s, size_type n);
+    string& assign(size_type n, char c);
+    string& assign(size_type n, int c) { return assign(n, (char)c); }
     template <class T = iterator>
     string& assign(T first, T last) {
         int len = last - first;
@@ -198,13 +201,13 @@ public:
         return *this;
     }
     string& assign(string&& str);
-    string& insert(int pos, const string& str);
-    string& insert(int pos, const string& str, int subpos, int sublen);
-    string& insert(int pos, const char* s);
-    string& insert(int pos, const char* s, int n);
-    string& insert(int pos, int n, const char c);
+    string& insert(size_type pos, const string& str);
+    string& insert(size_type pos, const string& str, size_type subpos, size_type sublen);
+    string& insert(size_type pos, const char* s);
+    string& insert(size_type pos, const char* s, size_type n);
+    string& insert(size_type pos, size_type n, const char c);
     iterator insert(const_iterator p, char c);
-    iterator insert(const_iterator p, int n, char c);
+    iterator insert(const_iterator p, size_type n, char c);
     template <class T>
     iterator insert(iterator p, T first, T last) {
         int pos = p - begin();
@@ -219,7 +222,7 @@ public:
         _length += len;
         return iterator(_buffer + pos);
     }
-    string& erase(int pos = 0, int len = npos);
+    string& erase(size_type pos = 0, size_type len = npos);
     iterator erase(const_iterator p);
     iterator erase(const_iterator first, const_iterator last);
 
@@ -242,7 +245,7 @@ public:
     const char * c_str() const { if (_length) return _buffer; else return &_null; }
     const char * data() const { if (_length) return _buffer; else return &_null; }
     char *data() { if (_length) return _buffer; else return nullptr; }
-    int copy(char *s, int len, int pos = 0);
+    size_type copy(char *s, size_type len, size_type pos = 0);
     operator string_view() { return string_view(_buffer, _length); }
     // find
     // rfind
@@ -253,15 +256,12 @@ public:
     // substr
     // compare
 
-    // Member constants
-    static const int npos = -1;
-
 private:
     static const char _null;
     char *_buffer;
-    int _capacity;
-    int _length;
-    void resize_buffer(int size);
+    size_type _capacity;
+    size_type _length;
+    void resize_buffer(size_type size);
 
     friend string operator+(const string &lhs, const string &rhs);
     friend string operator+(const string &lhs, const char *rhs);

@@ -42,7 +42,7 @@ namespace tinystd
             return static_cast<unsigned char>(c1) - static_cast<unsigned char>(c2);
         }
 
-        int _strlen_(const char *str)
+        string::size_type _strlen_(const char *str)
         {
             int len = 0;
             const char *s = str;
@@ -78,7 +78,7 @@ namespace tinystd
         _length = str._length;
     }
 
-    string::string(const string &str, int pos, int len) : _buffer(NULL), _capacity(0), _length(0)
+    string::string(const string &str, size_type pos, size_type len) : _buffer(NULL), _capacity(0), _length(0)
     {
         if (len == npos || (pos + len) > str._length)
             len = str._length - pos;
@@ -89,7 +89,7 @@ namespace tinystd
         _length = len;
     }
 
-    string::string(const char *src, int n) : _buffer(NULL), _capacity(0), _length(0)
+    string::string(const char *src, size_type n) : _buffer(NULL), _capacity(0), _length(0)
     {
         resize_buffer(n + 1);
         CopyMem((APTR)src, _buffer, n);
@@ -97,7 +97,7 @@ namespace tinystd
         _length = n;
     }
 
-    string::string(int n, char c) : _buffer(NULL), _capacity(0), _length(0)
+    string::string(size_type n, char c) : _buffer(NULL), _capacity(0), _length(0)
     {
         resize_buffer(n + 1);
         memset(_buffer, c, n);
@@ -128,7 +128,7 @@ namespace tinystd
     {
         if (str)
         {
-            int len = _strlen_(str);
+            size_type len = _strlen_(str);
             resize_buffer(len + 1);
             CopyMem((APTR)str, _buffer, len + 1);
             _length = len;
@@ -167,7 +167,7 @@ namespace tinystd
     }
 
     // resize buffer so that it contains at least the terminating character
-    void string::resize_buffer(int size)
+    void string::resize_buffer(size_type size)
     {
         if (size > 0)
         {
@@ -217,7 +217,7 @@ namespace tinystd
         resize_buffer(0);
     }
 
-    void string::resize(int n, char c)
+    void string::resize(size_type n, char c)
     {
         if (n < _length)
         {
@@ -245,7 +245,7 @@ namespace tinystd
 
     string &string::operator+=(const string &str)
     {
-        int len = str._length + 1;
+        size_type len = str._length + 1;
 
         if (_capacity - _length < len)
             resize_buffer(_length + len);
@@ -258,7 +258,7 @@ namespace tinystd
 
     string &string::operator+=(const char *str)
     {
-        int len = _strlen_(str) + 1;
+        size_type len = _strlen_(str) + 1;
 
         if (_capacity - _length < len)
             resize_buffer(_length + len);
@@ -280,11 +280,11 @@ namespace tinystd
         return *this;
     }
 
-    string &string::append(const string &str, int subpos, int sublen)
+    string &string::append(const string &str, size_type subpos, size_type sublen)
     {
         if (subpos < str._length)
         {
-            int len = sublen;
+            size_type len = sublen;
 
             if (len > str._length - subpos)
                 len = str._length - subpos;
@@ -298,11 +298,11 @@ namespace tinystd
         return *this;
     }
 
-    string &string::append(const char *s, int n)
+    string &string::append(const char *s, size_type n)
     {
         if (s != NULL)
         {
-            int len = _strlen_(s);
+            size_type len = _strlen_(s);
 
             if (len > n)
                 len = n;
@@ -316,7 +316,7 @@ namespace tinystd
         return *this;
     }
 
-    string &string::append(int n, char c)
+    string &string::append(size_type n, char c)
     {
         if (n > 0)
         {
@@ -341,7 +341,7 @@ namespace tinystd
         return *this;
     }
 
-    string &string::assign(const string &str, int subpos, int sublen)
+    string &string::assign(const string &str, size_type subpos, size_type sublen)
     {
         if (subpos < str._length) // else out of range exception!
         {
@@ -356,11 +356,11 @@ namespace tinystd
         return *this;
     }
 
-    string &string::assign(const char *s, int n)
+    string &string::assign(const char *s, size_type n)
     {
         if (s)
         {
-            int len = _strlen_(s);
+            size_type len = _strlen_(s);
 
             if (len > n)
                 len = n;
@@ -374,7 +374,7 @@ namespace tinystd
         return *this;
     }
 
-    string &string::assign(int n, char c)
+    string &string::assign(size_type n, char c)
     {
         resize_buffer(n + 1);
         memset(_buffer, c, n);
@@ -399,7 +399,7 @@ namespace tinystd
         return *this;
     }
 
-    string &string::insert(int pos, const string &str)
+    string &string::insert(size_type pos, const string &str)
     {
         if (pos > _length)
             pos = _length;
@@ -415,7 +415,7 @@ namespace tinystd
         return *this;
     }
 
-    string &string::insert(int pos, const string &str, int subpos, int sublen)
+    string &string::insert(size_type pos, const string &str, size_type subpos, size_type sublen)
     {
         if (subpos < str._length)
         {
@@ -437,14 +437,14 @@ namespace tinystd
         return *this;
     }
 
-    string &string::insert(int pos, const char *s)
+    string &string::insert(size_type pos, const char *s)
     {
         if (s)
         {
             if (pos > _length)
                 pos = _length;
 
-            int len = _strlen_(s);
+            size_type len = _strlen_(s);
 
             if (_length + len + 1 > _capacity)
                 resize_buffer(_length + len + 1);
@@ -458,14 +458,14 @@ namespace tinystd
         return *this;
     }
 
-    string &string::insert(int pos, const char *s, int n)
+    string &string::insert(size_type pos, const char *s, size_type n)
     {
         if (s)
         {
             if (pos > _length)
                 pos = _length;
 
-            int len = _strlen_(s);
+            size_type len = _strlen_(s);
 
             if (len > n)
                 len = n;
@@ -482,7 +482,7 @@ namespace tinystd
         return *this;
     }
 
-    string &string::insert(int pos, int n, char c)
+    string &string::insert(size_type pos, size_type n, char c)
     {
         if (n)
         {
@@ -508,9 +508,9 @@ namespace tinystd
         return insert(p, 1, c);
     }
 
-    string::iterator string::insert(string::const_iterator p, int n, char c)
+    string::iterator string::insert(string::const_iterator p, size_type n, char c)
     {
-        int pos = p - const_iterator(_buffer);
+        size_type pos = p - const_iterator(_buffer);
 
         if (n)
         {
@@ -532,7 +532,7 @@ namespace tinystd
         return iterator(_buffer + pos);
     }
 
-    string &string::erase(int pos, int len)
+    string &string::erase(size_type pos, size_type len)
     {
         if (pos < _length)
         {
@@ -549,7 +549,7 @@ namespace tinystd
 
     string::iterator string::erase(string::const_iterator p)
     {
-        int pos = p - const_iterator(_buffer);
+        size_type pos = p - const_iterator(_buffer);
 
         CopyMem(_buffer + pos + 1, _buffer + pos, _length - pos + 1);
 
@@ -560,15 +560,15 @@ namespace tinystd
 
     string::iterator string::erase(string::const_iterator first, string::const_iterator last)
     {
-        int pos = first - const_iterator(_buffer);
-        int len = last - first;
+        size_type pos = first - const_iterator(_buffer);
+        size_type len = last - first;
 
         erase(pos, len);
 
         return iterator(_buffer + pos);
     }
 
-    int string::copy(char *c, int len, int pos)
+    string::size_type string::copy(char *c, size_type len, size_type pos)
     {
         if (pos < _length)
         {
@@ -600,7 +600,7 @@ namespace tinystd
         {
             string result;
 
-            int len = _strlen_(rhs);
+            string::size_type len = _strlen_(rhs);
             result.resize_buffer(lhs._length + len + 1);
             CopyMem(lhs._buffer, result._buffer, lhs._length);
             CopyMem((APTR)rhs, result._buffer + lhs._length, len + 1);
@@ -618,7 +618,7 @@ namespace tinystd
         {
             string result;
 
-            int len = _strlen_(lhs);
+            string::size_type len = _strlen_(lhs);
             result.resize_buffer(len + rhs._length + 1);
             CopyMem((APTR)lhs, result._buffer, len);
             CopyMem(rhs._buffer, result._buffer + len, rhs._length + 1);
@@ -748,8 +748,8 @@ namespace tinystd
     void string::swap(string &str)
     {
         char *_buff = _buffer;
-        int _cap = _capacity;
-        int _len = _length;
+        size_type _cap = _capacity;
+        size_type _len = _length;
 
         _buffer = str._buffer;
         _capacity = str._capacity;

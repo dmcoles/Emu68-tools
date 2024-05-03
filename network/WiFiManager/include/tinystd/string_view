@@ -14,11 +14,12 @@
 #include <iterator>
 #include <tinystd/allocator>
 #include <proto/exec.h>
+#include <stddef.h>
 
 namespace tinystd {
 
 namespace {
-    constexpr int _strlen(const char *s)
+    constexpr unsigned long _strlen(const char *s)
     {
         int len = 0;
         while (*s++)
@@ -29,6 +30,10 @@ namespace {
 
 class string_view {
 public:
+    typedef unsigned int size_type;
+
+    static constexpr size_type npos = size_type(-1);
+
     class const_iterator : public std::iterator<std::random_access_iterator_tag, char>
     {
         const char *p;
@@ -156,7 +161,7 @@ public:
     // Construction, assignment
     constexpr string_view() noexcept : _buffer(nullptr), _length(0) {}
     constexpr string_view(const string_view& other) noexcept = default; //: _buffer(other._buffer), _length(other._length) {}
-    constexpr string_view(const char *s, int count) noexcept : _buffer(s), _length(count) {}
+    constexpr string_view(const char *s, size_type count) noexcept : _buffer(s), _length(count) {}
     constexpr string_view(const char *s) noexcept : _buffer(s), _length(_strlen(s)) {}
     constexpr string_view &operator=(const string_view &view) noexcept { _buffer = view._buffer; _length = view._length; return *this; }
     constexpr string_view(std::nullptr_t) = delete;
@@ -172,50 +177,64 @@ public:
     const_reverse_iterator crend() { return const_reverse_iterator(_buffer - 1); }
 
     // Access
-    constexpr const char &operator[](int pos) const { return _buffer[pos]; }
-    constexpr const char &at(int pos) const { return _buffer[pos]; }
+    constexpr const char &operator[](size_type pos) const { return _buffer[pos]; }
+    constexpr const char &at(size_type pos) const { return _buffer[pos]; }
     constexpr const char &front() const { return _buffer[0]; }
     constexpr const char &back() const { return _buffer[_length - 1]; }
     constexpr const char * data() const noexcept { if (_length) return _buffer; else return nullptr; }
 
     // Modifiers
-    constexpr void remove_prefix(int n) { _buffer += n; _length -= n; }
-    constexpr void remove_suffix(int n) { _length -= n; }
+    constexpr void remove_prefix(size_type n) { _buffer += n; _length -= n; }
+    constexpr void remove_suffix(size_type n) { _length -= n; }
     constexpr void swap(string_view &v) noexcept { const char *ptr = v._buffer; int len = v._length; v._buffer = _buffer; v._length = _length; _buffer = ptr; _length = len; };
 
     // Capacity
-    constexpr int size() const noexcept { return _length; }
-    constexpr int length() const noexcept { return _length; }
-    constexpr int max_size() const noexcept { return 0x7fffffff; }
+    constexpr size_type size() const noexcept { return _length; }
+    constexpr size_type length() const noexcept { return _length; }
+    constexpr size_type max_size() const noexcept { return npos; }
     constexpr bool empty() const noexcept { return (_length == 0); }
 
     // Operations
     constexpr bool starts_with(string_view sv) const noexcept {
         if (sv._length == 0) return true;
-        else if (sv._length > _length) return false;
+        if (sv._length > _length) return false;
         int len = sv._length;
         for (int i=0; i < len; i++) { if (sv._buffer[i] != _buffer[i]) return false; }
         return true;
     }
     constexpr bool starts_with(char ch) const noexcept {
-        if (_length > 0 && *_buffer == ch) return true;
+        if (_length && *_buffer == ch) return true;
         else return false;
     }
     constexpr bool starts_with(const char *s) const noexcept
     {
         return starts_with(string_view(s));
     }
+    constexpr string_view substr(size_type pos = 0, size_type count = npos) const
+    {
+        if (count == npos) {
+            if (pos < _length)
+                return string_view(_buffer + pos, _length - pos);
+            else
+                return string_view();
+        }
+        else {
+            if (pos >= _length) return string_view();
+            if (pos + count > _length) count = _length - pos;
+            return string_view(_buffer + pos, count);
+        }
+    }
 
 private:
     const char *_buffer;
-    int _length;
+    size_type _length;
 };
 
 namespace string_view_literals
 {
     constexpr string_view
-    operator ""_sv(const char *str, unsigned int len) noexcept {
-        return string_view(str, len);
+    operator ""sv(const char *str, size_t len) noexcept {
+        return string_view(str, len - 1);
     }
 }
 }
