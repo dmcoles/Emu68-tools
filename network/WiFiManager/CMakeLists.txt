@@ -6,8 +6,8 @@ get_verstring(VERSTRING)
 
 set (CMAKE_CXX_STANDARD 17)
 
-add_link_options(-m68040 -m68881 -noixemul -ffreestanding -nostdlib -nostartfiles -Wl,-e,__start -Wl,--gc-sections)
-add_compile_options(-Os -m68040 -fomit-frame-pointer -Wall -fno-rtti -fno-exceptions -ffunction-sections)
+add_link_options(-m68040 -m68881 -s -noixemul -ffreestanding -nostdlib -nostartfiles -Wl,-e,__start) # -Wl,--gc-sections)
+add_compile_options(-Os -m68040 -fomit-frame-pointer -Wall -fno-rtti -nostdlib -ffreestanding -fno-exceptions) # -ffunction-sections)
 add_compile_definitions(PRIVATE VERSION_STRING="${VERSTRING}")
 set_source_files_properties(src/start.cc PROPERTIES COMPILE_FLAGS -fno-function-sections)
 

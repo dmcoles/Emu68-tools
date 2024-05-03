@@ -48,11 +48,36 @@ ConfigFile::ConfigFile() : m_Networks()
 
 }
 
+int get_int(tinystd::string_view &s)
+{
+    bool negative = false;
+    int value = 0;
+
+    if (s.front() == '-') {
+        negative = true;
+        s.remove_prefix(1);
+    }
+
+    while(!s.empty()) {
+        unsigned c = s.front() - '0';
+        if (c <= '9') {
+            value = value * 10 + c;
+            s.remove_prefix(1);
+        }
+        else break;
+    }
+
+    if (negative) return -value;
+    else return value;
+}
+
 bool ConfigFile::ParseConfig()
 {
     // One shall work on string_view class here...
     tinystd::string_view config = m_Config;
-    const tinystd::string_view startToken = "network={"_sv;
+    const tinystd::string_view startToken = "network={"sv;
+    const tinystd::string_view noneToken = "NONE"sv;
+    const tinystd::string_view wpapskToken = "WPA-PSK"sv;
     Network net;
     ULONG error_line = 1;
     tinystd::string error_code;
@@ -70,6 +95,9 @@ bool ConfigFile::ParseConfig()
         S_PRIORITY,
         S_DISABLED,
         S_BSSID,
+        S_PAIRWISE,
+        S_GROUP,
+        S_PROTO,
         S_ERROR,
     } state = State::S_WAITING_FOR_START;
 
@@ -101,8 +129,10 @@ bool ConfigFile::ParseConfig()
         Token("priority=", State::S_PRIORITY),
         Token("psk=", State::S_PSK),
         Token("key_mgmt=", State::S_KEY_MGMT),
-        Token()
-    };
+        Token("pairwise=", State::S_PAIRWISE),
+        Token("group=", State::S_GROUP),
+        Token("proto=", State::S_PROTO),
+        Token()};
 
     while (config.length() > 0 && state != State::S_ERROR)
     {
@@ -195,12 +225,42 @@ bool ConfigFile::ParseConfig()
                     break;
 
                 case State::S_KEY_MGMT:
+                    /* Eat whitespace */
+                    while(config.starts_with(' ') && !config.empty()) { config.remove_prefix(1); }
+
                     state = State::S_WAITING_FOR_KEY;
                     break;
-                
+
+                case State::S_SCAN_SSID:
+                    /* Eat whitespace */
+                    while(config.starts_with(' ') && !config.empty()) { config.remove_prefix(1); }
+                    if (get_int(config) != 0)
+                    {
+                        net.ScanSSID = true;
+                    }
+                    state = State::S_WAITING_FOR_KEY;
+                    break;
+
+                case State::S_DISABLED:
+                    /* Eat whitespace */
+                    while(config.starts_with(' ') && !config.empty()) { config.remove_prefix(1); }
+                    if (get_int(config) != 0) {
+                        net.Disabled = true;
+                    }
+                    state = State::S_WAITING_FOR_KEY;
+                    break;
+
+                case State::S_BSSID:
+                    /* Eat whitespace */
+                    while(config.starts_with(' ') && !config.empty()) { config.remove_prefix(1); }
+                    
+                    state = State::S_WAITING_FOR_KEY;
+                    break;
+
                 case State::S_PRIORITY:
                     /* Eat whitespace */
                     while(config.starts_with(' ') && !config.empty()) { config.remove_prefix(1); }
+                    net.Priority = get_int(config);
                     state = State::S_WAITING_FOR_KEY;
                     break;
 

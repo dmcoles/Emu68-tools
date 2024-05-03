@@ -16,11 +16,16 @@ struct Network {
         WPA_PSK, WPA_PSK_SHA256, WPA_EAP, WPA_EAP_SHA256, IEEE8021X, NONE
     };
 
+    enum struct Proto {
+        WPA, RSN
+    };
+
     tinystd::string SSID;
     tinystd::string PSK;
     tinystd::vector<Cipher> Pairwise;
     tinystd::vector<Cipher> Group;
     tinystd::vector<KeyMgmt> KeyMgmt;
+    tinystd::vector<Proto> Proto;
     bool            ScanSSID;
     bool            Disabled;
     int             Priority;
@@ -41,6 +46,7 @@ struct Network {
         KeyMgmt = { KeyMgmt::WPA_PSK, KeyMgmt::WPA_EAP };
         Pairwise = { Cipher::CCMP, Cipher::TKIP };
         Group = { Cipher::CCMP, Cipher::TKIP, Cipher::WEP104, Cipher::WEP40};
+        Proto = { Proto::WPA, Proto::RSN };
     }
 };
 
