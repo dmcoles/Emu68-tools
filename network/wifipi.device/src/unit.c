@@ -1102,15 +1102,21 @@ static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
     dq = io->io_Data;
 
     D(bug("[WiFi.0] NSCMD_DEVICEQUERY\n"));
-
-    /* Fill out structure */
-    dq->nsdqr_DeviceType = NSDEVTYPE_SANA2;
-    dq->nsdqr_DeviceSubType = 0;
-    dq->nsdqr_SupportedCommands = (UWORD*)WiFi_SupportedCommands;
-    io->io_Actual = sizeof(struct NSDeviceQueryResult) + sizeof(APTR);
-    dq->nsdqr_SizeAvailable = io->io_Actual;
-    io->io_Error = 0;
-
+    if (dq == NULL || io->io_Length < sizeof(struct NSDeviceQueryResult))
+    {
+        io->io_Error = IOERR_BADLENGTH;
+    }
+    else
+    {
+        /* Fill out structure */
+        dq->DevQueryFormat = 0;
+        dq->nsdqr_DeviceType = NSDEVTYPE_SANA2;
+        dq->nsdqr_DeviceSubType = 0;
+        dq->nsdqr_SupportedCommands = (UWORD*)WiFi_SupportedCommands;
+        io->io_Actual = sizeof(struct NSDeviceQueryResult);
+        dq->nsdqr_SizeAvailable = io->io_Actual;
+        io->io_Error = 0;
+    }
     return 1;
 }
 
