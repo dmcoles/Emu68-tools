@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <initializer_list>
 #include <tinystd/allocator>
+#include <proto/exec.h>
 
 namespace tinystd {
 
@@ -551,7 +552,7 @@ public:
             pointer new_buffer = _alloc.allocate(required);
             if (new_buffer) {
                 if (_contents != nullptr) {
-                    memcpy(new_buffer, _contents, _count * sizeof(value_type));
+                    CopyMem(_contents, new_buffer, _count * sizeof(value_type));
                     _alloc.deallocate(_contents, _capacity);
                 }
                 _contents = new_buffer;
@@ -564,8 +565,8 @@ public:
     void clear()
     {
         if (_count) {
-            for (int i=0; i < _count; i++) {
-                _alloc.destruct(&_contents[i]);
+            for (unsigned int i=0; i < _count; i++) {
+                _alloc.destroy(&_contents[i]);
             }
             _count = 0;
         }
