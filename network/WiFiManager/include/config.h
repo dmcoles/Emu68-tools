@@ -28,6 +28,7 @@ struct Network {
     tinystd::vector<Proto> Proto;
     bool            ScanSSID;
     bool            Disabled;
+    bool            AsciiPSK;
     int             Priority;
     uint8_t         BSSID[6];
 
