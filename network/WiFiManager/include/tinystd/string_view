@@ -234,7 +234,7 @@ namespace string_view_literals
 {
     constexpr string_view
     operator ""sv(const char *str, size_t len) noexcept {
-        return string_view(str, len - 1);
+        return string_view(str, len);
     }
 }
 }
