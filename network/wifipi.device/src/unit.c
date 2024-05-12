@@ -1109,7 +1109,7 @@ static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
     else
     {
         /* Fill out structure */
-        dq->DevQueryFormat = 0;
+        dq->nsdqr_DevQueryFormat = 0;
         dq->nsdqr_DeviceType = NSDEVTYPE_SANA2;
         dq->nsdqr_DeviceSubType = 0;
         dq->nsdqr_SupportedCommands = (UWORD*)WiFi_SupportedCommands;
