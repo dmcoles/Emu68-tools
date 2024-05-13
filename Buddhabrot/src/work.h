@@ -7,6 +7,8 @@
 #include <exec/ports.h>
 #include <exec/semaphores.h>
 
+#define MAX_LUT 0xfff
+
 struct MyMessage {
     struct Message      mm_Message;
     ULONG               mm_Type;

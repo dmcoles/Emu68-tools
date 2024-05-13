@@ -21,7 +21,7 @@ typedef struct {
 	double i;
 } complexno_t;
 
-ULONG calculateTrajectory(complexno_t *workTrajectories, ULONG workMax, double r, double i)
+static inline __attribute__((always_inline)) ULONG calculateTrajectory(complexno_t *workTrajectories, ULONG workMax, double r, double i)
 {
     double realNo, imaginaryNo, realNo2, imaginaryNo2, tmp;
     ULONG trajectory;
@@ -75,25 +75,22 @@ void processWork(struct MyMessage *msg)
     double y_base = size / 2.0 - (diff * 2.0 / size);
     double diff_sr = size / (double)msg->mm_Body.WorkPackage.width;
 
-    complexno_t *workTrajectories = NULL;
     
     if (msg->mm_Body.WorkPackage.type == TYPE_BUDDHA)
     {
+        complexno_t *workTrajectories = NULL;
         workTrajectories = AllocPooled(memPool, trajectoryCapacity * sizeof(complexno_t));
-    }
 
-    for (current = msg->mm_Body.WorkPackage.workStart * workOver2;
-         current < (msg->mm_Body.WorkPackage.workEnd + 1) * workOver2;
-         current++)
-    {
-        ULONG val;
-
-        /* Locate the point on the complex plane */
-        x = x_0 + ((double)(current % (workWidth * msg->mm_Body.WorkPackage.oversample))) * diff - size / 2.0;
-        y = y_0 + ((double)(current / (workWidth * msg->mm_Body.WorkPackage.oversample))) * diff - y_base;
-
-        if (msg->mm_Body.WorkPackage.type == TYPE_BUDDHA)
+        for (current = msg->mm_Body.WorkPackage.workStart * workOver2;
+            current < (msg->mm_Body.WorkPackage.workEnd + 1) * workOver2;
+            current++)
         {
+            ULONG val;
+
+            /* Locate the point on the complex plane */
+            x = x_0 + ((double)(current % (workWidth * msg->mm_Body.WorkPackage.oversample))) * diff - size / 2.0;
+            y = y_0 + ((double)(current / (workWidth * msg->mm_Body.WorkPackage.oversample))) * diff - y_base;
+
             /* Calculate the points trajectory ... */
             trajectoryLength = calculateTrajectory(&workTrajectories[trajectoryCurr], msg->mm_Body.WorkPackage.maxIterations, x, y);
             trajectoryCurr += trajectoryLength;
@@ -113,7 +110,7 @@ void processWork(struct MyMessage *msg)
                     {
                         pos = (ULONG)(workWidth * py + px);
 
-                        if (pos > 0 && pos < (workWidth * workHeight))
+                        //if (pos > 0 && pos < (workWidth * workHeight))
                         {
 
                             val = msg->mm_Body.WorkPackage.workBuffer[pos];
@@ -130,8 +127,53 @@ void processWork(struct MyMessage *msg)
                 trajectoryCurr = 0;
             }
         }
-        else
+
+        /* For buddha type, flush trajectory buffer */
+        if (trajectoryCurr != 0)
         {
+            ULONG pos;
+            int i;
+            ObtainSemaphore(msg->mm_Body.WorkPackage.writeLock);
+            for(i = 0; i < trajectoryCurr; i++)
+            {
+                ULONG py = (workTrajectories[i].r - y_0 + size / 2.0) / diff_sr;
+                ULONG px = (workTrajectories[i].i - x_0 + y_base) / diff_sr;
+
+                if (px >= 0 && px < workWidth && py >= 0 && py < workHeight)
+                {
+                    pos = (ULONG)(workWidth * py + px);
+
+                    //if (pos > 0 && pos < (workWidth * workHeight))
+                    {
+
+                        ULONG val = msg->mm_Body.WorkPackage.workBuffer[pos];
+                        
+                        if (val < MAX_LUT)
+                            val++;
+
+                        msg->mm_Body.WorkPackage.workBuffer[pos] = val;
+
+                    }
+                }
+            }
+            ReleaseSemaphore(msg->mm_Body.WorkPackage.writeLock);
+            trajectoryCurr = 0;
+        }
+
+        FreePooled(memPool, workTrajectories, trajectoryCapacity * sizeof(complexno_t));
+    }
+    else
+    {
+        for (current = msg->mm_Body.WorkPackage.workStart * workOver2;
+            current < (msg->mm_Body.WorkPackage.workEnd + 1) * workOver2;
+            current++)
+        {
+            ULONG val;
+
+            /* Locate the point on the complex plane */
+            x = x_0 + ((double)(current % (workWidth * msg->mm_Body.WorkPackage.oversample))) * diff - size / 2.0;
+            y = y_0 + ((double)(current / (workWidth * msg->mm_Body.WorkPackage.oversample))) * diff - y_base;
+
             trajectoryLength = calculateTrajectory(NULL, msg->mm_Body.WorkPackage.maxIterations, x, y);
 
             (void)diff_sr;
@@ -145,51 +187,14 @@ void processWork(struct MyMessage *msg)
 
             val+= 10*trajectoryLength / msg->mm_Body.WorkPackage.oversample;
             
-            if (val > 0xfff)
-                val = 0xfff;
+            if (val > MAX_LUT)
+                val = MAX_LUT;
 
             msg->mm_Body.WorkPackage.workBuffer[pos] = val;
         }
     }
 
-    /* For buddha type, flush trajectory buffer */
-    if (msg->mm_Body.WorkPackage.type == TYPE_BUDDHA)
-    {
-        if (trajectoryCurr != 0)
-        {
-            ULONG pos;
-            int i;
-            ObtainSemaphore(msg->mm_Body.WorkPackage.writeLock);
-            for(i = 0; i < trajectoryCurr; i++)
-            {
-                ULONG py = (workTrajectories[i].r - y_0 + size / 2.0) / diff_sr;
-                ULONG px = (workTrajectories[i].i - x_0 + y_base) / diff_sr;
-
-                pos = (ULONG)(workWidth * py + px);
-
-                if (pos > 0 && pos < (workWidth * workHeight))
-                {
-
-                    ULONG val = msg->mm_Body.WorkPackage.workBuffer[pos];
-                    
-                    if (val < 0xfff)
-                        val++;
-
-                    msg->mm_Body.WorkPackage.workBuffer[pos] = val;
-
-                }
-            }
-            ReleaseSemaphore(msg->mm_Body.WorkPackage.writeLock);
-            trajectoryCurr = 0;
-        }
-    }
-
     Signal(msg->mm_Body.WorkPackage.redrawTask, SIGBREAKF_CTRL_D);
-
-    if (workTrajectories)
-    {
-        FreePooled(memPool, workTrajectories, trajectoryCapacity * sizeof(complexno_t));
-    }
 }
 
 /*

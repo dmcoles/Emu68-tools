@@ -107,6 +107,33 @@ void redrawTaskMain(struct RedrawMessage *rm)
 {
     struct Library *P96Base = rm->pbase;
     ULONG sigset;
+    ULONG *LUT = AllocVec(sizeof(ULONG) * (MAX_LUT + 1), MEMF_ANY);
+
+    for (int i=0; i <= MAX_LUT; i++)
+    {
+        const double gamma_r = 1.2;
+        const double gamma_g = 0.95;
+        const double gamma_b = 1.0;
+        const double pre_r = 96.0;
+        const double pre_g = 128.0;
+        const double pre_b = 256.0;
+        double rgb = i / 256.0;
+
+        ULONG r=256.0*pow(rgb, gamma_r) * pre_r;
+        ULONG g=256.0*pow(rgb, gamma_g) * pre_g;
+        ULONG b=256.0*pow(rgb, gamma_b) * pre_b;
+
+        b = (b + 255) / 512;
+        r = (r + 255) / 512;
+        g = (g + 255) / 512;
+
+        if (b > 255) b = 255;
+        if (r > 255) r = 255;
+        if (g > 255) g = 255;
+
+        ULONG c = 0xff | (r << 8) | (g << 16) | (b << 24);
+        LUT[i] = c;
+    }
 
     p96WritePixelArray(rm->rinfo, 0, 0, rm->window->RPort, rm->window->BorderLeft, rm->window->BorderTop,
         rm->width, rm->height);
@@ -119,27 +146,7 @@ void redrawTaskMain(struct RedrawMessage *rm)
 
             for (ULONG i = 0; i < rm->width * rm->height; i++)
             {
-                const double gamma_r = 1.2;
-                const double gamma_g = 0.95;
-                const double gamma_b = 1.0;
-                const double pre_r = 96.0;
-                const double pre_g = 128.0;
-                const double pre_b = 256.0;
-                double rgb = rm->workBuffer[i] / 256.0;
-
-                ULONG r=256.0*pow(rgb, gamma_r) * pre_r;
-                ULONG g=256.0*pow(rgb, gamma_g) * pre_g;
-                ULONG b=256.0*pow(rgb, gamma_b) * pre_b;
-
-                b = (b + 255) / 512;
-                r = (r + 255) / 512;
-                g = (g + 255) / 512;
-
-                if (b > 255) b = 255;
-                if (r > 255) r = 255;
-                if (g > 255) g = 255;
-
-                ULONG c = 0xff | (r << 8) | (g << 16) | (b << 24);
+                ULONG c = LUT[rm->workBuffer[i]];
                 rgba[i] = c;
             }
 
@@ -150,6 +157,8 @@ void redrawTaskMain(struct RedrawMessage *rm)
         if (sigset & SIGBREAKF_CTRL_C)
             break;
     }
+
+    FreeVec(LUT);
 }
 
 APTR memPool;
@@ -459,7 +468,7 @@ int main()
                                 GetSysTime(&now);
                                 SubTime(&now, &last_redraw);
                                 if (now.tv_secs >= 5) {
-                                    GetSysTime(&last_redraw);
+                                    last_redraw = now;
                                     if (redrawTask)
                                         Signal(redrawTask, SIGBREAKF_CTRL_D);
                                 }
