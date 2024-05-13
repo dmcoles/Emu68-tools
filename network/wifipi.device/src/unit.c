@@ -1102,9 +1102,9 @@ static int Do_NSCMD_DEVICEQUERY(struct IOStdReq *io)
     dq = io->io_Data;
 
     D(bug("[WiFi.0] NSCMD_DEVICEQUERY\n"));
-    if (dq == NULL || io->io_Length < sizeof(struct NSDeviceQueryResult))
+    if (dq == NULL)
     {
-        io->io_Error = IOERR_BADLENGTH;
+        io->io_Error = IOERR_BADADDRESS;
     }
     else
     {
