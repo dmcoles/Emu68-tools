@@ -152,105 +152,110 @@ void WiFi_Open(REGARG(struct IOSana2Req * io, "a1"), REGARG(LONG unitNumber, "d0
     {
         error = IOERR_OPENFAIL;
     }
-    
-    if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOSana2Req))
+    else
     {
-        D(bug("[WiFi] Opening device with ordinary IORequest. Allowing limited mode only\n"));
-        if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOStdReq))
+        if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOSana2Req))
         {
-            /* Message smaller than regular IORequest? Too bad, break now. */
-            error = IOERR_OPENFAIL;
-        }
-        else
-        {
-            /* Small IOReqest, only NSCMD command will be allowed. Check sharing now */
-            if (unit->wu_Unit.unit_OpenCnt != 0 && 
-            ((unit->wu_Flags & IFF_SHARED) == 0 || (flags & SANA2OPF_MINE) != 0))
+            D(bug("[WiFi] Opening device with ordinary IORequest. Allowing limited mode only\n"));
+            if (io->ios2_Req.io_Message.mn_Length < sizeof(struct IOStdReq))
             {
-                error = IOERR_UNITBUSY;
+                /* Message smaller than regular IORequest? Too bad, break now. */
+                error = IOERR_OPENFAIL;
             }
             else
             {
-                WiFiBase->w_Device.dd_Library.lib_Flags &= ~LIBF_DELEXP;
-                WiFiBase->w_Device.dd_Library.lib_OpenCnt++;
-                unit->wu_Unit.unit_OpenCnt++;
-                io->ios2_Req.io_Error = 0;
-                return;
+                /* Small IOReqest, only NSCMD command will be allowed. Check sharing now */
+                if (unit->wu_Unit.unit_OpenCnt != 0 && 
+                ((unit->wu_Flags & IFF_SHARED) == 0 || (flags & SANA2OPF_MINE) != 0))
+                {
+                    error = IOERR_UNITBUSY;
+                }
+                else
+                {
+                    WiFiBase->w_Device.dd_Library.lib_Flags &= ~LIBF_DELEXP;
+                    WiFiBase->w_Device.dd_Library.lib_OpenCnt++;
+                    unit->wu_Unit.unit_OpenCnt++;
+                    io->ios2_Req.io_Error = 0;
+                    io->ios2_Req.io_Unit = &unit->wu_Unit;
+                    return;
+                }
             }
         }
-    }
 
-    io->ios2_Req.io_Unit = NULL;
-    tags = io->ios2_BufferManagement;
-    io->ios2_BufferManagement = NULL;
+        io->ios2_Req.io_Unit = NULL;
+        tags = io->ios2_BufferManagement;
+        io->ios2_BufferManagement = NULL;
 
-    /* Device sharing */
-    if (error == 0)
-    {
-        if (unit->wu_Unit.unit_OpenCnt != 0 && 
-            ((unit->wu_Flags & IFF_SHARED) == 0 || (flags & SANA2OPF_MINE) != 0))
+        /* Device sharing */
+        if (error == 0)
         {
-            error = IOERR_UNITBUSY;
-        }
-    }    
+            if (unit->wu_Unit.unit_OpenCnt != 0 && 
+                ((unit->wu_Flags & IFF_SHARED) == 0 || (flags & SANA2OPF_MINE) != 0))
+            {
+                error = IOERR_UNITBUSY;
+            }
+        }    
 
-    /* Set flags, alloc opener */
-    if (error == 0)
-    {
-        opener = AllocMem(sizeof(struct Opener), MEMF_PUBLIC | MEMF_CLEAR);
-        io->ios2_BufferManagement = opener;
-
-        if (opener != NULL)
+        /* Set flags, alloc opener */
+        if (error == 0)
         {
-            if ((flags & SANA2OPF_MINE) == 0)
-                unit->wu_Flags |= IFF_SHARED;
-            if ((flags & SANA2OPB_PROM) != 0)
-                unit->wu_Flags |= IFF_PROMISC;
+            opener = AllocMem(sizeof(struct Opener), MEMF_PUBLIC | MEMF_CLEAR);
+            io->ios2_BufferManagement = opener;
+
+            if (opener != NULL)
+            {
+                if ((flags & SANA2OPF_MINE) == 0)
+                    unit->wu_Flags |= IFF_SHARED;
+                if ((flags & SANA2OPB_PROM) != 0)
+                    unit->wu_Flags |= IFF_PROMISC;
+            }
+            else
+            {
+                error = IOERR_OPENFAIL;
+            }
         }
-        else
+
+        /* No errors so far, increase open counters, handle buffer management etc */
+        if (error == 0)
         {
-            error = IOERR_OPENFAIL;
+            WiFiBase->w_Device.dd_Library.lib_Flags &= ~LIBF_DELEXP;
+            WiFiBase->w_Device.dd_Library.lib_OpenCnt++;
+            unit->wu_Unit.unit_OpenCnt++;
+
+            io->ios2_Req.io_Unit = &unit->wu_Unit;
+
+            NewList(&opener->o_ReadPort.mp_MsgList);
+            opener->o_ReadPort.mp_Flags = PA_IGNORE;
+
+            NewList(&opener->o_OrphanListeners.mp_MsgList);
+            opener->o_OrphanListeners.mp_Flags = PA_IGNORE;
+
+            NewList(&opener->o_EventListeners.mp_MsgList);
+            opener->o_EventListeners.mp_Flags = PA_IGNORE;
+
+            opener->o_RXFunc = (APTR)GetTagData(S2_CopyToBuff, (ULONG)opener->o_RXFunc, tags);
+            opener->o_TXFunc = (APTR)GetTagData(S2_CopyFromBuff, (ULONG)opener->o_TXFunc, tags);
+    /*
+            opener->o_TXFuncDMA = (APTR)GetTagData(S2_DMACopyFromBuff32, 0, tags);
+            opener->o_RXFuncDMA = (APTR)GetTagData(S2_DMACopyToBuff32, 0, tags);
+    */
+            opener->o_FilterHook = (APTR)GetTagData(S2_PacketFilter, 0, tags);
+            
+            Disable();
+            AddTail((APTR)&unit->wu_Openers, (APTR)opener);
+            Enable();
+
+            /* Start unit here? */
+            if (!(unit->wu_Flags & IFF_STARTED))
+            {
+                StartUnit(unit);
+            }
         }
-    }
 
-    /* No errors so far, increase open counters, handle buffer management etc */
-    if (error == 0)
-    {
-        WiFiBase->w_Device.dd_Library.lib_Flags &= ~LIBF_DELEXP;
-        WiFiBase->w_Device.dd_Library.lib_OpenCnt++;
-        unit->wu_Unit.unit_OpenCnt++;
-
-        io->ios2_Req.io_Unit = &unit->wu_Unit;
-
-        NewList(&opener->o_ReadPort.mp_MsgList);
-        opener->o_ReadPort.mp_Flags = PA_IGNORE;
-
-        NewList(&opener->o_OrphanListeners.mp_MsgList);
-        opener->o_OrphanListeners.mp_Flags = PA_IGNORE;
-
-        NewList(&opener->o_EventListeners.mp_MsgList);
-        opener->o_EventListeners.mp_Flags = PA_IGNORE;
-
-        opener->o_RXFunc = (APTR)GetTagData(S2_CopyToBuff, (ULONG)opener->o_RXFunc, tags);
-        opener->o_TXFunc = (APTR)GetTagData(S2_CopyFromBuff, (ULONG)opener->o_TXFunc, tags);
-/*
-        opener->o_TXFuncDMA = (APTR)GetTagData(S2_DMACopyFromBuff32, 0, tags);
-        opener->o_RXFuncDMA = (APTR)GetTagData(S2_DMACopyToBuff32, 0, tags);
-*/
-        opener->o_FilterHook = (APTR)GetTagData(S2_PacketFilter, 0, tags);
-        
-        Disable();
-        AddTail((APTR)&unit->wu_Openers, (APTR)opener);
-        Enable();
-
-        /* Start unit here? */
-        if (!(unit->wu_Flags & IFF_STARTED))
-        {
-            StartUnit(unit);
-        }
     }
 
     D(bug("[WiFi] WiFi_Open ends with status %ld\n", error));
+
 
     io->ios2_Req.io_Error = error;
 }
