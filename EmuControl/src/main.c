@@ -71,7 +71,7 @@ APTR                    MailBox;
 static const char version[] __attribute__((used)) = "$VER: " VERSION_STRING;
 
 Object *app;
-Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP, *SlowDBF, *BlitWait;
+Object *MainWindow, *INSNDepth, *InlineRange, *LoopCount, *SoftFlush, *CacheFlush, *FastCache, *SlowCHIP, *SlowDBF, *BlitWait, *TraceEnable;
 Object *MainArea, *MIPS_M68k, *MIPS_ARM, *JITUsage, *Effectiveness, *CacheMiss, *SoftThresh;
 Object *JITCount, *EnableDebug, *EnableDisasm, *DebugMin, *DebugMax, *CoreTemp, *CoreVolt, *CCRDepth;
 Object *MenuOpen, *MenuSaveAs, *MenuQuit, *MenuDefaults;
@@ -490,6 +490,17 @@ static inline void setDEBUG_LOW(ULONG value)
 static inline void setDEBUG_HIGH(ULONG value)
 {
     asm volatile("movec %0, #0xef"::"r"(value));
+}
+
+static inline void setTRACE_ENABLE(ULONG enable)
+{
+    ULONG reg;
+    
+    asm volatile("movec #0x1e0, %0":"=r"(reg));
+    if (enable) reg |= 1UL << 12;
+    else reg &= ~(1UL << 12);
+    asm volatile("movec %0, #0x1e0"::"r"(reg));
+    asm volatile("cinva ic":::"memory");
 }
 
 typedef void (*putc_func)(void *data, char c);
@@ -1034,6 +1045,8 @@ ULONG DoSavePreset()
                 if (tmp) p.pr_JITFlags |= JITF_SLOW_DBF;
                 get(BlitWait, MUIA_Selected, &tmp);
                 if (tmp) p.pr_JITFlags |= JITF_BLIT_WAIT;
+                get(TraceEnable, MUIA_Selected, &tmp);
+                if (tmp) p.pr_JITFlags |= JITF_TRACE_ENABLE;
                 get(FastCache, MUIA_Selected, &tmp);
                 if (tmp) p.pr_JITFlags |= JITF_FAST_CACHE;
                 get(SoftFlush, MUIA_Selected, &tmp);
@@ -1133,6 +1146,11 @@ ULONG DoLoadPreset()
                         set(BlitWait, MUIA_Selected, TRUE);
                     else
                         set(BlitWait, MUIA_Selected, FALSE);
+
+                    if (p.pr_JITFlags & JITF_TRACE_ENABLE)
+                        set(TraceEnable, MUIA_Selected, TRUE);
+                    else
+                        set(TraceEnable, MUIA_Selected, FALSE);
 
                     set(CCRDepth, MUIA_Numeric_Value, p.pr_CCRDepth);
                     set(INSNDepth, MUIA_Numeric_Value, p.pr_INSNDepth + 1);
@@ -1331,6 +1349,22 @@ ULONG ChangeBlitWait()
     return 0;
 }
 
+ULONG ChangeTraceEnable()
+{
+    ULONG value;
+
+    get(TraceEnable, MUIA_Selected, &value);
+
+    APTR ssp = SuperState();
+
+    setTRACE_ENABLE(value);
+    
+    if (ssp)
+        UserState(ssp);
+    
+    return 0;
+}
+
 ULONG ChangeCCRDepth()
 {
     ULONG ccrDepth;
@@ -1464,6 +1498,7 @@ ULONG ResetToDefaults()
     set(SlowCHIP, MUIA_Selected, FALSE);
     set(SlowDBF, MUIA_Selected, FALSE);
     set(BlitWait, MUIA_Selected, FALSE);
+    set(TraceEnable, MUIA_Selected, FALSE);
     set(FastCache, MUIA_Selected, TRUE);
     set(SoftFlush, MUIA_Selected, TRUE);
     set(CCRDepth, MUIA_Numeric_Value, 20);
@@ -1533,6 +1568,10 @@ struct Hook hook_SlowDBF = {
 
 struct Hook hook_BlitWait = {
     .h_Entry = ChangeBlitWait
+};
+
+struct Hook hook_TraceEnable = {
+    .h_Entry = ChangeTraceEnable
 };
 
 struct Hook hook_ResetToDefaults = {
@@ -1638,6 +1677,7 @@ void MUIMain()
                                         Child, SlowCHIP = MUI_MakeObject(MUIO_Button, "Slow CHIP"),
                                         Child, SlowDBF = MUI_MakeObject(MUIO_Button, "Slow DBF"),
                                         Child, BlitWait = MUI_MakeObject(MUIO_Button, "Blit wait"),
+                                        Child, TraceEnable = MUI_MakeObject(MUIO_Button, "Trace Enable"),
                                         Child, CacheFlush = MUI_MakeObject(MUIO_Button, "Flush JIT cache"),
                                     End,
                                 End,
@@ -1784,6 +1824,7 @@ void MUIMain()
             set(SlowCHIP, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(SlowDBF, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(BlitWait, MUIA_InputMode, MUIV_InputMode_Toggle);
+            set(TraceEnable, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDebug, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDisasm, MUIA_InputMode, MUIV_InputMode_Toggle);
 
@@ -1819,6 +1860,8 @@ void MUIMain()
                     set(SlowDBF, MUIA_Selected, TRUE);
                 if (ctrl2 & (1<<11))
                     set(BlitWait, MUIA_Selected, TRUE);
+                if (ctrl2 & (1<<12))
+                    set(TraceEnable, MUIA_Selected, TRUE);
                 
                 set(CCRDepth, MUIA_Numeric_Value, (ctrl2 >> 3) & 0x1f);
 
@@ -1868,6 +1911,8 @@ void MUIMain()
                     (ULONG)app, 2, MUIM_CallHook, &hook_SlowDBF);
                 DoMethod(BlitWait, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_BlitWait);
+                DoMethod(TraceEnable, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                    (ULONG)app, 2, MUIM_CallHook, &hook_TraceEnable);
                 DoMethod(CCRDepth, MUIM_Notify, MUIA_Numeric_Value, MUIV_EveryTime,
                     (ULONG)app, 2, MUIM_CallHook, &hook_CCRDepth);
 
@@ -1945,7 +1990,7 @@ void GUIMain()
     }
 }
 
-#define RDA_TEMPLATE "LOAD/K,ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,SCS=SlowCHIPSpacing/K/N,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,BW=BlitWait/S,NBW=NoBlitWait/S,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
+#define RDA_TEMPLATE "LOAD/K,ICNT=InstructionCount/K/N,IRNG=InliningRange/K/N,LCNT=LoopCount/K/N,CACHE/S,NOCACHE/S,SC=SlowdownCHIP/S,NSC=NoSlowdownCHIP/S,SCS=SlowCHIPSpacing/K/N,DBF=SlowdownDBF/S,NDBF=NoSlowdownDBF/S,SF=SoftFlush/S,SFL=SoftFlushLimit/K/N,CCRD=CCRScanDepth/K/N,BW=BlitWait/S,NBW=NoBlitWait/S,TE=TraceEnable/S,NTE=NoTraceEnable/S,GUI/S,S=Silent/S,DEF=LoadDefaults/S,PREVIEW/S"
 
 enum {
     OPT_PRESET_LOAD,
@@ -1964,6 +2009,8 @@ enum {
     OPT_CCR_SCAN_DEPTH,
     OPT_BLIT_WAIT,
     OPT_NO_BLIT_WAIT,
+    OPT_TRACE,
+    OPT_NO_TRACE,
     OPT_GUI,
     OPT_SILENT,
     OPT_DEFAULTS,
@@ -2042,6 +2089,7 @@ int main(int wantGUI)
                         setCACHE_IE(p->pr_JITFlags & JITF_FAST_CACHE);
                         setSLOW_CHIP_SPACING(p->pr_SlowChipSpacing);
                         setBLIT_WAIT(p->pr_JITFlags & JITF_BLIT_WAIT);
+                        setTRACE_ENABLE(p->pr_JITFlags & JITF_TRACE_ENABLE);
                             
                         if (ssp)
                             UserState(ssp);
@@ -2072,6 +2120,7 @@ int main(int wantGUI)
                 setSOFT_FLUSH(1);
                 setCACHE_IE(1);
                 setBLIT_WAIT(0);
+                setTRACE_ENABLE(0);
 
                 if (ssp) UserState(ssp);
             }
@@ -2224,6 +2273,27 @@ int main(int wantGUI)
                     if (ssp)
                         UserState(ssp);
                 }
+
+                if (result[OPT_TRACE]) {
+                    if (!silent)
+                        Printf("- Enabling trace mode processing\n");
+
+                    APTR ssp = SuperState();
+                    setTRACE_ENABLE(1);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
+                if (result[OPT_NO_TRACE] && !result[OPT_TRACE]) {
+                    if (!silent)
+                        Printf("- Disabling trace mode processing\n");
+
+                    APTR ssp = SuperState();
+                    setTRACE_ENABLE(0);
+                    if (ssp)
+                        UserState(ssp);
+                }
+
             }
 
             FreeArgs(args);
