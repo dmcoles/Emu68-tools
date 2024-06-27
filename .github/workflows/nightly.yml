@@ -96,7 +96,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # automatically provided by github actions
       with:
-        upload_url: https://uploads.github.com/repos/michalsc/Emu68-tools/releases/58662006/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
+        upload_url: https://uploads.github.com/repos/dmcoles/Emu68-tools/releases/58662006/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
         release_id: 58662006 # same as above (id can just be taken out the upload_url, it's used to find old releases)
         asset_path: ${{runner.workspace}}/uploads/Emu68-tools.zip # path to archive to upload
         asset_name: Emu68-tools-$$.zip # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
@@ -116,5 +116,5 @@ jobs:
       with:
         url: "${{ secrets.DISCORD_WEBHOOK }}"
         method: 'POST'
-        data: '{"username":"Ziggsty the friendly Emu","avatar_url":"https://repository-images.githubusercontent.com/168139345/df1ee280-f4d7-11e9-98df-201401d8d375","content":"[**Emu68-tools**]: New nightly available!","embeds":[{"title":"Emu68-tools-${{ steps.vars.outputs.build_date }}-${{ steps.vars.outputs.sha_short }}.zip","url":"https://github.com/michalsc/Emu68-tools/releases/download/nightly/Emu68-tools-${{ steps.vars.outputs.build_date }}-${{ steps.vars.outputs.sha_short }}.zip"}]}'
+        data: '{"username":"Ziggsty the friendly Emu","avatar_url":"https://repository-images.githubusercontent.com/168139345/df1ee280-f4d7-11e9-98df-201401d8d375","content":"[**Emu68-tools**]: New nightly available!","embeds":[{"title":"Emu68-tools-${{ steps.vars.outputs.build_date }}-${{ steps.vars.outputs.sha_short }}.zip","url":"https://github.com/dmcoles/Emu68-tools/releases/download/nightly/Emu68-tools-${{ steps.vars.outputs.build_date }}-${{ steps.vars.outputs.sha_short }}.zip"}]}'
         contentType: "application/json"
