@@ -70,7 +70,7 @@ jobs:
       run: mv -fv ${{runner.workspace}}/install/Emu68-tools.zip . 
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: emu68-archive
         path: ${{runner.workspace}}/Emu68-tools.zip
