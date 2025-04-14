@@ -1498,7 +1498,7 @@ ULONG ResetToDefaults()
     set(SlowCHIP, MUIA_Selected, FALSE);
     set(SlowDBF, MUIA_Selected, FALSE);
     set(BlitWait, MUIA_Selected, FALSE);
-    set(TraceEnable, MUIA_Selected, FALSE);
+		set(TraceEnable, MUIA_Selected, FALSE);
     set(FastCache, MUIA_Selected, TRUE);
     set(SoftFlush, MUIA_Selected, TRUE);
     set(CCRDepth, MUIA_Numeric_Value, 20);
@@ -1677,7 +1677,7 @@ void MUIMain()
                                         Child, SlowCHIP = MUI_MakeObject(MUIO_Button, "Slow CHIP"),
                                         Child, SlowDBF = MUI_MakeObject(MUIO_Button, "Slow DBF"),
                                         Child, BlitWait = MUI_MakeObject(MUIO_Button, "Blit wait"),
-                                        Child, TraceEnable = MUI_MakeObject(MUIO_Button, "Trace Enable"),
+																				Child, TraceEnable = MUI_MakeObject(MUIO_Button, "Trace Enable"),
                                         Child, CacheFlush = MUI_MakeObject(MUIO_Button, "Flush JIT cache"),
                                     End,
                                 End,
@@ -1824,7 +1824,7 @@ void MUIMain()
             set(SlowCHIP, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(SlowDBF, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(BlitWait, MUIA_InputMode, MUIV_InputMode_Toggle);
-            set(TraceEnable, MUIA_InputMode, MUIV_InputMode_Toggle);
+						set(TraceEnable, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDebug, MUIA_InputMode, MUIV_InputMode_Toggle);
             set(EnableDisasm, MUIA_InputMode, MUIV_InputMode_Toggle);
 
@@ -2009,8 +2009,8 @@ enum {
     OPT_CCR_SCAN_DEPTH,
     OPT_BLIT_WAIT,
     OPT_NO_BLIT_WAIT,
-    OPT_TRACE,
-    OPT_NO_TRACE,
+		OPT_TRACE,
+		OPT_NO_TRACE,
     OPT_GUI,
     OPT_SILENT,
     OPT_DEFAULTS,
@@ -2120,7 +2120,7 @@ int main(int wantGUI)
                 setSOFT_FLUSH(1);
                 setCACHE_IE(1);
                 setBLIT_WAIT(0);
-                setTRACE_ENABLE(0);
+								setTRACE_ENABLE(0);
 
                 if (ssp) UserState(ssp);
             }
