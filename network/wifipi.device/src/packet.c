@@ -826,7 +826,7 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     struct MinList ctrlWaitList;
     ULONG waitDelayTimeout = PACKET_WAIT_DELAY_MAX / waitDelay;
 
-    NewMinList(&ctrlWaitList);
+    _NewList(&ctrlWaitList);
 
     /* Sender port is signal-free */
     FreeSignal(sender->mp_SigBit);
@@ -887,33 +887,53 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
     for (int i=0; i < PACKET_INITIAL_FETCH_SIZE; i++) buffer[i] = 0;
 
     // Loop forever
+    UBYTE gotTransfer = 0;
+    UBYTE sendTransfer = 0;
+    UBYTE controlTransfer = 0;
+
     while(1)
     {
-        UBYTE gotTransfer = 0;
-        UBYTE sendTransfer = 0;
+        ULONG sigSet;
 
-        ULONG sigSet = Wait(SIGBREAKF_CTRL_C | 
-                            (1 << port->mp_SigBit) |
-                            (1 << ctrl->mp_SigBit));
-       
+        /* If previous time there was a send or recive transfer, do not wait at all */
+        if (sendTransfer || gotTransfer)
+        {
+            sigSet = SetSignal(0, SIGBREAKF_CTRL_C | 
+                         (1 << port->mp_SigBit) |
+                         (1 << ctrl->mp_SigBit));
+        }
+        else
+        {
+            sigSet = Wait(SIGBREAKF_CTRL_C | 
+                         (1 << port->mp_SigBit) |
+                         (1 << ctrl->mp_SigBit));
+        }
+        
+        sendTransfer = 0;
+        gotTransfer = 0;
+        controlTransfer = 0;
+        UWORD lastLength = 0;
+
         // Signal from control message port?
         if (sigSet & (1 << ctrl->mp_SigBit))
         {
             struct PacketMessage *msg;
 
             // Repeat until we run out of the messages
-            while(msg = (struct PacketMessage *)GetMsg(ctrl))
+            while((msg = (struct PacketMessage *)GetMsg(ctrl)))
             {
                 // Put message in the control wait list
                 AddTail((struct List*)&ctrlWaitList, &msg->pm_Message.mn_Node);
 
                 // Send out the control packet
                 sdio->SendPKT((APTR)&msg->pm_PacketHeader[0], LE16(msg->pm_PacketHeader[0].p_Length), sdio);
+                lastLength = LE16(msg->pm_PacketHeader[0].p_Length);
+                controlTransfer++;
             }
         }
 
         // Always check if there are data packets for sending
-        if (TRUE)
+        if (TRUE && controlTransfer == 0)
         {
             //struct IOSana2Req *ioList[32];
             struct IOSana2Req *msg;
@@ -921,12 +941,12 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             UBYTE maxCount;
 
             maxCount = sdio->s_MaxTXSeq - sdio->s_TXSeq;
-            
+
             /* Make sure we have place in TX */
             if (maxCount)
             {
                 // Drain outgoing packet requests
-                while (msg = (struct IOSana2Req *)GetMsg(sender))
+                while ((msg = (struct IOSana2Req *)GetMsg(sender)))
                 {
                     sendTransfer = TRUE;
 
@@ -989,6 +1009,11 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
             }
         }
 
+        if (sendTransfer && controlTransfer)
+        {
+            D(bug("[WiFi] ---- Send transfer and control transfer (count %ld, length %ld) in same frame\n", controlTransfer, lastLength));
+        }
+
         /* If no scan request is in progress start another one (if needed) */
         if (WiFiBase->w_Unit && WiFiBase->w_Unit->wu_ScanRequest == NULL)
         {
@@ -1003,17 +1028,29 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
         // Both are great occasions to test if some data is pending
         if (sigSet & ((1 << port->mp_SigBit) | (1 << ctrl->mp_SigBit)))
         {
-            struct timeval now;
-            GetSysTime(&now);
-            SubTime(&now, &WiFiBase->w_Unit->wu_GlomCreationTime);
-
-            /* If glom frame is older than 0.01 second, send it out now */
-            if (now.tv_sec > 0 || now.tv_micro > 10000)
+            if (WiFiBase->w_Unit->wu_GlomCount > 0)
             {
-                struct PacketHeaderHW *pktBase = sdio->s_TXBuffer;
-                *WiFiBase->w_Unit->wu_GlomLastItemMarker = 1;
-                sdio->SendPKT((UBYTE *)pktBase, LE16(pktBase->ph_Length), sdio);
-                WiFiBase->w_Unit->wu_GlomCount = 0;
+                struct timeval now;
+                GetSysTime(&now);
+                SubTime(&now, &WiFiBase->w_Unit->wu_GlomCreationTime);
+
+                /* If glom frame is older than 0.0002 second, send it out now */
+                if (now.tv_sec > 0 || now.tv_micro > 200)
+                {
+                    struct PacketHeaderHW *pktBase = sdio->s_TXBuffer;
+                    //D(bug("[WiFi.0] Sent partially filled glom packet with count %ld, frame age: %ld:%06ld\n", WiFiBase->w_Unit->wu_GlomCount, now.tv_sec, now.tv_micro));
+
+                    *WiFiBase->w_Unit->wu_GlomLastItemMarker = 1;
+                    sdio->SendPKT((UBYTE *)pktBase, LE16(pktBase->ph_Length), sdio);
+#if 0
+                    for (unsigned int i=0; i < WiFiBase->w_Unit->wu_GlomCount; i++) { 
+                        ReplyMsg((struct Message *)WiFiBase->w_Unit->wu_GlomQueue[i]);
+                    }
+
+                    WiFiBase->w_Unit->wu_Stats.PacketsSent+=WiFiBase->w_Unit->wu_GlomCount;
+#endif
+                    WiFiBase->w_Unit->wu_GlomCount = 0;
+                }
             }
 
             if (sigSet & (1 << ctrl->mp_SigBit))
@@ -1078,7 +1115,22 @@ void PacketReceiver(struct SDIO *sdio, struct Task *caller)
                     {
                         if (pkt->c_ChannelFlag & 0x80)
                         {
-                            // Announcment of large frame
+                            #if 0
+                            UBYTE *bdata = (UBYTE*)buffer;
+                            ULONG dataLength = pktLen;
+
+                            bug("[WiFi.GLOM_0x80] Glom frame with flagged channel\n");
+
+                            for (ULONG i=0; i < dataLength; i++)
+                            {
+                                if (i % 16 == 0)
+                                    bug("[WiFi.GLOM_0x80] %04x ", i);
+                                bug(" %02lx", bdata[i]);
+                                if (i % 16 == 15)
+                                    bug("\n");
+                            }
+                            if (dataLength % 16 != 0) bug("\n");
+                            #endif
                         }
                         else
                         {
@@ -1158,6 +1210,8 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
     struct Opener *opener = io->ios2_BufferManagement;
     struct Library *UtilityBase = WiFiBase->w_UtilityBase;
     UBYTE packetFiltered = FALSE;
+    APTR src;
+    APTR dst;
 
     UBYTE *copyData;
     ULONG copyLength;
@@ -1167,12 +1221,22 @@ void CopyPacket(struct IOSana2Req *io, UBYTE *packet, ULONG packetLength)
     /* Clear broadcast and multicast flags */
     io->ios2_Req.io_Flags &= ~(SANA2IOF_BCAST | SANA2IOF_MCAST);
 
-    /* Copy source and dest addresses */
-    for (int i=0; i < 6; i++) io->ios2_DstAddr[i] = packet[i];
-    for (int i=0; i < 6; i++) io->ios2_SrcAddr[i] = packet[6 + i];
+    /*
+        Copy source and dest addresses
+        Go ugly route to avoid breaking of strict-aliasing rules, avoid loop copying because
+        gcc will not optimize that assuming that UBYTE can be unaligned, avoid calling CopyMem
+        because copying 6 bytes two times is not worth the overhead
+    */
+    src = &packet[0];
+    dst = &io->ios2_DstAddr[0];
+    ((ULONG*)dst)[0] = ((ULONG*)src)[0];
+    ((UWORD*)dst)[2] = ((UWORD*)src)[2];
+    
+    src = &packet[6];
+    dst = &io->ios2_SrcAddr[0];
+    ((ULONG*)dst)[0] = ((ULONG*)src)[0];
+    ((UWORD*)dst)[2] = ((UWORD*)src)[2];
 
-    //CopyMem(packet, io->ios2_DstAddr, 6);
-    //CopyMem(&packet[6], io->ios2_SrcAddr, 6);
     io->ios2_PacketType = type;
 
     /* If dest address is FF:FF:FF:FF:FF:FF then it is a broadcast */
@@ -1416,18 +1480,25 @@ int SendGlomDataPacket(struct SDIO *sdio, struct IOSana2Req **ioList, UBYTE coun
         UBYTE *ptr = (UBYTE *)hdr + sizeof(struct PacketHeaderSW);
 
         /* BDC Header */
-        *ptr++ = 0x20;
-        *ptr++ = 0;
-        *ptr++ = 0;
-        *ptr++ = 0;
+        *(ULONG *)ptr = 0x20000000;
+        ptr += 4;
 
         if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
         {
+            // Use the same ugly hack as in case of receiving packets
+            APTR src, dst;
+            
             // Copy destination
-            for (int i=0; i < 6; i++) ptr[i] = io->ios2_DstAddr[i];
-
+            src = &io->ios2_DstAddr[0];
+            dst = &ptr[0];
+            ((ULONG*)dst)[0] = ((ULONG*)src)[0];
+            ((UWORD*)dst)[2] = ((UWORD*)src)[2];
+    
             // Copy source
-            for (int i=0; i < 6; i++) ptr[6 + i] = unit->wu_EtherAddr[i];
+            src = &unit->wu_EtherAddr[0];
+            dst = &ptr[6];
+            ((ULONG*)dst)[0] = ((ULONG*)src)[0];
+            ((UWORD*)dst)[2] = ((UWORD*)src)[2];
 
             // Copy packet type
             *(UWORD*)&ptr[12] = io->ios2_PacketType;
@@ -1502,13 +1573,11 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     struct TimerBase *TimerBase = unit->wu_TimerBase;
     ULONG totalLength = 0;
     UBYTE *byteBuffer = sdio->s_TXBuffer;
-
     struct PacketHeaderHW *pktBase = sdio->s_TXBuffer;
 
     /* If this is not the first packet in gloom, take it's length now */
     if (unit->wu_GlomCount > 0) {
         totalLength = LE16(pktBase->ph_Length);
-        byteBuffer += totalLength;
     }
     /* New glom packet. Get creation time */
     else {
@@ -1536,6 +1605,7 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     gh->gh_Length = LE16(packetLength - 4);
     gh->gh_ReservedB = 0;
     gh->gh_ReservedW = 0;
+    gh->gh_LastItem = 0;
     unit->wu_GlomLastItemMarker = &gh->gh_LastItem;
     gh->gh_TailPad = LE16((-packetLength) & 3);
 
@@ -1553,24 +1623,29 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     UBYTE *ptr = (UBYTE *)hdr + sizeof(struct PacketHeaderSW);
 
     /* BDC Header */
-    *ptr++ = 0x20;
-    *ptr++ = 0;
-    *ptr++ = 0;
-    *ptr++ = 0;
+    *(ULONG *)ptr = 0x20000000;
+    ptr += 4;
 
     if ((io->ios2_Req.io_Flags & SANA2IOF_RAW) == 0)
     {
+        // Use the same ugly hack as in case of receiving packets
+        APTR src, dst;
+        
         // Copy destination
-        for (int i = 0; i < 6; i++)
-            ptr[i] = io->ios2_DstAddr[i];
+        src = &io->ios2_DstAddr[0];
+        dst = &ptr[0];
+        ((ULONG*)dst)[0] = ((ULONG*)src)[0];
+        ((UWORD*)dst)[2] = ((UWORD*)src)[2];
 
         // Copy source
-        for (int i = 0; i < 6; i++)
-            ptr[6 + i] = unit->wu_EtherAddr[i];
+        src = &unit->wu_EtherAddr[0];
+        dst = &ptr[6];
+        ((ULONG*)dst)[0] = ((ULONG*)src)[0];
+        ((UWORD*)dst)[2] = ((UWORD*)src)[2];
 
         // Copy packet type
-        *(UWORD *)&ptr[12] = io->ios2_PacketType;
-        ptr += 14;
+        *(UWORD*)&ptr[12] = io->ios2_PacketType;
+        ptr+=14;
     }
 
     if (io->ios2_DataLength != 0)
@@ -1590,17 +1665,25 @@ int SendDataPacket(struct SDIO *sdio, struct IOSana2Req *io)
     pktBase->ph_Length = LE16(totalLength);
     pktBase->ph_ChkSum = ~pktBase->ph_Length;
 
-    /* We don't need the message anymore. Reply it. */
-    ReplyMsg(&io->ios2_Req.io_Message);
+    /* Put request into queue and increase glom count */
+    //unit->wu_GlomQueue[unit->wu_GlomCount++] = io;
+
+    ReplyMsg((struct Message *)io);
     unit->wu_Stats.PacketsSent++;
 
-    /* Increase glom count */
     unit->wu_GlomCount++;
 
     /* Is glom frame full? Send it out now */
     if (unit->wu_GlomCount == 32) {
+        //D(bug("[WiFi.0] Sent completely filled glom packet with count %ld\n", unit->wu_GlomCount));
         *unit->wu_GlomLastItemMarker = 1;
         sdio->SendPKT((UBYTE *)pktBase, totalLength, sdio);
+#if 0
+        for (unsigned int i=0; i < 32; i++) { 
+            ReplyMsg((struct Message *)unit->wu_GlomQueue[i]);
+        }
+        unit->wu_Stats.PacketsSent+=32;
+#endif
         unit->wu_GlomCount = 0;
     }
 
@@ -2479,7 +2562,7 @@ void StartPacketReceiver(struct SDIO *sdio)
     task->tc_Node.ln_Type = NT_TASK;
     task->tc_Node.ln_Pri = PACKET_RECV_PRIORITY;
 
-    NewMinList((struct MinList *)&task->tc_MemEntry);
+    _NewList((struct MinList *)&task->tc_MemEntry);
     AddHead(&task->tc_MemEntry, &ml->ml_Node);
 
     D(bug("[WiFi] Bringing packet receiver to life\n"));

@@ -77,7 +77,7 @@ void UnitTask(struct WiFiUnit *unit, struct Task *parent)
     unit->wu_TimerBase = (struct TimerBase *)tr->tr_node.io_Device;
     unit->wu_Unit.unit_MsgPort.mp_SigTask = FindTask(NULL);
     unit->wu_Unit.unit_flags = PA_IGNORE;
-    NewList(&unit->wu_Unit.unit_MsgPort.mp_MsgList);
+    _NewList(&unit->wu_Unit.unit_MsgPort.mp_MsgList);
 
     /* Let timer run every 10 seconds, this will trigger scan for networks */
     tr->tr_node.io_Command = TR_ADDREQUEST;
@@ -272,7 +272,7 @@ void StartUnitTask(struct WiFiUnit *unit)
     task->tc_Node.ln_Type = NT_TASK;
     task->tc_Node.ln_Pri = UNIT_TASK_PRIORITY;
 
-    NewMinList((struct MinList *)&task->tc_MemEntry);
+    _NewList(&task->tc_MemEntry);
     AddHead(&task->tc_MemEntry, &ml->ml_Node);
 
     D(bug("[WiFi] UnitTask starting\n"));
@@ -447,7 +447,9 @@ static int Do_S2_GETSIGNALQUALITY(struct IOSana2Req *io)
         /* Remove QUICK flag and put message on event listener list */
         struct Sana2SignalQuality *quality = io->ios2_StatData;
         PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_RSSI, (APTR)&quality->SignalLevel);
+        D(bug("GET_RSSI ok\n"));
         PacketCmdIntGet(WiFiBase->w_SDIO, BRCMF_C_GET_PHY_NOISE, (APTR)&quality->NoiseLevel);
+        D(bug("GET_PHY_NOISE ok\n"));
 
         D(bug("[WiFi.0] Signal: %ld, Noise: %ld\n", quality->SignalLevel, quality->NoiseLevel));
         return 1;
