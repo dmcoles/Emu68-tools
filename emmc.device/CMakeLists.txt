@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14.0)
-project(brcm-emmc VERSION 1.4.0)
+project(brcm-emmc VERSION 1.5.0)
 get_verstring(VERSTRING)
 
 add_link_options(-ffreestanding -nostdlib -nostartfiles -s -Wl,-e_rom_start -Wl,-T${CMAKE_CURRENT_SOURCE_DIR}/ldscript.lds)
